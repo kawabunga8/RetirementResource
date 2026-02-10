@@ -19,6 +19,14 @@
   max-width: 6ch; /* ~3 digits + a little breathing room */
 }
 
+.compactSelect {
+  max-width: 7ch; /* e.g. 'nonReg' is 6 chars */
+}
+
+.compactNumber {
+  max-width: 10ch; /* a few digits + optional decimals */
+}
+
 @media (max-width: 640px) {
   .ageRow {
     flex-direction: column;

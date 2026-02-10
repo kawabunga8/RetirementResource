@@ -1189,6 +1189,7 @@ export default function App() {
 
             <Field label="Drawdown priority #1">
               <select
+                className="compactSelect"
                 value={vars.withdrawals.order[0]}
                 onChange={(e) => {
                   const v = e.target.value as WithdrawalOrder;
@@ -1211,6 +1212,7 @@ export default function App() {
 
             <Field label="Drawdown priority #2">
               <select
+                className="compactSelect"
                 value={vars.withdrawals.order[1]}
                 onChange={(e) => {
                   const v = e.target.value as WithdrawalOrder;
@@ -1238,6 +1240,7 @@ export default function App() {
 
             <Field label="Drawdown priority #3">
               <select
+                className="compactSelect"
                 value={vars.withdrawals.order[2]}
                 onChange={(e) => {
                   const v = e.target.value as WithdrawalOrder;
@@ -1264,6 +1267,7 @@ export default function App() {
 
             <Field label="Drawdown priority #4">
               <select
+                className="compactSelect"
                 value={vars.withdrawals.order[3]}
                 onChange={(e) => {
                   const v = e.target.value as WithdrawalOrder;
@@ -1290,6 +1294,7 @@ export default function App() {
 
             <Field label="Drawdown priority #5">
               <select
+                className="compactSelect"
                 value={vars.withdrawals.order[4]}
                 onChange={(e) => {
                   const v = e.target.value as WithdrawalOrder;
@@ -1446,6 +1451,7 @@ export default function App() {
           <div className="grid">
             <Field label="FHSA cap">
               <input
+                className="compactNumber"
                 type="number"
                 value={vars.withdrawals.caps.fhsa}
                 onChange={(e) =>
@@ -1461,6 +1467,7 @@ export default function App() {
             </Field>
             <Field label="RRSP/RRIF cap">
               <input
+                className="compactNumber"
                 type="number"
                 value={vars.withdrawals.caps.rrsp}
                 onChange={(e) =>
@@ -1476,6 +1483,7 @@ export default function App() {
             </Field>
             <Field label="LIRA/LIF cap">
               <input
+                className="compactNumber"
                 type="number"
                 value={vars.withdrawals.caps.lira}
                 onChange={(e) =>
@@ -1491,6 +1499,7 @@ export default function App() {
             </Field>
             <Field label="Non-reg cap">
               <input
+                className="compactNumber"
                 type="number"
                 value={vars.withdrawals.caps.nonRegistered}
                 onChange={(e) =>
@@ -1509,6 +1518,7 @@ export default function App() {
             </Field>
             <Field label="TFSA cap">
               <input
+                className="compactNumber"
                 type="number"
                 value={vars.withdrawals.caps.tfsa}
                 onChange={(e) =>
