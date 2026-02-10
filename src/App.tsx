@@ -18,7 +18,7 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label style={{ display: "grid", gap: 6 }}>
+    <label style={{ display: "grid", gap: 6, justifyItems: "start" }}>
       <div style={{ fontSize: 12, opacity: 0.8 }}>{label}</div>
       {children}
     </label>
