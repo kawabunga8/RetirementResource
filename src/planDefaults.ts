@@ -107,6 +107,11 @@ export type TaxInputs = {
   // Simple income-based tax estimate (federal + BC), pre-credits.
   shingoIncome: number;
   sarahIncome: number;
+
+  // Refund modeling (v1)
+  // If enabled, we estimate annual tax savings from RRSP+FHSA contributions
+  // and deposit the refund into TFSA once per year.
+  enableRefundToTfsa: boolean;
 };
 
 export type FhsaInputs = {
@@ -235,6 +240,7 @@ export const DEFAULT_VARIABLES: Variables = {
   tax: {
     shingoIncome: 100000,
     sarahIncome: 100000,
+    enableRefundToTfsa: true,
   },
 
   balances: {

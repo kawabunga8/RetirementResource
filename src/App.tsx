@@ -80,6 +80,7 @@ type AccumRow = {
   rrspContribShingo: number;
   rrspContribSarah: number;
   tfsaContribTotal: number;
+  estRefundToTfsa: number;
   endFhsaTotal: number;
   endRrspTotal: number;
   endTfsaTotal: number;
@@ -110,6 +111,10 @@ function buildAccumulationSchedule(params: {
   fhsaLifetimeCap: number;
   fhsaContributedToDateShingo: number;
   fhsaContributedToDateSarah: number;
+  // Refund modeling
+  incomeShingo: number;
+  incomeSarah: number;
+  enableRefundToTfsa: boolean;
 }): AccumRow[] {
   const years = Math.max(0, params.retirementYear - params.baselineYear);
   const months = years * 12;
@@ -131,6 +136,8 @@ function buildAccumulationSchedule(params: {
   // annual tracking (per calendar year)
   let fhsaAnnualUsedS = 0;
   let fhsaAnnualUsedSa = 0;
+  let rrspAnnualS = 0;
+  let rrspAnnualSa = 0;
 
   const rows: AccumRow[] = [];
 
@@ -142,6 +149,8 @@ function buildAccumulationSchedule(params: {
     if (m % 12 === 0) {
       fhsaAnnualUsedS = 0;
       fhsaAnnualUsedSa = 0;
+      rrspAnnualS = 0;
+      rrspAnnualSa = 0;
     }
 
     // planned TFSA split
@@ -173,6 +182,8 @@ function buildAccumulationSchedule(params: {
     fhsaSa += fhsaContribSa;
     rrspS += rrspContribS;
     rrspSa += rrspContribSa;
+    rrspAnnualS += rrspContribS;
+    rrspAnnualSa += rrspContribSa;
     tfsaS += tfsaEach;
     tfsaSa += tfsaEach;
 
@@ -194,78 +205,48 @@ function buildAccumulationSchedule(params: {
     // record end-of-year snapshot
     const endOfYear = (m % 12) === 11;
     if (endOfYear) {
+      // Estimate annual refund from RRSP+FHSA deductions and deposit into TFSA once per year.
+      // (v1: uses the simple tax estimator; no credits.)
+      const fhsaAnnualS = fhsaAnnualUsedS;
+      const fhsaAnnualSa = fhsaAnnualUsedSa;
+      const tfsaAnnual = params.monthlyTfsaTotal * 12;
+
+      const estRefundToTfsa = params.enableRefundToTfsa
+        ? estimateTaxSavingsFromDeduction({
+            income: params.incomeShingo,
+            deduction: rrspAnnualS + fhsaAnnualS,
+          }) +
+          estimateTaxSavingsFromDeduction({
+            income: params.incomeSarah,
+            deduction: rrspAnnualSa + fhsaAnnualSa,
+          })
+        : 0;
+
+      // Deposit refund into TFSA (split 50/50 for now)
+      if (estRefundToTfsa > 0) {
+        tfsaS += estRefundToTfsa / 2;
+        tfsaSa += estRefundToTfsa / 2;
+      }
+
       const endFhsaTotal = fhsaS + fhsaSa;
       const endRrspTotal = rrspS + rrspSa;
       const endTfsaTotal = tfsaS + tfsaSa;
       const endTotal = endFhsaTotal + endRrspTotal + endTfsaTotal + lira;
 
-      // compute that year's actual contributions (approx: 12 * monthly, but w/ caps)
-      // We'll estimate from annual used values.
       rows.push({
         year,
         fhsaContribShingo: fhsaAnnualUsedS,
         fhsaContribSarah: fhsaAnnualUsedSa,
-        rrspContribShingo: 0, // filled below
-        rrspContribSarah: 0,
-        tfsaContribTotal: params.monthlyTfsaTotal * 12,
+        rrspContribShingo: rrspAnnualS,
+        rrspContribSarah: rrspAnnualSa,
+        tfsaContribTotal: tfsaAnnual,
+        estRefundToTfsa,
         endFhsaTotal,
         endRrspTotal,
         endTfsaTotal,
         endLira: lira,
         endTotal,
       });
-    }
-  }
-
-  // Fill RRSP annual contributions by diffing year to year using a second pass simulation for totals is heavy.
-  // For v1 display, approximate RRSP annual contributions as:
-  // base RRSP + FHSA overflow (capped months)
-  // We'll recompute per year quickly by simulating only contribution logic (no growth) across months.
-  // (Good enough to explain “why RRSP looks high”.)
-  {
-    let roomS = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateShingo);
-    let roomSa = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateSarah);
-    let usedS = 0;
-    let usedSa = 0;
-    let fhsaAnnualUsedS = 0;
-    let fhsaAnnualUsedSa = 0;
-
-    for (let y = 0; y < years; y++) {
-      fhsaAnnualUsedS = 0;
-      fhsaAnnualUsedSa = 0;
-      let rrspAnnualS = 0;
-      let rrspAnnualSa = 0;
-
-      for (let mm = 0; mm < 12; mm++) {
-        // Shingo FHSA contrib
-        let cS = params.monthlyFhsaShingo;
-        cS = Math.min(cS, Math.max(0, params.fhsaAnnualLimit - fhsaAnnualUsedS));
-        cS = Math.min(cS, roomS);
-        const overflowS = params.monthlyFhsaShingo - cS;
-
-        // Sarah FHSA contrib
-        let cSa = params.monthlyFhsaSarah;
-        cSa = Math.min(cSa, Math.max(0, params.fhsaAnnualLimit - fhsaAnnualUsedSa));
-        cSa = Math.min(cSa, roomSa);
-        const overflowSa = params.monthlyFhsaSarah - cSa;
-
-        rrspAnnualS += params.monthlyRrspShingo + overflowS;
-        rrspAnnualSa += params.monthlyRrspSarah + overflowSa;
-
-        fhsaAnnualUsedS += cS;
-        fhsaAnnualUsedSa += cSa;
-        roomS -= cS;
-        roomSa -= cSa;
-      }
-
-      const row = rows[y];
-      if (row) {
-        row.rrspContribShingo = rrspAnnualS;
-        row.rrspContribSarah = rrspAnnualSa;
-      }
-
-      usedS += fhsaAnnualUsedS;
-      usedSa += fhsaAnnualUsedSa;
     }
   }
 
@@ -402,6 +383,18 @@ function estimateTaxBCCanada(income: number) {
   return estimateFederalTaxCanada(income) + estimateBCTax(income);
 }
 
+function estimateTaxSavingsFromDeduction(params: {
+  income: number;
+  deduction: number;
+}) {
+  const deduction = Math.max(0, params.deduction);
+  if (deduction <= 0) return 0;
+
+  const before = estimateTaxBCCanada(params.income);
+  const after = estimateTaxBCCanada(Math.max(0, params.income - deduction));
+  return Math.max(0, before - after);
+}
+
 export default function App() {
   const [vars, setVars] = useState<Variables>(DEFAULT_VARIABLES);
   const [page, setPage] = useState<"overview" | "tax" | "withdrawals">("overview");
@@ -440,6 +433,9 @@ export default function App() {
       fhsaLifetimeCap: vars.fhsa.lifetimeCap,
       fhsaContributedToDateShingo: vars.fhsa.contributedShingo,
       fhsaContributedToDateSarah: vars.fhsa.contributedSarah,
+      incomeShingo: vars.tax.shingoIncome,
+      incomeSarah: vars.tax.sarahIncome,
+      enableRefundToTfsa: vars.tax.enableRefundToTfsa,
     });
 
     const lastAccum = accumulationSchedule[accumulationSchedule.length - 1];
@@ -911,6 +907,7 @@ export default function App() {
                     "RRSP contrib Shingo ($/yr)",
                     "RRSP contrib Sarah ($/yr)",
                     "TFSA contrib household ($/yr)",
+                    "Est. tax refund → TFSA ($/yr)",
                     "End FHSA total ($)",
                     "End RRSP total ($)",
                     "End TFSA total ($)",
@@ -940,6 +937,7 @@ export default function App() {
                     <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.rrspContribShingo)}</td>
                     <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.rrspContribSarah)}</td>
                     <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.tfsaContribTotal)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.estRefundToTfsa)}</td>
                     <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.endFhsaTotal)}</td>
                     <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.endRrspTotal)}</td>
                     <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.endTfsaTotal)}</td>
@@ -965,6 +963,24 @@ export default function App() {
           </p>
 
           <div className="grid">
+            <Field label="Enable estimated refund → TFSA (annual)">
+              <select
+                value={vars.tax.enableRefundToTfsa ? "yes" : "no"}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    tax: {
+                      ...v.tax,
+                      enableRefundToTfsa: e.target.value === "yes",
+                    },
+                  }))
+                }
+              >
+                <option value="yes">Yes (add refund to TFSA once per year)</option>
+                <option value="no">No</option>
+              </select>
+            </Field>
+
             <Field label="Shingo income (annual, $)">
               <input
                 type="number"
