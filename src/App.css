@@ -23,6 +23,15 @@
   justify-content: flex-start;
 }
 
+/* Ensure dropdown blocks don't expand across the row */
+.selectRow > label {
+  width: max-content;
+}
+
+.selectRow select {
+  width: auto;
+}
+
 .ageInput {
   max-width: 6ch; /* ~3 digits + a little breathing room */
 }
