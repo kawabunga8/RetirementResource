@@ -494,6 +494,7 @@ export default function App() {
       benefitsIncome: number;
       spendingGap: number;
       withdrawals: Record<string, number>;
+      forcedLif: number;
       forcedRrif: number;
       surplusInvestedToTfsa: number;
       surplusInvestedToNonReg: number;
@@ -598,7 +599,21 @@ export default function App() {
         }
       }
 
-      // 2) Hard-force RRSP/RRIF withdrawal to hit the depletion target age.
+      // 2) Force LIF withdrawals starting at retirement (if enabled).
+      // This is independent of spending needs; it can create surplus.
+      let forcedLif = 0;
+      if (vars.withdrawals.forceLifFromRetirement && balances.lira > 0) {
+        const lifCap = balances.lira * lifFactorApprox(ageShingo, vars.withdrawals.lifMode);
+        const explicitCap = vars.withdrawals.caps.lira;
+        const cap = explicitCap > 0 ? Math.min(explicitCap, lifCap) : lifCap;
+
+        const r = withdrawFrom(cap, balances.lira, cap);
+        forcedLif = r.withdrawn;
+        withdrawals.lira += r.withdrawn;
+        balances.lira = r.newBalance;
+      }
+
+      // 3) Hard-force RRSP/RRIF withdrawal to hit the depletion target age.
       // Simple approach: amortize remaining RRSP balance over remaining years.
       let forcedRrif = 0;
       if (ageShingo <= vars.withdrawals.rrifDepleteByAge && balances.rrsp > 0) {
@@ -612,7 +627,7 @@ export default function App() {
         balances.rrsp = r.newBalance;
       }
 
-      // 3) Any surplus (because we forced RRIF withdrawals) is invested into TFSA.
+      // 4) Any surplus (because we forced withdrawals) is invested into TFSA.
       const totalWithdrawals =
         withdrawals.fhsa +
         withdrawals.rrsp +
@@ -652,6 +667,7 @@ export default function App() {
         benefitsIncome,
         spendingGap,
         withdrawals,
+        forcedLif,
         forcedRrif,
         surplusInvestedToTfsa,
         surplusInvestedToNonReg,
@@ -1305,9 +1321,27 @@ export default function App() {
               />
             </Field>
 
+            <Field label="Force LIF withdrawals starting at retirement">
+              <select
+                value={vars.withdrawals.forceLifFromRetirement ? "yes" : "no"}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      forceLifFromRetirement: e.target.value === "yes",
+                    },
+                  }))
+                }
+              >
+                <option value="yes">Yes (withdraw every year, even if not needed)</option>
+                <option value="no">No (only withdraw LIF if needed for spending)</option>
+              </select>
+            </Field>
+
             <div style={{ fontSize: 12, opacity: 0.75, alignSelf: "end" }}>
-              LIF mode is applied as an annual cap on LIRA/LIF withdrawals.
-              RRIF depletion age is a planning target (v1: not enforced yet).
+              LIF mode sets the forced amount (min/mid/max). Forced LIF can create
+              surplus which is invested TFSA→NonReg.
             </div>
           </div>
 
@@ -1488,6 +1522,7 @@ export default function App() {
                     "Withdraw: LIRA/LIF ($)",
                     "Withdraw: Non-registered ($)",
                     "Withdraw: TFSA ($)",
+                    "Forced LIF (part of LIRA/LIF, $)",
                     "Forced RRIF extra (part of RRSP, $)",
                     "Surplus → TFSA (invested, $)",
                     "Surplus → NonReg (invested, $)",
@@ -1530,6 +1565,7 @@ export default function App() {
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.lira)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.nonRegistered)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.tfsa)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.forcedLif)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.forcedRrif)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.surplusInvestedToTfsa)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.surplusInvestedToNonReg)}</td>

@@ -90,6 +90,9 @@ export type WithdrawalPlan = {
   // LIF behavior (BC): min/mid/max option (v1 uses a simplified approximation).
   lifMode: LifMode;
 
+  // If true, withdraw the LIF amount each year starting at retirement (even if not needed for spending).
+  forceLifFromRetirement: boolean;
+
   // RRIF depletion target (age)
   rrifDepleteByAge: number;
 
@@ -221,6 +224,7 @@ export const DEFAULT_VARIABLES: Variables = {
     },
     // Default requested: BC maximum (v1 approximation)
     lifMode: "max",
+    forceLifFromRetirement: true,
 
     // RRIF depletion target (age) — planning lever
     // (v1: used for display only; enforcement comes next)
