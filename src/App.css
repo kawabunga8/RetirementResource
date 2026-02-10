@@ -27,6 +27,15 @@
   max-width: 10ch; /* a few digits + optional decimals */
 }
 
+.yesNoSelect {
+  max-width: 6ch;
+}
+
+.moneyInput {
+  /* big-ish dollar values but not huge; fits e.g. 245947.06 */
+  max-width: 12ch;
+}
+
 @media (max-width: 640px) {
   .ageRow {
     flex-direction: column;

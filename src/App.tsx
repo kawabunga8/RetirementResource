@@ -1324,6 +1324,7 @@ export default function App() {
           <div className="grid">
             <Field label="Roll FHSA into RRSP at retirement">
               <select
+                className="yesNoSelect"
                 value={vars.withdrawals.rollFhsaIntoRrspAtRetirement ? "yes" : "no"}
                 onChange={(e) =>
                   setVars((v) => ({
@@ -1342,6 +1343,7 @@ export default function App() {
 
             <Field label="TFSA room available at retirement (household, $) — used for surplus routing">
               <input
+                className="moneyInput"
                 type="number"
                 value={vars.withdrawals.tfsaRoomAtRetirement}
                 onChange={(e) =>
@@ -1358,6 +1360,7 @@ export default function App() {
 
             <Field label="New TFSA room per year in retirement (household, $/yr)">
               <input
+                className="moneyInput"
                 type="number"
                 value={vars.withdrawals.tfsaNewRoomPerYear}
                 onChange={(e) =>
@@ -1390,6 +1393,7 @@ export default function App() {
               })`}
             >
               <select
+                className="compactSelect"
                 value={vars.withdrawals.lifMode}
                 onChange={(e) =>
                   setVars((v) => ({
@@ -1409,6 +1413,7 @@ export default function App() {
 
             <Field label="Target RRIF depletion age">
               <input
+                className="ageInput"
                 type="number"
                 value={vars.withdrawals.rrifDepleteByAge}
                 onChange={(e) =>
@@ -1425,6 +1430,7 @@ export default function App() {
 
             <Field label="Force LIF withdrawals starting at retirement">
               <select
+                className="yesNoSelect"
                 value={vars.withdrawals.forceLifFromRetirement ? "yes" : "no"}
                 onChange={(e) =>
                   setVars((v) => ({
@@ -1436,14 +1442,14 @@ export default function App() {
                   }))
                 }
               >
-                <option value="yes">Yes (withdraw every year, even if not needed)</option>
-                <option value="no">No (only withdraw LIF if needed for spending)</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
               </select>
             </Field>
 
             <div style={{ fontSize: 12, opacity: 0.75, alignSelf: "end" }}>
-              LIF mode sets the forced amount (min/mid/max). Forced LIF can create
-              surplus which is invested TFSA→NonReg.
+              If Yes, withdraw LIF each year starting at retirement using the selected
+              LIF mode (min/mid/max). Surplus is invested TFSA→NonReg.
             </div>
           </div>
 
