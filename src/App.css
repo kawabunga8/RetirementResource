@@ -17,7 +17,7 @@
 
 .selectRow {
   display: flex;
-  gap: 16px; /* ~one tab stop */
+  gap: 16px; /* one tab stop */
   flex-wrap: wrap;
   align-items: end;
   justify-content: flex-start;
