@@ -34,6 +34,19 @@ input, select {
   font-size: 14px;
 }
 
+.linkBtn {
+  border: 1px solid #cbd5e1;
+  background: white;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.linkBtn:hover {
+  background: #f8fafc;
+}
+
 h2 {
   margin-top: 0;
 }

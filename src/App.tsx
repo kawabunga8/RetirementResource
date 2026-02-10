@@ -108,6 +108,12 @@ function withdrawFrom(
 export default function App() {
   const [vars, setVars] = useState<Variables>(DEFAULT_VARIABLES);
 
+  const scrollTo = (id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   const pensionAnnual =
     DEFAULT_ANCHORS.pensionShingo + DEFAULT_ANCHORS.pensionSarah;
 
@@ -362,8 +368,26 @@ export default function App() {
         </div>
       </header>
 
+      <nav
+        className="card"
+        style={{
+          position: "sticky",
+          top: 12,
+          zIndex: 10,
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        <strong style={{ marginRight: 8 }}>Jump to:</strong>
+        <button type="button" className="linkBtn" onClick={() => scrollTo("expectations")}>Expectations</button>
+        <button type="button" className="linkBtn" onClick={() => scrollTo("retirement-balances")}>Balances @ Retirement</button>
+        <button type="button" className="linkBtn" onClick={() => scrollTo("withdrawals")}>Withdrawal Schedule</button>
+      </nav>
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
-        <section className="card">
+        <section id="expectations" className="card">
           <h2>Expectations (adjustable)</h2>
           <div className="grid">
             <Field label="Expected nominal return (e.g. 0.07 = 7%)">
@@ -395,7 +419,7 @@ export default function App() {
           </div>
         </section>
 
-        <section className="card">
+        <section id="retirement-balances" className="card">
           <h2>Starting balances at retirement (projected)</h2>
           <ul>
             <li>
@@ -425,7 +449,7 @@ export default function App() {
           </div>
         </section>
 
-        <section className="card">
+        <section id="withdrawals" className="card">
           <h2>Withdrawal schedule (simple v1)</h2>
           <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
             This schedule is <strong>annual</strong> and <strong>pre-tax</strong>.
