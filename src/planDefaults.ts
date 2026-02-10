@@ -4,16 +4,26 @@ export type PhaseSpending = {
   noGo: number;
 };
 
+export type PhaseAges = {
+  goGoEndAge: number; // inclusive end age
+  slowGoEndAge: number;
+  endAge: number;
+};
+
 export type Anchors = {
   location: string;
   targetRetirementYear: number;
   baselineYear: number;
 
+  // Demographic anchors
+  shingoBirthYear: number;
+  sarahBirthYear: number;
+
   // Guaranteed / quasi-guaranteed income (annual, real/indexed)
   pensionShingo: number;
   pensionSarah: number;
 
-  // Benefit assumptions (today these are placeholders for later modeling)
+  // Benefit assumptions (simple placeholders for now)
   cppShingoAt70Monthly: number;
   cppAssumedSarahAt70Monthly?: number;
 };
@@ -43,6 +53,37 @@ export type MonthlyContributions = {
   rrspSarah: number;
 };
 
+export type WithdrawalOrder =
+  | "pension" // (not actually a withdrawal; included for narrative)
+  | "fhsa"
+  | "rrsp"
+  | "lira"
+  | "tfsa"
+  | "nonRegistered";
+
+export type WithdrawalPlan = {
+  // In v1 we fill the annual income gap using this priority order.
+  order: WithdrawalOrder[];
+
+  // Annual caps (0 = no cap)
+  caps: {
+    fhsa: number;
+    rrsp: number;
+    lira: number;
+    tfsa: number;
+    nonRegistered: number;
+  };
+
+  // Optional: treat TFSA as “preserve unless needed”
+  allowTfsa: boolean;
+
+  // Simple benefit placeholders (annual, can be 0)
+  cppShingoAnnual: number;
+  cppSarahAnnual: number;
+  oasShingoAnnual: number;
+  oasSarahAnnual: number;
+};
+
 export type Variables = {
   shingoRetireAge: number;
   sarahRetireAge: number;
@@ -56,7 +97,12 @@ export type Variables = {
   // Contributions
   monthly: MonthlyContributions;
 
+  // Retirement phases
+  phaseAges: PhaseAges;
   spending: PhaseSpending;
+
+  // Withdrawals (retirement)
+  withdrawals: WithdrawalPlan;
 
   // Baseline balances (as-of baselineYear snapshot)
   balances: AccountBalances;
@@ -67,8 +113,13 @@ export const DEFAULT_ANCHORS: Anchors = {
   location: "British Columbia, Canada",
   targetRetirementYear: 2036,
   baselineYear: 2026,
+
+  shingoBirthYear: 1969,
+  sarahBirthYear: 1971,
+
   pensionShingo: 29000,
   pensionSarah: 35000,
+
   cppShingoAt70Monthly: 1700,
 };
 
@@ -90,10 +141,34 @@ export const DEFAULT_VARIABLES: Variables = {
     rrspShingo: 700,
   },
 
+  phaseAges: {
+    goGoEndAge: 74,
+    slowGoEndAge: 84,
+    endAge: 95,
+  },
+
   spending: {
     goGo: 90000,
     slowGo: 80000,
     noGo: 70000,
+  },
+
+  withdrawals: {
+    order: ["fhsa", "rrsp", "lira", "nonRegistered", "tfsa"],
+    caps: {
+      fhsa: 0,
+      rrsp: 0,
+      lira: 0,
+      tfsa: 0,
+      nonRegistered: 0,
+    },
+    allowTfsa: false,
+
+    // placeholders (we’ll compute these from rules later; for now editable)
+    cppShingoAnnual: DEFAULT_ANCHORS.cppShingoAt70Monthly * 12,
+    cppSarahAnnual: 0,
+    oasShingoAnnual: 0,
+    oasSarahAnnual: 0,
   },
 
   balances: {

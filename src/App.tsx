@@ -6,6 +6,7 @@ import {
   type AccountBalances,
   type MonthlyContributions,
   type Variables,
+  type WithdrawalOrder,
 } from "./planDefaults";
 
 function Field({
@@ -76,26 +77,52 @@ function toRealDollars(nominal: number, annualInflation: number, years: number) 
   return nominal / d;
 }
 
+type RetirementBalances = {
+  fhsa: number;
+  rrsp: number;
+  tfsa: number;
+  lira: number;
+  nonRegistered: number;
+};
+
+function clampToZero(n: number) {
+  return n < 0 ? 0 : n;
+}
+
+function withdrawFrom(
+  amount: number,
+  balance: number,
+  cap: number
+): { withdrawn: number; remainingNeed: number; newBalance: number } {
+  if (amount <= 0) return { withdrawn: 0, remainingNeed: 0, newBalance: balance };
+
+  const allowed = cap > 0 ? Math.min(amount, cap) : amount;
+  const withdrawn = Math.min(allowed, balance);
+  return {
+    withdrawn,
+    remainingNeed: amount - withdrawn,
+    newBalance: balance - withdrawn,
+  };
+}
+
 export default function App() {
   const [vars, setVars] = useState<Variables>(DEFAULT_VARIABLES);
 
   const pensionAnnual =
     DEFAULT_ANCHORS.pensionShingo + DEFAULT_ANCHORS.pensionSarah;
 
-  const cppAnnualAt70 = DEFAULT_ANCHORS.cppShingoAt70Monthly * 12;
-
   const baselineTotal = useMemo(() => sumBalances(vars.balances), [vars.balances]);
   const monthlyTotal = useMemo(() => sumMonthly(vars.monthly), [vars.monthly]);
 
-  const snapshot = useMemo(() => {
+  const model = useMemo(() => {
     const yearsToRetirement =
       DEFAULT_ANCHORS.targetRetirementYear - DEFAULT_ANCHORS.baselineYear;
     const monthsToRetirement = Math.max(0, Math.round(yearsToRetirement * 12));
 
-    // Split the TFSA total contribution 50/50 for now (adjust later if you want).
+    // Split the TFSA total contribution 50/50 for now.
     const tfsaMonthlyEach = vars.monthly.tfsaTotal / 2;
 
-    const fvByAccount = {
+    const atRetirementByAccount = {
       fhsaShingo: futureValueMonthly({
         pv: vars.balances.fhsaShingo,
         monthlyContribution: vars.monthly.fhsaShingo,
@@ -132,7 +159,6 @@ export default function App() {
         annualReturn: vars.expectedNominalReturn,
         months: monthsToRetirement,
       }),
-      // Assume no ongoing contributions into locked-in/non-reg for now.
       liraShingo: futureValueMonthly({
         pv: vars.balances.liraShingo,
         monthlyContribution: 0,
@@ -147,15 +173,20 @@ export default function App() {
       }),
     };
 
+    const retirementBalances: RetirementBalances = {
+      fhsa: atRetirementByAccount.fhsaShingo + atRetirementByAccount.fhsaSarah,
+      rrsp: atRetirementByAccount.rrspShingo + atRetirementByAccount.rrspSarah,
+      tfsa: atRetirementByAccount.tfsaShingo + atRetirementByAccount.tfsaSarah,
+      lira: atRetirementByAccount.liraShingo,
+      nonRegistered: atRetirementByAccount.nonRegistered,
+    };
+
     const totalNominalAtRetirement =
-      fvByAccount.fhsaShingo +
-      fvByAccount.fhsaSarah +
-      fvByAccount.rrspShingo +
-      fvByAccount.rrspSarah +
-      fvByAccount.tfsaShingo +
-      fvByAccount.tfsaSarah +
-      fvByAccount.liraShingo +
-      fvByAccount.nonRegistered;
+      retirementBalances.fhsa +
+      retirementBalances.rrsp +
+      retirementBalances.tfsa +
+      retirementBalances.lira +
+      retirementBalances.nonRegistered;
 
     const totalRealAtRetirement = toRealDollars(
       totalNominalAtRetirement,
@@ -163,24 +194,141 @@ export default function App() {
       yearsToRetirement
     );
 
+    // --- Withdrawal schedule (simple v1) ---
+    const retireYear = DEFAULT_ANCHORS.targetRetirementYear;
+    const retireAgeShingo = vars.shingoRetireAge;
+    const retireAgeSarah = vars.sarahRetireAge;
+
+    const yearsInPlan = Math.max(0, vars.phaseAges.endAge - Math.min(retireAgeShingo, retireAgeSarah) + 1);
+
+    const rows: Array<{
+      year: number;
+      ageShingo: number;
+      ageSarah: number;
+      phase: "Go-Go" | "Slow-Go" | "No-Go";
+      targetSpending: number;
+      guaranteedIncome: number;
+      benefitsIncome: number;
+      gap: number;
+      withdrawals: Record<string, number>;
+      endBalances: RetirementBalances;
+    }> = [];
+
+    let balances: RetirementBalances = { ...retirementBalances };
+
+    for (let i = 0; i < yearsInPlan; i++) {
+      const year = retireYear + i;
+      const ageShingo = retireAgeShingo + i;
+      const ageSarah = retireAgeSarah + i;
+
+      const phase: "Go-Go" | "Slow-Go" | "No-Go" =
+        ageShingo <= vars.phaseAges.goGoEndAge ? "Go-Go" : ageShingo <= vars.phaseAges.slowGoEndAge ? "Slow-Go" : "No-Go";
+
+      const targetSpending =
+        phase === "Go-Go"
+          ? vars.spending.goGo
+          : phase === "Slow-Go"
+            ? vars.spending.slowGo
+            : vars.spending.noGo;
+
+      const guaranteedIncome = pensionAnnual;
+
+      const benefitsIncome =
+        (ageShingo >= vars.cppStartAge ? vars.withdrawals.cppShingoAnnual : 0) +
+        (ageSarah >= vars.cppStartAge ? vars.withdrawals.cppSarahAnnual : 0) +
+        (ageShingo >= vars.oasStartAge ? vars.withdrawals.oasShingoAnnual : 0) +
+        (ageSarah >= vars.oasStartAge ? vars.withdrawals.oasSarahAnnual : 0);
+
+      let gap = clampToZero(targetSpending - guaranteedIncome - benefitsIncome);
+
+      const withdrawals: Record<string, number> = {
+        fhsa: 0,
+        rrsp: 0,
+        lira: 0,
+        nonRegistered: 0,
+        tfsa: 0,
+      };
+
+      for (const src of vars.withdrawals.order) {
+        if (gap <= 0) break;
+
+        if (src === "tfsa" && !vars.withdrawals.allowTfsa) continue;
+        if (src === "pension") continue;
+
+        if (src === "fhsa") {
+          const r = withdrawFrom(gap, balances.fhsa, vars.withdrawals.caps.fhsa);
+          withdrawals.fhsa += r.withdrawn;
+          balances.fhsa = r.newBalance;
+          gap = r.remainingNeed;
+        } else if (src === "rrsp") {
+          const r = withdrawFrom(gap, balances.rrsp, vars.withdrawals.caps.rrsp);
+          withdrawals.rrsp += r.withdrawn;
+          balances.rrsp = r.newBalance;
+          gap = r.remainingNeed;
+        } else if (src === "lira") {
+          const r = withdrawFrom(gap, balances.lira, vars.withdrawals.caps.lira);
+          withdrawals.lira += r.withdrawn;
+          balances.lira = r.newBalance;
+          gap = r.remainingNeed;
+        } else if (src === "nonRegistered") {
+          const r = withdrawFrom(
+            gap,
+            balances.nonRegistered,
+            vars.withdrawals.caps.nonRegistered
+          );
+          withdrawals.nonRegistered += r.withdrawn;
+          balances.nonRegistered = r.newBalance;
+          gap = r.remainingNeed;
+        } else if (src === "tfsa") {
+          const r = withdrawFrom(gap, balances.tfsa, vars.withdrawals.caps.tfsa);
+          withdrawals.tfsa += r.withdrawn;
+          balances.tfsa = r.newBalance;
+          gap = r.remainingNeed;
+        }
+      }
+
+      // Apply growth at year-end to remaining balances (very simplified)
+      balances = {
+        fhsa: balances.fhsa * (1 + vars.expectedNominalReturn),
+        rrsp: balances.rrsp * (1 + vars.expectedNominalReturn),
+        tfsa: balances.tfsa * (1 + vars.expectedNominalReturn),
+        lira: balances.lira * (1 + vars.expectedNominalReturn),
+        nonRegistered: balances.nonRegistered * (1 + vars.expectedNominalReturn),
+      };
+
+      rows.push({
+        year,
+        ageShingo,
+        ageSarah,
+        phase,
+        targetSpending,
+        guaranteedIncome,
+        benefitsIncome,
+        gap,
+        withdrawals,
+        endBalances: { ...balances },
+      });
+    }
+
     return {
       yearsToRetirement,
       monthsToRetirement,
-      pensionAnnual,
-      cppAnnualAt70,
       baselineTotal,
       monthlyTotal,
-      fvByAccount,
+      retirementBalances,
       totalNominalAtRetirement,
       totalRealAtRetirement,
+      schedule: rows,
     };
-  }, [
-    vars,
-    baselineTotal,
-    monthlyTotal,
-    pensionAnnual,
-    cppAnnualAt70,
-  ]);
+  }, [vars, pensionAnnual, baselineTotal, monthlyTotal]);
+
+  const orderOptions: WithdrawalOrder[] = [
+    "fhsa",
+    "rrsp",
+    "lira",
+    "nonRegistered",
+    "tfsa",
+  ];
 
   return (
     <div style={{ maxWidth: 1080, margin: "0 auto", padding: 24 }}>
@@ -194,220 +342,6 @@ export default function App() {
       </header>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
-        <section className="card">
-          <h2>Anchors (hard facts / slow-moving assumptions)</h2>
-          <ul>
-            <li>
-              Location: <strong>{DEFAULT_ANCHORS.location}</strong>
-            </li>
-            <li>
-              Baseline year: <strong>{DEFAULT_ANCHORS.baselineYear}</strong>
-            </li>
-            <li>
-              Target retirement year: <strong>{DEFAULT_ANCHORS.targetRetirementYear}</strong>
-            </li>
-            <li>
-              Indexed pension (annual): Shingo{" "}
-              <strong>${money(DEFAULT_ANCHORS.pensionShingo)}</strong>, Sarah{" "}
-              <strong>${money(DEFAULT_ANCHORS.pensionSarah)}</strong> (combined{" "}
-              <strong>${money(pensionAnnual)}</strong>)
-            </li>
-            <li>
-              CPP estimate: Shingo at 70 ≈{" "}
-              <strong>${money(DEFAULT_ANCHORS.cppShingoAt70Monthly)}</strong>/mo
-              (≈ <strong>${money(cppAnnualAt70)}</strong>/yr)
-            </li>
-          </ul>
-        </section>
-
-        <section className="card">
-          <h2>Current investments (baseline snapshot)</h2>
-          <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-            Enter your current balances. These are the starting point for the
-            model.
-          </p>
-
-          <div className="grid">
-            <Field label="FHSA (Shingo)">
-              <input
-                type="number"
-                value={vars.balances.fhsaShingo}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    balances: { ...v.balances, fhsaShingo: num(e.target.value) },
-                  }))
-                }
-              />
-            </Field>
-            <Field label="FHSA (Sarah)">
-              <input
-                type="number"
-                value={vars.balances.fhsaSarah}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    balances: { ...v.balances, fhsaSarah: num(e.target.value) },
-                  }))
-                }
-              />
-            </Field>
-            <Field label="RRSP (Shingo)">
-              <input
-                type="number"
-                value={vars.balances.rrspShingo}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    balances: { ...v.balances, rrspShingo: num(e.target.value) },
-                  }))
-                }
-              />
-            </Field>
-            <Field label="RRSP (Sarah)">
-              <input
-                type="number"
-                value={vars.balances.rrspSarah}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    balances: { ...v.balances, rrspSarah: num(e.target.value) },
-                  }))
-                }
-              />
-            </Field>
-            <Field label="TFSA (Shingo)">
-              <input
-                type="number"
-                value={vars.balances.tfsaShingo}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    balances: { ...v.balances, tfsaShingo: num(e.target.value) },
-                  }))
-                }
-              />
-            </Field>
-            <Field label="TFSA (Sarah)">
-              <input
-                type="number"
-                value={vars.balances.tfsaSarah}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    balances: { ...v.balances, tfsaSarah: num(e.target.value) },
-                  }))
-                }
-              />
-            </Field>
-            <Field label="LIRA (Shingo)">
-              <input
-                type="number"
-                value={vars.balances.liraShingo}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    balances: { ...v.balances, liraShingo: num(e.target.value) },
-                  }))
-                }
-              />
-            </Field>
-            <Field label="Non-registered">
-              <input
-                type="number"
-                value={vars.balances.nonRegistered}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    balances: {
-                      ...v.balances,
-                      nonRegistered: num(e.target.value),
-                    },
-                  }))
-                }
-              />
-            </Field>
-          </div>
-
-          <div style={{ marginTop: 12, fontSize: 13 }}>
-            Total investments (baseline): <strong>${money(snapshot.baselineTotal)}</strong>
-          </div>
-        </section>
-
-        <section className="card">
-          <h2>Monthly investing (current)</h2>
-          <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-            Current monthly contributions by account.
-          </p>
-
-          <div className="grid">
-            <Field label="TFSA (total)">
-              <input
-                type="number"
-                value={vars.monthly.tfsaTotal}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    monthly: { ...v.monthly, tfsaTotal: num(e.target.value) },
-                  }))
-                }
-              />
-            </Field>
-            <Field label="FHSA (Shingo)">
-              <input
-                type="number"
-                value={vars.monthly.fhsaShingo}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    monthly: { ...v.monthly, fhsaShingo: num(e.target.value) },
-                  }))
-                }
-              />
-            </Field>
-            <Field label="FHSA (Sarah)">
-              <input
-                type="number"
-                value={vars.monthly.fhsaSarah}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    monthly: { ...v.monthly, fhsaSarah: num(e.target.value) },
-                  }))
-                }
-              />
-            </Field>
-            <Field label="RRSP (Shingo)">
-              <input
-                type="number"
-                value={vars.monthly.rrspShingo}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    monthly: { ...v.monthly, rrspShingo: num(e.target.value) },
-                  }))
-                }
-              />
-            </Field>
-            <Field label="RRSP (Sarah)">
-              <input
-                type="number"
-                value={vars.monthly.rrspSarah}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    monthly: { ...v.monthly, rrspSarah: num(e.target.value) },
-                  }))
-                }
-              />
-            </Field>
-          </div>
-
-          <div style={{ marginTop: 12, fontSize: 13 }}>
-            Total monthly investing: <strong>${money(snapshot.monthlyTotal)}</strong>
-          </div>
-        </section>
-
         <section className="card">
           <h2>Expectations (adjustable)</h2>
           <div className="grid">
@@ -442,127 +376,404 @@ export default function App() {
 
         <section className="card">
           <h2>Starting balances at retirement (projected)</h2>
-          <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-            Nominal projections by account at retirement year (baseline →
-            retirement). TFSA contributions are split 50/50 for now.
-          </p>
           <ul>
             <li>
-              FHSA (Shingo): <strong>${money(snapshot.fvByAccount.fhsaShingo)}</strong>
+              FHSA (household): <strong>${money(model.retirementBalances.fhsa)}</strong>
             </li>
             <li>
-              FHSA (Sarah): <strong>${money(snapshot.fvByAccount.fhsaSarah)}</strong>
+              RRSP (household): <strong>${money(model.retirementBalances.rrsp)}</strong>
             </li>
             <li>
-              RRSP (Shingo): <strong>${money(snapshot.fvByAccount.rrspShingo)}</strong>
+              TFSA (household): <strong>${money(model.retirementBalances.tfsa)}</strong>
             </li>
             <li>
-              RRSP (Sarah): <strong>${money(snapshot.fvByAccount.rrspSarah)}</strong>
+              LIRA/LIF (Shingo): <strong>${money(model.retirementBalances.lira)}</strong>
             </li>
             <li>
-              TFSA (Shingo): <strong>${money(snapshot.fvByAccount.tfsaShingo)}</strong>
-            </li>
-            <li>
-              TFSA (Sarah): <strong>${money(snapshot.fvByAccount.tfsaSarah)}</strong>
-            </li>
-            <li>
-              LIRA (Shingo): <strong>${money(snapshot.fvByAccount.liraShingo)}</strong>
-            </li>
-            <li>
-              Non-registered: <strong>${money(snapshot.fvByAccount.nonRegistered)}</strong>
+              Non-registered: <strong>${money(model.retirementBalances.nonRegistered)}</strong>
             </li>
           </ul>
-
           <div style={{ marginTop: 10 }}>
             <div style={{ fontSize: 13 }}>
-              Total (nominal): <strong>${money(snapshot.totalNominalAtRetirement)}</strong>
+              Total (nominal): <strong>${money(model.totalNominalAtRetirement)}</strong>
             </div>
             <div style={{ fontSize: 13 }}>
-              Total (in today’s dollars, using inflation):{" "}
-              <strong>${money(snapshot.totalRealAtRetirement)}</strong>
+              Total (in today’s dollars):{" "}
+              <strong>${money(model.totalRealAtRetirement)}</strong>
             </div>
           </div>
         </section>
 
         <section className="card">
-          <h2>Spending phases (annual targets)</h2>
+          <h2>Withdrawal schedule (simple v1)</h2>
+          <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
+            Choose the drawdown order and caps. Each year we fill the spending gap
+            (spending target minus pension/benefits) from accounts in priority
+            order. This is pre-tax and intentionally simplified.
+          </p>
+
           <div className="grid">
-            <Field label="Go-Go (annual)">
-              <input
-                type="number"
-                value={vars.spending.goGo}
+            <Field label="Allow TFSA withdrawals">
+              <select
+                value={vars.withdrawals.allowTfsa ? "yes" : "no"}
                 onChange={(e) =>
                   setVars((v) => ({
                     ...v,
-                    spending: { ...v.spending, goGo: num(e.target.value) },
+                    withdrawals: { ...v.withdrawals, allowTfsa: e.target.value === "yes" },
+                  }))
+                }
+              >
+                <option value="no">No (preserve TFSA unless forced)</option>
+                <option value="yes">Yes</option>
+              </select>
+            </Field>
+
+            <Field label="Drawdown priority #1">
+              <select
+                value={vars.withdrawals.order[0]}
+                onChange={(e) => {
+                  const v = e.target.value as WithdrawalOrder;
+                  setVars((s) => ({
+                    ...s,
+                    withdrawals: {
+                      ...s.withdrawals,
+                      order: [v, ...s.withdrawals.order.filter((x) => x !== v)],
+                    },
+                  }));
+                }}
+              >
+                {orderOptions.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Drawdown priority #2">
+              <select
+                value={vars.withdrawals.order[1]}
+                onChange={(e) => {
+                  const v = e.target.value as WithdrawalOrder;
+                  setVars((s) => {
+                    const rest = s.withdrawals.order.filter((x) => x !== v);
+                    const next = [rest[0], v, ...rest.slice(1)].filter(Boolean) as WithdrawalOrder[];
+                    // Ensure uniqueness/preserve length
+                    const unique = Array.from(new Set(next));
+                    while (unique.length < 5) {
+                      const candidate = orderOptions.find((x) => !unique.includes(x));
+                      if (!candidate) break;
+                      unique.push(candidate);
+                    }
+                    return { ...s, withdrawals: { ...s.withdrawals, order: unique } };
+                  });
+                }}
+              >
+                {orderOptions.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Drawdown priority #3">
+              <select
+                value={vars.withdrawals.order[2]}
+                onChange={(e) => {
+                  const v = e.target.value as WithdrawalOrder;
+                  setVars((s) => {
+                    const base = s.withdrawals.order.filter((x) => x !== v);
+                    const next = [base[0], base[1], v, ...base.slice(2)];
+                    const unique = Array.from(new Set(next));
+                    while (unique.length < 5) {
+                      const candidate = orderOptions.find((x) => !unique.includes(x));
+                      if (!candidate) break;
+                      unique.push(candidate);
+                    }
+                    return { ...s, withdrawals: { ...s.withdrawals, order: unique } };
+                  });
+                }}
+              >
+                {orderOptions.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Drawdown priority #4">
+              <select
+                value={vars.withdrawals.order[3]}
+                onChange={(e) => {
+                  const v = e.target.value as WithdrawalOrder;
+                  setVars((s) => {
+                    const base = s.withdrawals.order.filter((x) => x !== v);
+                    const next = [base[0], base[1], base[2], v, ...base.slice(3)];
+                    const unique = Array.from(new Set(next));
+                    while (unique.length < 5) {
+                      const candidate = orderOptions.find((x) => !unique.includes(x));
+                      if (!candidate) break;
+                      unique.push(candidate);
+                    }
+                    return { ...s, withdrawals: { ...s.withdrawals, order: unique } };
+                  });
+                }}
+              >
+                {orderOptions.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Drawdown priority #5">
+              <select
+                value={vars.withdrawals.order[4]}
+                onChange={(e) => {
+                  const v = e.target.value as WithdrawalOrder;
+                  setVars((s) => {
+                    const base = s.withdrawals.order.filter((x) => x !== v);
+                    const next = [base[0], base[1], base[2], base[3], v];
+                    const unique = Array.from(new Set(next));
+                    while (unique.length < 5) {
+                      const candidate = orderOptions.find((x) => !unique.includes(x));
+                      if (!candidate) break;
+                      unique.push(candidate);
+                    }
+                    return { ...s, withdrawals: { ...s.withdrawals, order: unique } };
+                  });
+                }}
+              >
+                {orderOptions.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
+          <h3 style={{ marginTop: 14 }}>Withdrawal caps (annual, 0 = no cap)</h3>
+          <div className="grid">
+            <Field label="FHSA cap">
+              <input
+                type="number"
+                value={vars.withdrawals.caps.fhsa}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      caps: { ...v.withdrawals.caps, fhsa: num(e.target.value) },
+                    },
                   }))
                 }
               />
             </Field>
-            <Field label="Slow-Go (annual)">
+            <Field label="RRSP/RRIF cap">
               <input
                 type="number"
-                value={vars.spending.slowGo}
+                value={vars.withdrawals.caps.rrsp}
                 onChange={(e) =>
                   setVars((v) => ({
                     ...v,
-                    spending: { ...v.spending, slowGo: num(e.target.value) },
+                    withdrawals: {
+                      ...v.withdrawals,
+                      caps: { ...v.withdrawals.caps, rrsp: num(e.target.value) },
+                    },
                   }))
                 }
               />
             </Field>
-            <Field label="No-Go (annual)">
+            <Field label="LIRA/LIF cap">
               <input
                 type="number"
-                value={vars.spending.noGo}
+                value={vars.withdrawals.caps.lira}
                 onChange={(e) =>
                   setVars((v) => ({
                     ...v,
-                    spending: { ...v.spending, noGo: num(e.target.value) },
+                    withdrawals: {
+                      ...v.withdrawals,
+                      caps: { ...v.withdrawals.caps, lira: num(e.target.value) },
+                    },
+                  }))
+                }
+              />
+            </Field>
+            <Field label="Non-reg cap">
+              <input
+                type="number"
+                value={vars.withdrawals.caps.nonRegistered}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      caps: {
+                        ...v.withdrawals.caps,
+                        nonRegistered: num(e.target.value),
+                      },
+                    },
+                  }))
+                }
+              />
+            </Field>
+            <Field label="TFSA cap">
+              <input
+                type="number"
+                value={vars.withdrawals.caps.tfsa}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      caps: { ...v.withdrawals.caps, tfsa: num(e.target.value) },
+                    },
                   }))
                 }
               />
             </Field>
           </div>
-        </section>
 
-        <section className="card">
-          <h2>Projection to retirement (simple v1)</h2>
-          <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-            Simple compounding from baseline year → retirement year.
-          </p>
-          <ul>
-            <li>
-              Time horizon: <strong>{snapshot.yearsToRetirement}</strong> years ({snapshot.monthsToRetirement} months)
-            </li>
-            <li>
-              Baseline total: <strong>${money(snapshot.baselineTotal)}</strong>
-            </li>
-            <li>
-              Monthly investing (total): <strong>${money(snapshot.monthlyTotal)}</strong>
-            </li>
-            <li>
-              Expected nominal return: <strong>{(vars.expectedNominalReturn * 100).toFixed(2)}%</strong>
-            </li>
-            <li>
-              Expected inflation: <strong>{(vars.expectedInflation * 100).toFixed(2)}%</strong>
-            </li>
-            <li>
-              Total at retirement (nominal):{" "}
-              <strong>${money(snapshot.totalNominalAtRetirement)}</strong>
-            </li>
-            <li>
-              Total at retirement (today’s dollars):{" "}
-              <strong>${money(snapshot.totalRealAtRetirement)}</strong>
-            </li>
-          </ul>
+          <h3 style={{ marginTop: 14 }}>Benefits (annual placeholders)</h3>
+          <div className="grid">
+            <Field label="CPP (Shingo, annual)">
+              <input
+                type="number"
+                value={vars.withdrawals.cppShingoAnnual}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      cppShingoAnnual: num(e.target.value),
+                    },
+                  }))
+                }
+              />
+            </Field>
+            <Field label="CPP (Sarah, annual)">
+              <input
+                type="number"
+                value={vars.withdrawals.cppSarahAnnual}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      cppSarahAnnual: num(e.target.value),
+                    },
+                  }))
+                }
+              />
+            </Field>
+            <Field label="OAS (Shingo, annual)">
+              <input
+                type="number"
+                value={vars.withdrawals.oasShingoAnnual}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      oasShingoAnnual: num(e.target.value),
+                    },
+                  }))
+                }
+              />
+            </Field>
+            <Field label="OAS (Sarah, annual)">
+              <input
+                type="number"
+                value={vars.withdrawals.oasSarahAnnual}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      oasSarahAnnual: num(e.target.value),
+                    },
+                  }))
+                }
+              />
+            </Field>
+          </div>
+
+          <h3 style={{ marginTop: 14 }}>Schedule (first 12 years)</h3>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr>
+                  {[
+                    "Year",
+                    "Age (S)",
+                    "Age (Sa)",
+                    "Phase",
+                    "Spend",
+                    "Pension",
+                    "Benefits",
+                    "Need",
+                    "FHSA",
+                    "RRSP",
+                    "LIRA",
+                    "NonReg",
+                    "TFSA",
+                    "End Bal (total)",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        textAlign: "right",
+                        padding: "6px 8px",
+                        borderBottom: "1px solid #e5e7eb",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {model.schedule.slice(0, 12).map((r) => {
+                  const endTotal =
+                    r.endBalances.fhsa +
+                    r.endBalances.rrsp +
+                    r.endBalances.lira +
+                    r.endBalances.tfsa +
+                    r.endBalances.nonRegistered;
+                  return (
+                    <tr key={r.year}>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.year}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.ageShingo}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.ageSarah}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.phase}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.targetSpending)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.guaranteedIncome)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.benefitsIncome)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.targetSpending - r.guaranteedIncome - r.benefitsIncome)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.fhsa)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.rrsp)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.lira)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.nonRegistered)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.tfsa)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(endTotal)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </section>
       </div>
 
       <footer style={{ marginTop: 18, fontSize: 12, opacity: 0.75 }}>
         <div>
-          Design truth: income-first (pension/CPP/OAS carry the plan) + flexibility
-          &gt; optimization.
+          Note: withdrawal schedule is pre-tax and simplified. Next step is to add
+          RRIF/LIF rules + tax brackets.
         </div>
       </footer>
     </div>
