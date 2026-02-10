@@ -34,6 +34,15 @@ export type AccountBalances = {
   nonRegistered: number;
 };
 
+export type MonthlyContributions = {
+  // Note: simplified. Later we’ll add annual limits and redirection logic.
+  tfsaTotal: number;
+  fhsaShingo: number;
+  fhsaSarah: number;
+  rrspShingo: number;
+  rrspSarah: number;
+};
+
 export type Variables = {
   shingoRetireAge: number;
   sarahRetireAge: number;
@@ -42,8 +51,8 @@ export type Variables = {
 
   nominalReturn: number; // e.g. 0.07
 
-  // Contributions (simple v1)
-  monthlyTotalContribution: number; // total household contributions toward investments
+  // Contributions
+  monthly: MonthlyContributions;
 
   spending: PhaseSpending;
 
@@ -69,8 +78,14 @@ export const DEFAULT_VARIABLES: Variables = {
 
   nominalReturn: 0.07,
 
-  // Placeholder until we break contributions out by account (FHSA vs RRSP vs TFSA, etc.)
-  monthlyTotalContribution: 2700,
+  // From your screenshot: monthly investments
+  monthly: {
+    tfsaTotal: 80,
+    fhsaSarah: 666,
+    rrspSarah: 700,
+    fhsaShingo: 666,
+    rrspShingo: 700,
+  },
 
   spending: {
     goGo: 90000,

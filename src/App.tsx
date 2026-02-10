@@ -4,6 +4,7 @@ import {
   DEFAULT_ANCHORS,
   DEFAULT_VARIABLES,
   type AccountBalances,
+  type MonthlyContributions,
   type Variables,
 } from "./planDefaults";
 
@@ -44,6 +45,10 @@ function sumBalances(b: AccountBalances) {
   );
 }
 
+function sumMonthly(m: MonthlyContributions) {
+  return m.tfsaTotal + m.fhsaShingo + m.fhsaSarah + m.rrspShingo + m.rrspSarah;
+}
+
 function futureValueMonthly({
   pv,
   monthlyContribution,
@@ -73,6 +78,7 @@ export default function App() {
   const cppAnnualAt70 = DEFAULT_ANCHORS.cppShingoAt70Monthly * 12;
 
   const baselineTotal = useMemo(() => sumBalances(vars.balances), [vars.balances]);
+  const monthlyTotal = useMemo(() => sumMonthly(vars.monthly), [vars.monthly]);
 
   const snapshot = useMemo(() => {
     const yearsToRetirement =
@@ -81,7 +87,7 @@ export default function App() {
 
     const fvAtRetirement = futureValueMonthly({
       pv: baselineTotal,
-      monthlyContribution: vars.monthlyTotalContribution,
+      monthlyContribution: monthlyTotal,
       annualReturn: vars.nominalReturn,
       months: monthsToRetirement,
     });
@@ -92,9 +98,10 @@ export default function App() {
       pensionAnnual,
       cppAnnualAt70,
       baselineTotal,
+      monthlyTotal,
       fvAtRetirement,
     };
-  }, [vars, baselineTotal, pensionAnnual, cppAnnualAt70]);
+  }, [vars.nominalReturn, baselineTotal, monthlyTotal, pensionAnnual, cppAnnualAt70]);
 
   return (
     <div style={{ maxWidth: 1080, margin: "0 auto", padding: 24 }}>
@@ -249,6 +256,81 @@ export default function App() {
         </section>
 
         <section className="card">
+          <h2>Monthly investing (current)</h2>
+          <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
+            From your screenshot. For now, we treat this as a single total cash
+            flow into investments.
+          </p>
+
+          <div className="grid">
+            <Field label="TFSA (total)">
+              <input
+                type="number"
+                value={vars.monthly.tfsaTotal}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    monthly: { ...v.monthly, tfsaTotal: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+            <Field label="FHSA (Shingo)">
+              <input
+                type="number"
+                value={vars.monthly.fhsaShingo}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    monthly: { ...v.monthly, fhsaShingo: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+            <Field label="FHSA (Sarah)">
+              <input
+                type="number"
+                value={vars.monthly.fhsaSarah}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    monthly: { ...v.monthly, fhsaSarah: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+            <Field label="RRSP (Shingo)">
+              <input
+                type="number"
+                value={vars.monthly.rrspShingo}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    monthly: { ...v.monthly, rrspShingo: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+            <Field label="RRSP (Sarah)">
+              <input
+                type="number"
+                value={vars.monthly.rrspSarah}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    monthly: { ...v.monthly, rrspSarah: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+          </div>
+
+          <div style={{ marginTop: 12, fontSize: 13 }}>
+            Total monthly investing: <strong>${money(snapshot.monthlyTotal)}</strong>
+          </div>
+        </section>
+
+        <section className="card">
           <h2>Levers (things we change / stress-test)</h2>
           <div className="grid">
             <Field label="Retire age — Shingo">
@@ -294,18 +376,6 @@ export default function App() {
                 value={vars.nominalReturn}
                 onChange={(e) =>
                   setVars((v) => ({ ...v, nominalReturn: num(e.target.value) }))
-                }
-              />
-            </Field>
-            <Field label="Total contribution (monthly, household)">
-              <input
-                type="number"
-                value={vars.monthlyTotalContribution}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    monthlyTotalContribution: num(e.target.value),
-                  }))
                 }
               />
             </Field>
@@ -367,7 +437,7 @@ export default function App() {
               Baseline total: <strong>${money(snapshot.baselineTotal)}</strong>
             </li>
             <li>
-              Monthly contribution: <strong>${money(vars.monthlyTotalContribution)}</strong>
+              Monthly investing (total): <strong>${money(snapshot.monthlyTotal)}</strong>
             </li>
             <li>
               Nominal return: <strong>{(vars.nominalReturn * 100).toFixed(2)}%</strong>
