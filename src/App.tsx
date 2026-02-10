@@ -311,8 +311,10 @@ export default function App() {
       targetSpending: number;
       guaranteedIncome: number;
       benefitsIncome: number;
-      gap: number;
+      spendingGap: number;
       withdrawals: Record<string, number>;
+      forcedRrif: number;
+      surplusInvestedToTfsa: number;
       endBalances: RetirementBalances;
     }> = [];
 
@@ -341,7 +343,7 @@ export default function App() {
         (ageShingo >= vars.oasStartAge ? vars.withdrawals.oasShingoAnnual : 0) +
         (ageSarah >= vars.oasStartAge ? vars.withdrawals.oasSarahAnnual : 0);
 
-      let gap = clampToZero(targetSpending - guaranteedIncome - benefitsIncome);
+      let spendingGap = clampToZero(targetSpending - guaranteedIncome - benefitsIncome);
 
       const withdrawals: Record<string, number> = {
         fhsa: 0,
@@ -351,49 +353,89 @@ export default function App() {
         tfsa: 0,
       };
 
+      // 1) Fund the spending gap from accounts, using the chosen priority order.
       for (const src of vars.withdrawals.order) {
-        if (gap <= 0) break;
+        if (spendingGap <= 0) break;
 
         if (src === "tfsa" && !vars.withdrawals.allowTfsa) continue;
         if (src === "pension") continue;
 
         if (src === "fhsa") {
-          const r = withdrawFrom(gap, balances.fhsa, vars.withdrawals.caps.fhsa);
+          const r = withdrawFrom(
+            spendingGap,
+            balances.fhsa,
+            vars.withdrawals.caps.fhsa
+          );
           withdrawals.fhsa += r.withdrawn;
           balances.fhsa = r.newBalance;
-          gap = r.remainingNeed;
+          spendingGap = r.remainingNeed;
         } else if (src === "rrsp") {
-          const r = withdrawFrom(gap, balances.rrsp, vars.withdrawals.caps.rrsp);
+          const r = withdrawFrom(
+            spendingGap,
+            balances.rrsp,
+            vars.withdrawals.caps.rrsp
+          );
           withdrawals.rrsp += r.withdrawn;
           balances.rrsp = r.newBalance;
-          gap = r.remainingNeed;
+          spendingGap = r.remainingNeed;
         } else if (src === "lira") {
           // LIF cap: use BC mode (min/mid/max). If user entered an explicit cap,
           // we apply the tighter (smaller) of the two.
-          const lifCap = balances.lira * lifFactorApprox(ageShingo, vars.withdrawals.lifMode);
+          const lifCap =
+            balances.lira * lifFactorApprox(ageShingo, vars.withdrawals.lifMode);
           const explicitCap = vars.withdrawals.caps.lira;
           const cap = explicitCap > 0 ? Math.min(explicitCap, lifCap) : lifCap;
 
-          const r = withdrawFrom(gap, balances.lira, cap);
+          const r = withdrawFrom(spendingGap, balances.lira, cap);
           withdrawals.lira += r.withdrawn;
           balances.lira = r.newBalance;
-          gap = r.remainingNeed;
+          spendingGap = r.remainingNeed;
         } else if (src === "nonRegistered") {
           const r = withdrawFrom(
-            gap,
+            spendingGap,
             balances.nonRegistered,
             vars.withdrawals.caps.nonRegistered
           );
           withdrawals.nonRegistered += r.withdrawn;
           balances.nonRegistered = r.newBalance;
-          gap = r.remainingNeed;
+          spendingGap = r.remainingNeed;
         } else if (src === "tfsa") {
-          const r = withdrawFrom(gap, balances.tfsa, vars.withdrawals.caps.tfsa);
+          const r = withdrawFrom(
+            spendingGap,
+            balances.tfsa,
+            vars.withdrawals.caps.tfsa
+          );
           withdrawals.tfsa += r.withdrawn;
           balances.tfsa = r.newBalance;
-          gap = r.remainingNeed;
+          spendingGap = r.remainingNeed;
         }
       }
+
+      // 2) Hard-force RRSP/RRIF withdrawal to hit the depletion target age.
+      // Simple approach: amortize remaining RRSP balance over remaining years.
+      let forcedRrif = 0;
+      if (ageShingo <= vars.withdrawals.rrifDepleteByAge && balances.rrsp > 0) {
+        const yearsLeft = Math.max(1, vars.withdrawals.rrifDepleteByAge - ageShingo + 1);
+        const requiredThisYear = balances.rrsp / yearsLeft;
+        const extraNeeded = Math.max(0, requiredThisYear - withdrawals.rrsp);
+
+        const r = withdrawFrom(extraNeeded, balances.rrsp, 0);
+        forcedRrif = r.withdrawn;
+        withdrawals.rrsp += r.withdrawn;
+        balances.rrsp = r.newBalance;
+      }
+
+      // 3) Any surplus (because we forced RRIF withdrawals) is invested into TFSA.
+      const totalWithdrawals =
+        withdrawals.fhsa +
+        withdrawals.rrsp +
+        withdrawals.lira +
+        withdrawals.nonRegistered +
+        withdrawals.tfsa;
+
+      const cashIn = guaranteedIncome + benefitsIncome + totalWithdrawals;
+      const surplusInvestedToTfsa = clampToZero(cashIn - targetSpending);
+      balances.tfsa += surplusInvestedToTfsa;
 
       // Apply growth at year-end to remaining balances (very simplified)
       balances = {
@@ -412,8 +454,10 @@ export default function App() {
         targetSpending,
         guaranteedIncome,
         benefitsIncome,
-        gap,
+        spendingGap,
         withdrawals,
+        forcedRrif,
+        surplusInvestedToTfsa,
         endBalances: { ...balances },
       });
     }
@@ -617,6 +661,10 @@ export default function App() {
             <strong>Spending gap to fund</strong> = Target spending − (Pensions + CPP/OAS),
             then withdraw from accounts in your chosen priority order (respecting
             any annual caps).
+            <br />
+            <strong>RRIF depletion (hard forced):</strong> we will also force extra RRSP/RRIF
+            withdrawals (if needed) so the RRSP/RRIF balance reaches $0 by your
+            chosen target age.
           </p>
 
           <div className="grid">
@@ -988,6 +1036,8 @@ export default function App() {
                     "Withdraw: LIRA/LIF ($)",
                     "Withdraw: Non-registered ($)",
                     "Withdraw: TFSA ($)",
+                    "Forced RRIF extra (part of RRSP, $)",
+                    "Surplus → TFSA (invested, $)",
                     "End balance total (after growth, $)",
                   ].map((h) => (
                     <th
@@ -1027,6 +1077,8 @@ export default function App() {
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.lira)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.nonRegistered)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.tfsa)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.forcedRrif)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.surplusInvestedToTfsa)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(endTotal)}</td>
                     </tr>
                   );
