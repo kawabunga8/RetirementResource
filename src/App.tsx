@@ -924,7 +924,15 @@ export default function App() {
 
           <h3 style={{ marginTop: 14 }}>LIF withdrawal setting (BC)</h3>
           <div className="grid">
-            <Field label="LIF mode (default: BC maximum)">
+            <Field
+              label={`LIF mode (current: ${
+                vars.withdrawals.lifMode === "max"
+                  ? "Maximum"
+                  : vars.withdrawals.lifMode === "mid"
+                    ? "Mid"
+                    : "Minimum"
+              })`}
+            >
               <select
                 value={vars.withdrawals.lifMode}
                 onChange={(e) =>
