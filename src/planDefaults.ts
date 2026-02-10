@@ -49,7 +49,9 @@ export type Variables = {
   cppStartAge: number;
   oasStartAge: number;
 
-  nominalReturn: number; // e.g. 0.07
+  // Expectations
+  expectedNominalReturn: number; // e.g. 0.07
+  expectedInflation: number; // e.g. 0.02
 
   // Contributions
   monthly: MonthlyContributions;
@@ -76,7 +78,8 @@ export const DEFAULT_VARIABLES: Variables = {
   cppStartAge: 70,
   oasStartAge: 70,
 
-  nominalReturn: 0.07,
+  expectedNominalReturn: 0.07,
+  expectedInflation: 0.02,
 
   // From your screenshot: monthly investments
   monthly: {

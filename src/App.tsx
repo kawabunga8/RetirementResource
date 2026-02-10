@@ -69,6 +69,13 @@ function futureValueMonthly({
   return pv * growth + monthlyContribution * ((growth - 1) / r);
 }
 
+function toRealDollars(nominal: number, annualInflation: number, years: number) {
+  if (years <= 0) return nominal;
+  const d = Math.pow(1 + annualInflation, years);
+  if (!Number.isFinite(d) || d === 0) return nominal;
+  return nominal / d;
+}
+
 export default function App() {
   const [vars, setVars] = useState<Variables>(DEFAULT_VARIABLES);
 
@@ -85,12 +92,76 @@ export default function App() {
       DEFAULT_ANCHORS.targetRetirementYear - DEFAULT_ANCHORS.baselineYear;
     const monthsToRetirement = Math.max(0, Math.round(yearsToRetirement * 12));
 
-    const fvAtRetirement = futureValueMonthly({
-      pv: baselineTotal,
-      monthlyContribution: monthlyTotal,
-      annualReturn: vars.nominalReturn,
-      months: monthsToRetirement,
-    });
+    // Split the TFSA total contribution 50/50 for now (adjust later if you want).
+    const tfsaMonthlyEach = vars.monthly.tfsaTotal / 2;
+
+    const fvByAccount = {
+      fhsaShingo: futureValueMonthly({
+        pv: vars.balances.fhsaShingo,
+        monthlyContribution: vars.monthly.fhsaShingo,
+        annualReturn: vars.expectedNominalReturn,
+        months: monthsToRetirement,
+      }),
+      fhsaSarah: futureValueMonthly({
+        pv: vars.balances.fhsaSarah,
+        monthlyContribution: vars.monthly.fhsaSarah,
+        annualReturn: vars.expectedNominalReturn,
+        months: monthsToRetirement,
+      }),
+      rrspShingo: futureValueMonthly({
+        pv: vars.balances.rrspShingo,
+        monthlyContribution: vars.monthly.rrspShingo,
+        annualReturn: vars.expectedNominalReturn,
+        months: monthsToRetirement,
+      }),
+      rrspSarah: futureValueMonthly({
+        pv: vars.balances.rrspSarah,
+        monthlyContribution: vars.monthly.rrspSarah,
+        annualReturn: vars.expectedNominalReturn,
+        months: monthsToRetirement,
+      }),
+      tfsaShingo: futureValueMonthly({
+        pv: vars.balances.tfsaShingo,
+        monthlyContribution: tfsaMonthlyEach,
+        annualReturn: vars.expectedNominalReturn,
+        months: monthsToRetirement,
+      }),
+      tfsaSarah: futureValueMonthly({
+        pv: vars.balances.tfsaSarah,
+        monthlyContribution: tfsaMonthlyEach,
+        annualReturn: vars.expectedNominalReturn,
+        months: monthsToRetirement,
+      }),
+      // Assume no ongoing contributions into locked-in/non-reg for now.
+      liraShingo: futureValueMonthly({
+        pv: vars.balances.liraShingo,
+        monthlyContribution: 0,
+        annualReturn: vars.expectedNominalReturn,
+        months: monthsToRetirement,
+      }),
+      nonRegistered: futureValueMonthly({
+        pv: vars.balances.nonRegistered,
+        monthlyContribution: 0,
+        annualReturn: vars.expectedNominalReturn,
+        months: monthsToRetirement,
+      }),
+    };
+
+    const totalNominalAtRetirement =
+      fvByAccount.fhsaShingo +
+      fvByAccount.fhsaSarah +
+      fvByAccount.rrspShingo +
+      fvByAccount.rrspSarah +
+      fvByAccount.tfsaShingo +
+      fvByAccount.tfsaSarah +
+      fvByAccount.liraShingo +
+      fvByAccount.nonRegistered;
+
+    const totalRealAtRetirement = toRealDollars(
+      totalNominalAtRetirement,
+      vars.expectedInflation,
+      yearsToRetirement
+    );
 
     return {
       yearsToRetirement,
@@ -99,9 +170,17 @@ export default function App() {
       cppAnnualAt70,
       baselineTotal,
       monthlyTotal,
-      fvAtRetirement,
+      fvByAccount,
+      totalNominalAtRetirement,
+      totalRealAtRetirement,
     };
-  }, [vars.nominalReturn, baselineTotal, monthlyTotal, pensionAnnual, cppAnnualAt70]);
+  }, [
+    vars,
+    baselineTotal,
+    monthlyTotal,
+    pensionAnnual,
+    cppAnnualAt70,
+  ]);
 
   return (
     <div style={{ maxWidth: 1080, margin: "0 auto", padding: 24 }}>
@@ -258,8 +337,7 @@ export default function App() {
         <section className="card">
           <h2>Monthly investing (current)</h2>
           <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-            From your screenshot. For now, we treat this as a single total cash
-            flow into investments.
+            Current monthly contributions by account.
           </p>
 
           <div className="grid">
@@ -331,57 +409,83 @@ export default function App() {
         </section>
 
         <section className="card">
-          <h2>Levers (things we change / stress-test)</h2>
+          <h2>Expectations (adjustable)</h2>
           <div className="grid">
-            <Field label="Retire age — Shingo">
-              <input
-                type="number"
-                value={vars.shingoRetireAge}
-                onChange={(e) =>
-                  setVars((v) => ({ ...v, shingoRetireAge: num(e.target.value) }))
-                }
-              />
-            </Field>
-            <Field label="Retire age — Sarah">
-              <input
-                type="number"
-                value={vars.sarahRetireAge}
-                onChange={(e) =>
-                  setVars((v) => ({ ...v, sarahRetireAge: num(e.target.value) }))
-                }
-              />
-            </Field>
-            <Field label="CPP start age">
-              <input
-                type="number"
-                value={vars.cppStartAge}
-                onChange={(e) =>
-                  setVars((v) => ({ ...v, cppStartAge: num(e.target.value) }))
-                }
-              />
-            </Field>
-            <Field label="OAS start age">
-              <input
-                type="number"
-                value={vars.oasStartAge}
-                onChange={(e) =>
-                  setVars((v) => ({ ...v, oasStartAge: num(e.target.value) }))
-                }
-              />
-            </Field>
-            <Field label="Nominal return assumption (e.g. 0.07 = 7%)">
+            <Field label="Expected nominal return (e.g. 0.07 = 7%)">
               <input
                 type="number"
                 step="0.001"
-                value={vars.nominalReturn}
+                value={vars.expectedNominalReturn}
                 onChange={(e) =>
-                  setVars((v) => ({ ...v, nominalReturn: num(e.target.value) }))
+                  setVars((v) => ({
+                    ...v,
+                    expectedNominalReturn: num(e.target.value),
+                  }))
+                }
+              />
+            </Field>
+            <Field label="Expected inflation (e.g. 0.02 = 2%)">
+              <input
+                type="number"
+                step="0.001"
+                value={vars.expectedInflation}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    expectedInflation: num(e.target.value),
+                  }))
                 }
               />
             </Field>
           </div>
+        </section>
 
-          <h3 style={{ marginTop: 16 }}>Spending phases (annual targets)</h3>
+        <section className="card">
+          <h2>Starting balances at retirement (projected)</h2>
+          <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
+            Nominal projections by account at retirement year (baseline →
+            retirement). TFSA contributions are split 50/50 for now.
+          </p>
+          <ul>
+            <li>
+              FHSA (Shingo): <strong>${money(snapshot.fvByAccount.fhsaShingo)}</strong>
+            </li>
+            <li>
+              FHSA (Sarah): <strong>${money(snapshot.fvByAccount.fhsaSarah)}</strong>
+            </li>
+            <li>
+              RRSP (Shingo): <strong>${money(snapshot.fvByAccount.rrspShingo)}</strong>
+            </li>
+            <li>
+              RRSP (Sarah): <strong>${money(snapshot.fvByAccount.rrspSarah)}</strong>
+            </li>
+            <li>
+              TFSA (Shingo): <strong>${money(snapshot.fvByAccount.tfsaShingo)}</strong>
+            </li>
+            <li>
+              TFSA (Sarah): <strong>${money(snapshot.fvByAccount.tfsaSarah)}</strong>
+            </li>
+            <li>
+              LIRA (Shingo): <strong>${money(snapshot.fvByAccount.liraShingo)}</strong>
+            </li>
+            <li>
+              Non-registered: <strong>${money(snapshot.fvByAccount.nonRegistered)}</strong>
+            </li>
+          </ul>
+
+          <div style={{ marginTop: 10 }}>
+            <div style={{ fontSize: 13 }}>
+              Total (nominal): <strong>${money(snapshot.totalNominalAtRetirement)}</strong>
+            </div>
+            <div style={{ fontSize: 13 }}>
+              Total (in today’s dollars, using inflation):{" "}
+              <strong>${money(snapshot.totalRealAtRetirement)}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="card">
+          <h2>Spending phases (annual targets)</h2>
           <div className="grid">
             <Field label="Go-Go (annual)">
               <input
@@ -425,9 +529,7 @@ export default function App() {
         <section className="card">
           <h2>Projection to retirement (simple v1)</h2>
           <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-            This is a simple compounding model on total investments from baseline
-            year → retirement year. Next iteration will model each account and
-            withdrawal rules.
+            Simple compounding from baseline year → retirement year.
           </p>
           <ul>
             <li>
@@ -440,11 +542,18 @@ export default function App() {
               Monthly investing (total): <strong>${money(snapshot.monthlyTotal)}</strong>
             </li>
             <li>
-              Nominal return: <strong>{(vars.nominalReturn * 100).toFixed(2)}%</strong>
+              Expected nominal return: <strong>{(vars.expectedNominalReturn * 100).toFixed(2)}%</strong>
             </li>
             <li>
-              Projected total at retirement (pre-tax, simplified):{" "}
-              <strong>${money(snapshot.fvAtRetirement)}</strong>
+              Expected inflation: <strong>{(vars.expectedInflation * 100).toFixed(2)}%</strong>
+            </li>
+            <li>
+              Total at retirement (nominal):{" "}
+              <strong>${money(snapshot.totalNominalAtRetirement)}</strong>
+            </li>
+            <li>
+              Total at retirement (today’s dollars):{" "}
+              <strong>${money(snapshot.totalRealAtRetirement)}</strong>
             </li>
           </ul>
         </section>
