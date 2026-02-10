@@ -399,6 +399,7 @@ export default function App() {
   const [vars, setVars] = useState<Variables>(DEFAULT_VARIABLES);
   const [page, setPage] = useState<"overview" | "tax" | "withdrawals">("overview");
   const [showFullSchedule, setShowFullSchedule] = useState(false);
+  const [wideLayout, setWideLayout] = useState(false);
 
   // navigation uses page tabs now
 
@@ -697,7 +698,7 @@ export default function App() {
   ];
 
   return (
-    <div style={{ maxWidth: 1080, margin: "0 auto", padding: 24 }}>
+    <div className={wideLayout ? "app wide" : "app"} style={{ maxWidth: wideLayout ? 1400 : 1080, margin: "0 auto", padding: 24 }}>
       <header style={{ marginBottom: 18 }}>
         <h1 style={{ margin: 0 }}>RetirementResource</h1>
         <p style={{ marginTop: 8, opacity: 0.85 }}>
@@ -769,10 +770,20 @@ export default function App() {
           </button>
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
-          {page === "overview" ? "Edit assumptions + see balances at retirement" : null}
-          {page === "tax" ? "Rough BC+federal tax bracket estimate" : null}
-          {page === "withdrawals" ? "Drawdown order, caps, and the schedule" : null}
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.85 }}>
+            <input
+              type="checkbox"
+              checked={wideLayout}
+              onChange={(e) => setWideLayout(e.target.checked)}
+            />
+            Wide-screen layout
+          </label>
+          <div style={{ fontSize: 12, opacity: 0.75 }}>
+            {page === "overview" ? "Edit assumptions + see balances at retirement" : null}
+            {page === "tax" ? "Rough BC+federal tax bracket estimate" : null}
+            {page === "withdrawals" ? "Drawdown order, caps, and the schedule" : null}
+          </div>
         </div>
       </nav>
 

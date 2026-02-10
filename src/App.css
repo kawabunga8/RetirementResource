@@ -16,6 +16,11 @@
   align-items: end;
 }
 
+/* Wider screens: allow more fields per row, but keep inputs compact */
+.app.wide .grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
 @media (max-width: 900px) {
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
