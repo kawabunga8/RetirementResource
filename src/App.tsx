@@ -1000,9 +1000,10 @@ export default function App() {
             ballpark sensitivity, not exact filing.
           </p>
 
-          <div className="grid">
-            <Field label="Enable estimated refund → TFSA (annual)">
+          <div className="selectRow">
+            <Field label="Refund → TFSA">
               <select
+                className="yesNoSelect"
                 value={vars.tax.enableRefundToTfsa ? "yes" : "no"}
                 onChange={(e) =>
                   setVars((v) => ({
@@ -1014,13 +1015,14 @@ export default function App() {
                   }))
                 }
               >
-                <option value="yes">Yes (add refund to TFSA once per year)</option>
+                <option value="yes">Yes</option>
                 <option value="no">No</option>
               </select>
             </Field>
 
-            <Field label="Shingo income (annual, $)">
+            <Field label="Shingo income ($/yr)">
               <input
+                className="moneyInputLg"
                 type="number"
                 value={vars.tax.shingoIncome}
                 onChange={(e) =>
@@ -1031,8 +1033,9 @@ export default function App() {
                 }
               />
             </Field>
-            <Field label="Sarah income (annual, $)">
+            <Field label="Sarah income ($/yr)">
               <input
+                className="moneyInputLg"
                 type="number"
                 value={vars.tax.sarahIncome}
                 onChange={(e) =>
