@@ -1457,7 +1457,7 @@ export default function App() {
           </div>
 
           <h3 style={{ marginTop: 14 }}>Withdrawal caps (annual, $; 0 = no cap)</h3>
-          <div className="grid">
+          <div className="selectRow">
             <Field label="FHSA cap">
               <input
                 className="moneyInputMd"
