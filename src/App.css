@@ -99,8 +99,10 @@
 /* Tighter grid for small groups of controls (e.g., FHSA facts) */
 .tightGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  /* Two compact columns that hug content instead of stretching across the card */
+  grid-template-columns: repeat(2, max-content);
+  column-gap: 16px; /* ~one tab stop */
+  row-gap: 10px;
   align-items: end;
   justify-content: start;
 }
@@ -108,6 +110,7 @@
 .tightGrid input,
 .tightGrid select {
   /* ~6 digits + a little padding */
+  width: auto;
   max-width: 10ch;
 }
 
