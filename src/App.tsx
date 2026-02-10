@@ -1544,9 +1544,10 @@ export default function App() {
           </div>
 
           <h3 style={{ marginTop: 14 }}>Benefits (annual placeholders)</h3>
-          <div className="grid">
-            <Field label="CPP (Shingo, annual)">
+          <div className="selectRow">
+            <Field label="CPP Shingo ($/yr)">
               <input
+                className="moneyInputMd"
                 type="number"
                 value={vars.withdrawals.cppShingoAnnual}
                 onChange={(e) =>
@@ -1560,8 +1561,9 @@ export default function App() {
                 }
               />
             </Field>
-            <Field label="CPP (Sarah, annual)">
+            <Field label="CPP Sarah ($/yr)">
               <input
+                className="moneyInputMd"
                 type="number"
                 value={vars.withdrawals.cppSarahAnnual}
                 onChange={(e) =>
@@ -1575,8 +1577,9 @@ export default function App() {
                 }
               />
             </Field>
-            <Field label="OAS (Shingo, annual)">
+            <Field label="OAS Shingo ($/yr)">
               <input
+                className="moneyInputMd"
                 type="number"
                 value={vars.withdrawals.oasShingoAnnual}
                 onChange={(e) =>
@@ -1590,8 +1593,9 @@ export default function App() {
                 }
               />
             </Field>
-            <Field label="OAS (Sarah, annual)">
+            <Field label="OAS Sarah ($/yr)">
               <input
+                className="moneyInputMd"
                 type="number"
                 value={vars.withdrawals.oasSarahAnnual}
                 onChange={(e) =>
