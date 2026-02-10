@@ -183,8 +183,10 @@ export const DEFAULT_VARIABLES: Variables = {
     order: ["rrsp", "lira", "nonRegistered", "tfsa", "fhsa"],
     rollFhsaIntoRrspAtRetirement: true,
 
-    // Default unknown; set this once you know your projected remaining TFSA room at retirement.
-    tfsaRoomAtRetirement: 0,
+    // Default: projected household TFSA room at retirement.
+    // Based on Jan 1 2026 remaining room ($185,547.06) + 10 years of new room at ~$7,000/yr
+    // minus planned TFSA contributions ($80/mo).
+    tfsaRoomAtRetirement: 245947.06,
     caps: {
       fhsa: 0,
       rrsp: 0,

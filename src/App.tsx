@@ -900,7 +900,7 @@ export default function App() {
               </select>
             </Field>
 
-            <Field label="TFSA room available at retirement (household, $)">
+            <Field label="TFSA room available at retirement (household, $) — used for surplus routing">
               <input
                 type="number"
                 value={vars.withdrawals.tfsaRoomAtRetirement}
