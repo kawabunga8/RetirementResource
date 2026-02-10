@@ -787,6 +787,7 @@ export default function App() {
                 type="number"
                 step="0.001"
                 value={vars.expectedNominalReturn}
+                style={{ maxWidth: 90 }}
                 onChange={(e) =>
                   setVars((v) => ({
                     ...v,
@@ -800,6 +801,7 @@ export default function App() {
                 type="number"
                 step="0.001"
                 value={vars.expectedInflation}
+                style={{ maxWidth: 90 }}
                 onChange={(e) =>
                   setVars((v) => ({
                     ...v,
