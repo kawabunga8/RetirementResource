@@ -801,7 +801,7 @@ export default function App() {
         <>
         <section id="expectations" className="card">
           <h2>Expectations (adjustable)</h2>
-          <div className="grid">
+          <div className="selectRow">
             <Field label="Expected nominal return (e.g. 0.07 = 7%)">
               <input
                 type="number"
