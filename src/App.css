@@ -32,7 +32,8 @@
 
 .tightGrid input,
 .tightGrid select {
-  max-width: 140px;
+  /* ~6 digits + a little padding */
+  max-width: 10ch;
 }
 
 @media (max-width: 520px) {
