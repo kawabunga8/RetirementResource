@@ -71,56 +71,205 @@ function futureValueMonthly({
   return pv * growth + monthlyContribution * ((growth - 1) / r);
 }
 
-function simulateWithMonthlyContribCaps({
-  pv,
-  monthlyContribution,
-  annualReturn,
-  months,
-  // Cap mechanics
-  remainingContributionRoom,
-  annualContributionLimit,
-  onOverflowMonthlyContribution,
-}: {
-  pv: number;
-  monthlyContribution: number;
+// (removed unused helper)
+
+type AccumRow = {
+  year: number;
+  fhsaContribShingo: number;
+  fhsaContribSarah: number;
+  rrspContribShingo: number;
+  rrspContribSarah: number;
+  tfsaContribTotal: number;
+  endFhsaTotal: number;
+  endRrspTotal: number;
+  endTfsaTotal: number;
+  endLira: number;
+  endTotal: number;
+};
+
+function buildAccumulationSchedule(params: {
+  baselineYear: number;
+  retirementYear: number;
   annualReturn: number;
-  months: number;
-  remainingContributionRoom: number;
-  annualContributionLimit: number;
-  // If contribution is blocked (room used up or annual limit reached), reroute that month’s amount.
-  onOverflowMonthlyContribution: (overflowMonthly: number) => void;
-}) {
-  let balance = pv;
-  let room = Math.max(0, remainingContributionRoom);
-  let annualUsed = 0;
-  const r = annualReturn / 12;
+  // starting balances
+  fhsaShingo: number;
+  fhsaSarah: number;
+  rrspShingo: number;
+  rrspSarah: number;
+  tfsaShingo: number;
+  tfsaSarah: number;
+  liraShingo: number;
+  // contributions
+  monthlyFhsaShingo: number;
+  monthlyFhsaSarah: number;
+  monthlyRrspShingo: number;
+  monthlyRrspSarah: number;
+  monthlyTfsaTotal: number;
+  // FHSA caps
+  fhsaAnnualLimit: number;
+  fhsaLifetimeCap: number;
+  fhsaContributedToDateShingo: number;
+  fhsaContributedToDateSarah: number;
+}): AccumRow[] {
+  const years = Math.max(0, params.retirementYear - params.baselineYear);
+  const months = years * 12;
+  const r = params.annualReturn / 12;
+
+  // balances
+  let fhsaS = params.fhsaShingo;
+  let fhsaSa = params.fhsaSarah;
+  let rrspS = params.rrspShingo;
+  let rrspSa = params.rrspSarah;
+  let tfsaS = params.tfsaShingo;
+  let tfsaSa = params.tfsaSarah;
+  let lira = params.liraShingo;
+
+  // FHSA remaining contribution room (lifetime) from facts
+  let roomFhsaS = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateShingo);
+  let roomFhsaSa = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateSarah);
+
+  // annual tracking (per calendar year)
+  let fhsaAnnualUsedS = 0;
+  let fhsaAnnualUsedSa = 0;
+
+  const rows: AccumRow[] = [];
 
   for (let m = 0; m < months; m++) {
-    // reset annual counter each 12 months
-    if (m % 12 === 0) annualUsed = 0;
+    const yearIndex = Math.floor(m / 12);
+    const year = params.baselineYear + yearIndex;
 
-    let contrib = monthlyContribution;
+    // reset annual used at Jan
+    if (m % 12 === 0) {
+      fhsaAnnualUsedS = 0;
+      fhsaAnnualUsedSa = 0;
+    }
 
-    // enforce annual limit
-    const annualRemaining = Math.max(0, annualContributionLimit - annualUsed);
-    contrib = Math.min(contrib, annualRemaining);
+    // planned TFSA split
+    const tfsaEach = params.monthlyTfsaTotal / 2;
 
-    // enforce lifetime room
-    contrib = Math.min(contrib, room);
+    // planned RRSP
+    let rrspContribS = params.monthlyRrspShingo;
+    let rrspContribSa = params.monthlyRrspSarah;
 
-    // If we can’t contribute the full planned amount, reroute the difference
-    const overflow = monthlyContribution - contrib;
-    if (overflow > 0) onOverflowMonthlyContribution(overflow);
+    // FHSA Shingo with caps; overflow -> RRSP (same person)
+    let fhsaContribS = params.monthlyFhsaShingo;
+    fhsaContribS = Math.min(fhsaContribS, Math.max(0, params.fhsaAnnualLimit - fhsaAnnualUsedS));
+    fhsaContribS = Math.min(fhsaContribS, roomFhsaS);
+    const overflowS = params.monthlyFhsaShingo - fhsaContribS;
+    if (overflowS > 0) rrspContribS += overflowS;
 
-    balance += contrib;
-    annualUsed += contrib;
-    room -= contrib;
+    // FHSA Sarah with caps; overflow -> RRSP (same person)
+    let fhsaContribSa = params.monthlyFhsaSarah;
+    fhsaContribSa = Math.min(
+      fhsaContribSa,
+      Math.max(0, params.fhsaAnnualLimit - fhsaAnnualUsedSa)
+    );
+    fhsaContribSa = Math.min(fhsaContribSa, roomFhsaSa);
+    const overflowSa = params.monthlyFhsaSarah - fhsaContribSa;
+    if (overflowSa > 0) rrspContribSa += overflowSa;
+
+    // apply contributions
+    fhsaS += fhsaContribS;
+    fhsaSa += fhsaContribSa;
+    rrspS += rrspContribS;
+    rrspSa += rrspContribSa;
+    tfsaS += tfsaEach;
+    tfsaSa += tfsaEach;
+
+    // update cap trackers
+    fhsaAnnualUsedS += fhsaContribS;
+    fhsaAnnualUsedSa += fhsaContribSa;
+    roomFhsaS -= fhsaContribS;
+    roomFhsaSa -= fhsaContribSa;
 
     // growth
-    balance *= 1 + r;
+    fhsaS *= 1 + r;
+    fhsaSa *= 1 + r;
+    rrspS *= 1 + r;
+    rrspSa *= 1 + r;
+    tfsaS *= 1 + r;
+    tfsaSa *= 1 + r;
+    lira *= 1 + r;
+
+    // record end-of-year snapshot
+    const endOfYear = (m % 12) === 11;
+    if (endOfYear) {
+      const endFhsaTotal = fhsaS + fhsaSa;
+      const endRrspTotal = rrspS + rrspSa;
+      const endTfsaTotal = tfsaS + tfsaSa;
+      const endTotal = endFhsaTotal + endRrspTotal + endTfsaTotal + lira;
+
+      // compute that year's actual contributions (approx: 12 * monthly, but w/ caps)
+      // We'll estimate from annual used values.
+      rows.push({
+        year,
+        fhsaContribShingo: fhsaAnnualUsedS,
+        fhsaContribSarah: fhsaAnnualUsedSa,
+        rrspContribShingo: 0, // filled below
+        rrspContribSarah: 0,
+        tfsaContribTotal: params.monthlyTfsaTotal * 12,
+        endFhsaTotal,
+        endRrspTotal,
+        endTfsaTotal,
+        endLira: lira,
+        endTotal,
+      });
+    }
   }
 
-  return balance;
+  // Fill RRSP annual contributions by diffing year to year using a second pass simulation for totals is heavy.
+  // For v1 display, approximate RRSP annual contributions as:
+  // base RRSP + FHSA overflow (capped months)
+  // We'll recompute per year quickly by simulating only contribution logic (no growth) across months.
+  // (Good enough to explain “why RRSP looks high”.)
+  {
+    let roomS = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateShingo);
+    let roomSa = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateSarah);
+    let usedS = 0;
+    let usedSa = 0;
+    let fhsaAnnualUsedS = 0;
+    let fhsaAnnualUsedSa = 0;
+
+    for (let y = 0; y < years; y++) {
+      fhsaAnnualUsedS = 0;
+      fhsaAnnualUsedSa = 0;
+      let rrspAnnualS = 0;
+      let rrspAnnualSa = 0;
+
+      for (let mm = 0; mm < 12; mm++) {
+        // Shingo FHSA contrib
+        let cS = params.monthlyFhsaShingo;
+        cS = Math.min(cS, Math.max(0, params.fhsaAnnualLimit - fhsaAnnualUsedS));
+        cS = Math.min(cS, roomS);
+        const overflowS = params.monthlyFhsaShingo - cS;
+
+        // Sarah FHSA contrib
+        let cSa = params.monthlyFhsaSarah;
+        cSa = Math.min(cSa, Math.max(0, params.fhsaAnnualLimit - fhsaAnnualUsedSa));
+        cSa = Math.min(cSa, roomSa);
+        const overflowSa = params.monthlyFhsaSarah - cSa;
+
+        rrspAnnualS += params.monthlyRrspShingo + overflowS;
+        rrspAnnualSa += params.monthlyRrspSarah + overflowSa;
+
+        fhsaAnnualUsedS += cS;
+        fhsaAnnualUsedSa += cSa;
+        roomS -= cS;
+        roomSa -= cSa;
+      }
+
+      const row = rows[y];
+      if (row) {
+        row.rrspContribShingo = rrspAnnualS;
+        row.rrspContribSarah = rrspAnnualSa;
+      }
+
+      usedS += fhsaAnnualUsedS;
+      usedSa += fhsaAnnualUsedSa;
+    }
+  }
+
+  return rows;
 }
 
 function toRealDollars(nominal: number, annualInflation: number, years: number) {
@@ -271,98 +420,43 @@ export default function App() {
       DEFAULT_ANCHORS.targetRetirementYear - DEFAULT_ANCHORS.baselineYear;
     const monthsToRetirement = Math.max(0, Math.round(yearsToRetirement * 12));
 
-    // Split the TFSA total contribution 50/50 for now.
-    const tfsaMonthlyEach = vars.monthly.tfsaTotal / 2;
-
-    // FHSA caps: contributions cannot exceed annual limit or lifetime cap.
-    // When FHSA is capped, we redirect the blocked monthly amount into RRSP (same person).
-    let rrspMonthlyShingo = vars.monthly.rrspShingo;
-    let rrspMonthlySarah = vars.monthly.rrspSarah;
-
-    const fhsaRemainingRoomShingo = Math.max(
-      0,
-      vars.fhsa.lifetimeCap - vars.fhsa.contributedShingo
-    );
-    const fhsaRemainingRoomSarah = Math.max(
-      0,
-      vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah
-    );
-
-    const fhsaShingo = simulateWithMonthlyContribCaps({
-      pv: vars.balances.fhsaShingo,
-      monthlyContribution: vars.monthly.fhsaShingo,
+    const accumulationSchedule = buildAccumulationSchedule({
+      baselineYear: DEFAULT_ANCHORS.baselineYear,
+      retirementYear: DEFAULT_ANCHORS.targetRetirementYear,
       annualReturn: vars.expectedNominalReturn,
-      months: monthsToRetirement,
-      remainingContributionRoom: fhsaRemainingRoomShingo,
-      annualContributionLimit: vars.fhsa.annualLimit,
-      onOverflowMonthlyContribution: (overflow) => {
-        rrspMonthlyShingo += overflow;
-      },
+      fhsaShingo: vars.balances.fhsaShingo,
+      fhsaSarah: vars.balances.fhsaSarah,
+      rrspShingo: vars.balances.rrspShingo,
+      rrspSarah: vars.balances.rrspSarah,
+      tfsaShingo: vars.balances.tfsaShingo,
+      tfsaSarah: vars.balances.tfsaSarah,
+      liraShingo: vars.balances.liraShingo,
+      monthlyFhsaShingo: vars.monthly.fhsaShingo,
+      monthlyFhsaSarah: vars.monthly.fhsaSarah,
+      monthlyRrspShingo: vars.monthly.rrspShingo,
+      monthlyRrspSarah: vars.monthly.rrspSarah,
+      monthlyTfsaTotal: vars.monthly.tfsaTotal,
+      fhsaAnnualLimit: vars.fhsa.annualLimit,
+      fhsaLifetimeCap: vars.fhsa.lifetimeCap,
+      fhsaContributedToDateShingo: vars.fhsa.contributedShingo,
+      fhsaContributedToDateSarah: vars.fhsa.contributedSarah,
     });
 
-    const rrspShingo = futureValueMonthly({
-      pv: vars.balances.rrspShingo,
-      monthlyContribution: rrspMonthlyShingo,
+    const lastAccum = accumulationSchedule[accumulationSchedule.length - 1];
+
+    const nonRegisteredAtRetirement = futureValueMonthly({
+      pv: vars.balances.nonRegistered,
+      monthlyContribution: 0,
       annualReturn: vars.expectedNominalReturn,
       months: monthsToRetirement,
     });
-
-    const fhsaSarah = simulateWithMonthlyContribCaps({
-      pv: vars.balances.fhsaSarah,
-      monthlyContribution: vars.monthly.fhsaSarah,
-      annualReturn: vars.expectedNominalReturn,
-      months: monthsToRetirement,
-      remainingContributionRoom: fhsaRemainingRoomSarah,
-      annualContributionLimit: vars.fhsa.annualLimit,
-      onOverflowMonthlyContribution: (overflow) => {
-        rrspMonthlySarah += overflow;
-      },
-    });
-
-    const rrspSarah = futureValueMonthly({
-      pv: vars.balances.rrspSarah,
-      monthlyContribution: rrspMonthlySarah,
-      annualReturn: vars.expectedNominalReturn,
-      months: monthsToRetirement,
-    });
-
-    const atRetirementByAccount = {
-      fhsaShingo,
-      fhsaSarah,
-      rrspShingo,
-      rrspSarah,
-      tfsaShingo: futureValueMonthly({
-        pv: vars.balances.tfsaShingo,
-        monthlyContribution: tfsaMonthlyEach,
-        annualReturn: vars.expectedNominalReturn,
-        months: monthsToRetirement,
-      }),
-      tfsaSarah: futureValueMonthly({
-        pv: vars.balances.tfsaSarah,
-        monthlyContribution: tfsaMonthlyEach,
-        annualReturn: vars.expectedNominalReturn,
-        months: monthsToRetirement,
-      }),
-      liraShingo: futureValueMonthly({
-        pv: vars.balances.liraShingo,
-        monthlyContribution: 0,
-        annualReturn: vars.expectedNominalReturn,
-        months: monthsToRetirement,
-      }),
-      nonRegistered: futureValueMonthly({
-        pv: vars.balances.nonRegistered,
-        monthlyContribution: 0,
-        annualReturn: vars.expectedNominalReturn,
-        months: monthsToRetirement,
-      }),
-    };
 
     let retirementBalances: RetirementBalances = {
-      fhsa: atRetirementByAccount.fhsaShingo + atRetirementByAccount.fhsaSarah,
-      rrsp: atRetirementByAccount.rrspShingo + atRetirementByAccount.rrspSarah,
-      tfsa: atRetirementByAccount.tfsaShingo + atRetirementByAccount.tfsaSarah,
-      lira: atRetirementByAccount.liraShingo,
-      nonRegistered: atRetirementByAccount.nonRegistered,
+      fhsa: lastAccum?.endFhsaTotal ?? 0,
+      rrsp: lastAccum?.endRrspTotal ?? 0,
+      tfsa: lastAccum?.endTfsaTotal ?? 0,
+      lira: lastAccum?.endLira ?? 0,
+      nonRegistered: nonRegisteredAtRetirement,
     };
 
     // Optional: roll FHSA into RRSP at retirement (common if not used for a home purchase).
@@ -574,6 +668,7 @@ export default function App() {
       monthsToRetirement,
       baselineTotal,
       monthlyTotal,
+      accumulationSchedule,
       retirementBalances,
       totalNominalAtRetirement,
       totalRealAtRetirement,
@@ -773,6 +868,10 @@ export default function App() {
 
         <section id="retirement-balances" className="card">
           <h2>Starting balances at retirement (projected)</h2>
+          <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
+            This is calculated by simulating contributions month-by-month from {DEFAULT_ANCHORS.baselineYear} to {DEFAULT_ANCHORS.targetRetirementYear},
+            including FHSA annual/lifetime caps and redirecting any capped FHSA contribution into RRSP.
+          </p>
           <ul>
             <li>
               FHSA (household): <strong>${money(model.retirementBalances.fhsa)}</strong>
@@ -798,6 +897,58 @@ export default function App() {
               Total (in today’s dollars):{" "}
               <strong>${money(model.totalRealAtRetirement)}</strong>
             </div>
+          </div>
+
+          <h3 style={{ marginTop: 14 }}>Accumulation table (years leading up to retirement)</h3>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr>
+                  {[
+                    "Year",
+                    "FHSA contrib Shingo ($/yr)",
+                    "FHSA contrib Sarah ($/yr)",
+                    "RRSP contrib Shingo ($/yr)",
+                    "RRSP contrib Sarah ($/yr)",
+                    "TFSA contrib household ($/yr)",
+                    "End FHSA total ($)",
+                    "End RRSP total ($)",
+                    "End TFSA total ($)",
+                    "End LIRA ($)",
+                    "End total ($)",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        textAlign: "right",
+                        padding: "6px 8px",
+                        borderBottom: "1px solid #e5e7eb",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {model.accumulationSchedule.map((r) => (
+                  <tr key={r.year}>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.year}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.fhsaContribShingo)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.fhsaContribSarah)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.rrspContribShingo)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.rrspContribSarah)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.tfsaContribTotal)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.endFhsaTotal)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.endRrspTotal)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.endTfsaTotal)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.endLira)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.endTotal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </section>
 
