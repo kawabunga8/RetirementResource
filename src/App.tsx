@@ -1061,7 +1061,34 @@ export default function App() {
             chosen target age.
           </p>
 
+          <h3 style={{ marginTop: 14 }}>Phases (ages + spending targets)</h3>
           <div className="grid">
+            <Field label="Go-Go ends at age">
+              <input
+                type="number"
+                value={vars.phaseAges.goGoEndAge}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    phaseAges: { ...v.phaseAges, goGoEndAge: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+
+            <Field label="Slow-Go ends at age">
+              <input
+                type="number"
+                value={vars.phaseAges.slowGoEndAge}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    phaseAges: { ...v.phaseAges, slowGoEndAge: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+
             <Field label="Life expectancy / end age (plan stops here)">
               <input
                 type="number"
@@ -1075,6 +1102,48 @@ export default function App() {
               />
             </Field>
 
+            <Field label="Go-Go spending target (annual, $)">
+              <input
+                type="number"
+                value={vars.spending.goGo}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    spending: { ...v.spending, goGo: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+
+            <Field label="Slow-Go spending target (annual, $)">
+              <input
+                type="number"
+                value={vars.spending.slowGo}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    spending: { ...v.spending, slowGo: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+
+            <Field label="No-Go spending target (annual, $)">
+              <input
+                type="number"
+                value={vars.spending.noGo}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    spending: { ...v.spending, noGo: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+          </div>
+
+          <h3 style={{ marginTop: 14 }}>Withdrawals (rules)</h3>
+          <div className="grid">
             <Field label="Allow TFSA withdrawals">
               <select
                 value={vars.withdrawals.allowTfsa ? "yes" : "no"}
