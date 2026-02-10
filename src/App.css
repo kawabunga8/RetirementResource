@@ -28,12 +28,28 @@
 }
 
 .yesNoSelect {
-  max-width: 6ch;
+  /* fits “Yes” / “No” with a little breathing room */
+  max-width: 8ch;
 }
 
-.moneyInput {
-  /* big-ish dollar values but not huge; fits e.g. 245947.06 */
-  max-width: 12ch;
+.lifModeSelect {
+  /* fits “Maximum” */
+  max-width: 10ch;
+}
+
+.moneyInputLg {
+  /* fits e.g. 245947.06 (6 digits + decimal) */
+  max-width: 11ch;
+}
+
+.moneyInputSm {
+  /* fits e.g. 14000 */
+  max-width: 8ch;
+}
+
+.moneyInputMd {
+  /* fits typical annual benefit amounts, caps, etc. */
+  max-width: 9ch;
 }
 
 @media (max-width: 640px) {

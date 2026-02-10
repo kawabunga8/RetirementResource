@@ -1343,7 +1343,7 @@ export default function App() {
 
             <Field label="TFSA room available at retirement (household, $) — used for surplus routing">
               <input
-                className="moneyInput"
+                className="moneyInputLg"
                 type="number"
                 value={vars.withdrawals.tfsaRoomAtRetirement}
                 onChange={(e) =>
@@ -1360,7 +1360,7 @@ export default function App() {
 
             <Field label="New TFSA room per year in retirement (household, $/yr)">
               <input
-                className="moneyInput"
+                className="moneyInputSm"
                 type="number"
                 value={vars.withdrawals.tfsaNewRoomPerYear}
                 onChange={(e) =>
@@ -1393,7 +1393,7 @@ export default function App() {
               })`}
             >
               <select
-                className="compactSelect"
+                className="lifModeSelect"
                 value={vars.withdrawals.lifMode}
                 onChange={(e) =>
                   setVars((v) => ({
@@ -1457,7 +1457,7 @@ export default function App() {
           <div className="grid">
             <Field label="FHSA cap">
               <input
-                className="compactNumber"
+                className="moneyInputMd"
                 type="number"
                 value={vars.withdrawals.caps.fhsa}
                 onChange={(e) =>
@@ -1473,7 +1473,7 @@ export default function App() {
             </Field>
             <Field label="RRSP/RRIF cap">
               <input
-                className="compactNumber"
+                className="moneyInputMd"
                 type="number"
                 value={vars.withdrawals.caps.rrsp}
                 onChange={(e) =>
@@ -1489,7 +1489,7 @@ export default function App() {
             </Field>
             <Field label="LIRA/LIF cap">
               <input
-                className="compactNumber"
+                className="moneyInputMd"
                 type="number"
                 value={vars.withdrawals.caps.lira}
                 onChange={(e) =>
@@ -1505,7 +1505,7 @@ export default function App() {
             </Field>
             <Field label="Non-reg cap">
               <input
-                className="compactNumber"
+                className="moneyInputMd"
                 type="number"
                 value={vars.withdrawals.caps.nonRegistered}
                 onChange={(e) =>
@@ -1524,7 +1524,7 @@ export default function App() {
             </Field>
             <Field label="TFSA cap">
               <input
-                className="compactNumber"
+                className="moneyInputMd"
                 type="number"
                 value={vars.withdrawals.caps.tfsa}
                 onChange={(e) =>
