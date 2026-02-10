@@ -61,11 +61,14 @@ export type WithdrawalOrder =
   | "tfsa"
   | "nonRegistered";
 
+export type LifMode = "min" | "mid" | "max";
+
 export type WithdrawalPlan = {
   // In v1 we fill the annual income gap using this priority order.
   order: WithdrawalOrder[];
 
   // Annual caps (0 = no cap)
+  // NOTE: LIRA/LIF is special: cap can be calculated from balance using lifMode.
   caps: {
     fhsa: number;
     rrsp: number;
@@ -73,6 +76,9 @@ export type WithdrawalPlan = {
     tfsa: number;
     nonRegistered: number;
   };
+
+  // LIF behavior (BC): min/mid/max option (v1 uses a simplified approximation).
+  lifMode: LifMode;
 
   // Optional: treat TFSA as “preserve unless needed”
   allowTfsa: boolean;
@@ -162,6 +168,8 @@ export const DEFAULT_VARIABLES: Variables = {
       tfsa: 0,
       nonRegistered: 0,
     },
+    // Default requested: BC maximum (v1 approximation)
+    lifMode: "max",
     allowTfsa: false,
 
     // placeholders (we’ll compute these from rules later; for now editable)

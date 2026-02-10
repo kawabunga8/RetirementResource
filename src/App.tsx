@@ -7,6 +7,7 @@ import {
   type MonthlyContributions,
   type Variables,
   type WithdrawalOrder,
+  type LifMode,
 } from "./planDefaults";
 
 function Field({
@@ -103,6 +104,55 @@ function withdrawFrom(
     remainingNeed: amount - withdrawn,
     newBalance: balance - withdrawn,
   };
+}
+
+function rrifMinFactor(age: number) {
+  // Canada RRIF minimum factors:
+  // - age <= 70: 1 / (90 - age)
+  // - age >= 71: prescribed table
+  if (age <= 0) return 0;
+  if (age <= 70) return 1 / (90 - age);
+
+  const table: Record<number, number> = {
+    71: 0.0528,
+    72: 0.054,
+    73: 0.0553,
+    74: 0.0567,
+    75: 0.0582,
+    76: 0.0598,
+    77: 0.0617,
+    78: 0.0636,
+    79: 0.0658,
+    80: 0.0682,
+    81: 0.0708,
+    82: 0.0738,
+    83: 0.0771,
+    84: 0.0808,
+    85: 0.0851,
+    86: 0.0899,
+    87: 0.0955,
+    88: 0.1021,
+    89: 0.1099,
+    90: 0.1192,
+    91: 0.1306,
+    92: 0.1449,
+    93: 0.1634,
+    94: 0.1879,
+    95: 0.2,
+  };
+
+  if (age >= 95) return 0.2;
+  return table[age] ?? (1 / (90 - 70));
+}
+
+function lifFactorApprox(age: number, mode: LifMode) {
+  // NOTE: This is a simplified approximation to support the UI right now.
+  // Min is modeled as RRIF minimum factor; Max is modeled as ~2x min (capped at 20%).
+  const minF = rrifMinFactor(age);
+  const maxF = Math.min(0.2, minF * 2);
+  if (mode === "min") return minF;
+  if (mode === "max") return maxF;
+  return (minF + maxF) / 2;
 }
 
 export default function App() {
@@ -272,7 +322,13 @@ export default function App() {
           balances.rrsp = r.newBalance;
           gap = r.remainingNeed;
         } else if (src === "lira") {
-          const r = withdrawFrom(gap, balances.lira, vars.withdrawals.caps.lira);
+          // LIF cap: use BC mode (min/mid/max). If user entered an explicit cap,
+          // we apply the tighter (smaller) of the two.
+          const lifCap = balances.lira * lifFactorApprox(ageShingo, vars.withdrawals.lifMode);
+          const explicitCap = vars.withdrawals.caps.lira;
+          const cap = explicitCap > 0 ? Math.min(explicitCap, lifCap) : lifCap;
+
+          const r = withdrawFrom(gap, balances.lira, cap);
           withdrawals.lira += r.withdrawn;
           balances.lira = r.newBalance;
           gap = r.remainingNeed;
@@ -604,7 +660,33 @@ export default function App() {
             </Field>
           </div>
 
-          <h3 style={{ marginTop: 14 }}>Withdrawal caps (annual, 0 = no cap)</h3>
+          <h3 style={{ marginTop: 14 }}>LIF withdrawal setting (BC)</h3>
+          <div className="grid">
+            <Field label="LIF mode (default: BC maximum)">
+              <select
+                value={vars.withdrawals.lifMode}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      lifMode: e.target.value as LifMode,
+                    },
+                  }))
+                }
+              >
+                <option value="max">Maximum</option>
+                <option value="mid">Mid</option>
+                <option value="min">Minimum</option>
+              </select>
+            </Field>
+            <div style={{ fontSize: 12, opacity: 0.75, alignSelf: "end" }}>
+              Applied as an annual cap on LIRA/LIF withdrawals. (Currently a v1
+              approximation; we can swap to exact BC rules next.)
+            </div>
+          </div>
+
+          <h3 style={{ marginTop: 14 }}>Withdrawal caps (annual, $; 0 = no cap)</h3>
           <div className="grid">
             <Field label="FHSA cap">
               <input
