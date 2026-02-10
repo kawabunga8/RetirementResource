@@ -2,6 +2,11 @@
   margin: 0;
 }
 
+.app {
+  /* Prevent horizontal page scroll; tables use their own scroll containers. */
+  overflow-x: hidden;
+}
+
 .card {
   background: white;
   border: 1px solid #e5e7eb;

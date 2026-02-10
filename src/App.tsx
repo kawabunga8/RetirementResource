@@ -698,7 +698,16 @@ export default function App() {
   ];
 
   return (
-    <div className={wideLayout ? "app wide" : "app"} style={{ maxWidth: wideLayout ? 1400 : 1080, margin: "0 auto", padding: 24 }}>
+    <div
+      className={wideLayout ? "app wide" : "app"}
+      style={{
+        width: "100%",
+        // Wide layout should still fit within the viewport; only tables should scroll.
+        maxWidth: wideLayout ? 1200 : 1080,
+        margin: "0 auto",
+        padding: 24,
+      }}
+    >
       <header style={{ marginBottom: 18 }}>
         <h1 style={{ margin: 0 }}>RetirementResource</h1>
         <p style={{ marginTop: 8, opacity: 0.85 }}>
