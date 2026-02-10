@@ -1622,37 +1622,42 @@ export default function App() {
               <thead>
                 <tr>
                   {[
-                    "Year",
-                    "Age Shingo",
-                    "Age Sarah",
-                    "Phase",
-                    "Target spending (annual, $)",
-                    "Pensions (annual, $)",
-                    "CPP/OAS (annual, $)",
-                    "Spending gap to fund (annual, $)",
-                    "Withdraw: FHSA ($)",
-                    "Withdraw: RRSP/RRIF ($)",
-                    "Withdraw: LIRA/LIF ($)",
-                    "Withdraw: Non-registered ($)",
-                    "Withdraw: TFSA ($)",
-                    "Forced LIF (part of LIRA/LIF, $)",
-                    "Forced RRIF extra (part of RRSP, $)",
-                    "Surplus → TFSA (invested, $)",
-                    "Surplus → NonReg (invested, $)",
-                    "End balance total (after growth, $)",
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      style={{
-                        textAlign: "right",
-                        padding: "6px 8px",
-                        borderBottom: "1px solid #e5e7eb",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
+                    ["Year", ""],
+                    ["Age", "Shingo"],
+                    ["Age", "Sarah"],
+                    ["Phase", ""],
+                    ["Spend", "$/yr"],
+                    ["Pension", "$/yr"],
+                    ["CPP+OAS", "$/yr"],
+                    ["Gap", "$/yr"],
+                    ["W/d", "FHSA"],
+                    ["W/d", "RRSP"],
+                    ["W/d", "LIF"],
+                    ["W/d", "NonReg"],
+                    ["W/d", "TFSA"],
+                    ["Forced", "LIF"],
+                    ["Forced", "RRIF"],
+                    ["Surplus→", "TFSA"],
+                    ["Surplus→", "NonReg"],
+                    ["End bal", "$"],
+                  ].map(([top, bottom]) => {
+                    const key = `${top}-${bottom}`;
+                    return (
+                      <th
+                        key={key}
+                        style={{
+                          textAlign: "right",
+                          padding: "6px 8px",
+                          borderBottom: "1px solid #e5e7eb",
+                          whiteSpace: "nowrap",
+                          lineHeight: 1.1,
+                        }}
+                      >
+                        <div>{top}</div>
+                        {bottom ? <div style={{ fontSize: 11, opacity: 0.8 }}>{bottom}</div> : null}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
