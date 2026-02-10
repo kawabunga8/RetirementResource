@@ -50,8 +50,9 @@
 }
 
 .lifModeSelect {
-  /* fits “max” / “mid” / “min” */
-  max-width: 8ch;
+  /* fits “max” / “mid” / “min” + dropdown arrow */
+  min-width: 7ch;
+  max-width: 9ch;
 }
 
 .prioritySelect {
