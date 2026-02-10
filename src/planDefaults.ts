@@ -80,6 +80,9 @@ export type WithdrawalPlan = {
   // LIF behavior (BC): min/mid/max option (v1 uses a simplified approximation).
   lifMode: LifMode;
 
+  // RRIF depletion target (age)
+  rrifDepleteByAge: number;
+
   // Optional: treat TFSA as “preserve unless needed”
   allowTfsa: boolean;
 
@@ -88,6 +91,12 @@ export type WithdrawalPlan = {
   cppSarahAnnual: number;
   oasShingoAnnual: number;
   oasSarahAnnual: number;
+};
+
+export type TaxInputs = {
+  // Simple income-based tax estimate (federal + BC), pre-credits.
+  shingoIncome: number;
+  sarahIncome: number;
 };
 
 export type Variables = {
@@ -109,6 +118,9 @@ export type Variables = {
 
   // Withdrawals (retirement)
   withdrawals: WithdrawalPlan;
+
+  // Taxes (simple estimator inputs)
+  tax: TaxInputs;
 
   // Baseline balances (as-of baselineYear snapshot)
   balances: AccountBalances;
@@ -170,6 +182,11 @@ export const DEFAULT_VARIABLES: Variables = {
     },
     // Default requested: BC maximum (v1 approximation)
     lifMode: "max",
+
+    // RRIF depletion target (age) — planning lever
+    // (v1: used for display only; enforcement comes next)
+    rrifDepleteByAge: 75,
+
     allowTfsa: false,
 
     // placeholders (we’ll compute these from rules later; for now editable)
@@ -177,6 +194,11 @@ export const DEFAULT_VARIABLES: Variables = {
     cppSarahAnnual: 0,
     oasShingoAnnual: 0,
     oasSarahAnnual: 0,
+  },
+
+  tax: {
+    shingoIncome: 100000,
+    sarahIncome: 100000,
   },
 
   balances: {

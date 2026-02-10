@@ -155,6 +155,52 @@ function lifFactorApprox(age: number, mode: LifMode) {
   return (minF + maxF) / 2;
 }
 
+function progressiveTax(income: number, brackets: Array<{ upTo: number; rate: number }>) {
+  // brackets are ascending, last bracket should have upTo = Infinity
+  let remaining = Math.max(0, income);
+  let lastCap = 0;
+  let tax = 0;
+
+  for (const b of brackets) {
+    const cap = b.upTo;
+    const width = cap === Infinity ? remaining : Math.max(0, Math.min(remaining, cap - lastCap));
+    tax += width * b.rate;
+    remaining -= width;
+    lastCap = cap === Infinity ? lastCap : cap;
+    if (remaining <= 0) break;
+  }
+
+  return tax;
+}
+
+function estimateFederalTaxCanada(income: number) {
+  // Approximate current-style brackets; excludes BPA/credits/surtaxes.
+  return progressiveTax(income, [
+    { upTo: 55867, rate: 0.15 },
+    { upTo: 111733, rate: 0.205 },
+    { upTo: 173205, rate: 0.26 },
+    { upTo: 246752, rate: 0.29 },
+    { upTo: Infinity, rate: 0.33 },
+  ]);
+}
+
+function estimateBCTax(income: number) {
+  // Approximate BC brackets; excludes BC credits.
+  return progressiveTax(income, [
+    { upTo: 45654, rate: 0.0506 },
+    { upTo: 91310, rate: 0.077 },
+    { upTo: 104835, rate: 0.105 },
+    { upTo: 127299, rate: 0.1229 },
+    { upTo: 172602, rate: 0.147 },
+    { upTo: 240716, rate: 0.168 },
+    { upTo: Infinity, rate: 0.205 },
+  ]);
+}
+
+function estimateTaxBCCanada(income: number) {
+  return estimateFederalTaxCanada(income) + estimateBCTax(income);
+}
+
 export default function App() {
   const [vars, setVars] = useState<Variables>(DEFAULT_VARIABLES);
 
@@ -440,6 +486,7 @@ export default function App() {
         <button type="button" className="linkBtn" onClick={() => scrollTo("expectations")}>Expectations</button>
         <button type="button" className="linkBtn" onClick={() => scrollTo("retirement-balances")}>Balances @ Retirement</button>
         <button type="button" className="linkBtn" onClick={() => scrollTo("withdrawals")}>Withdrawal Schedule</button>
+        <button type="button" className="linkBtn" onClick={() => scrollTo("tax")}>Tax estimate</button>
       </nav>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
@@ -503,6 +550,62 @@ export default function App() {
               <strong>${money(model.totalRealAtRetirement)}</strong>
             </div>
           </div>
+        </section>
+
+        <section id="tax" className="card">
+          <h2>Tax estimate (simple, BC + federal)</h2>
+          <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
+            This is a rough estimator using progressive brackets and <strong>no credits</strong>
+            (no BPA, age amount, pension credit, splitting, etc.). It’s useful for
+            ballpark sensitivity, not exact filing.
+          </p>
+
+          <div className="grid">
+            <Field label="Shingo income (annual, $)">
+              <input
+                type="number"
+                value={vars.tax.shingoIncome}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    tax: { ...v.tax, shingoIncome: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+            <Field label="Sarah income (annual, $)">
+              <input
+                type="number"
+                value={vars.tax.sarahIncome}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    tax: { ...v.tax, sarahIncome: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+          </div>
+
+          {(() => {
+            const taxShingo = estimateTaxBCCanada(vars.tax.shingoIncome);
+            const taxSarah = estimateTaxBCCanada(vars.tax.sarahIncome);
+            const netShingo = vars.tax.shingoIncome - taxShingo;
+            const netSarah = vars.tax.sarahIncome - taxSarah;
+            return (
+              <ul style={{ marginTop: 10 }}>
+                <li>
+                  Shingo tax est.: <strong>${money(taxShingo)}</strong> | After-tax: <strong>${money(netShingo)}</strong>
+                </li>
+                <li>
+                  Sarah tax est.: <strong>${money(taxSarah)}</strong> | After-tax: <strong>${money(netSarah)}</strong>
+                </li>
+                <li>
+                  Household tax est.: <strong>${money(taxShingo + taxSarah)}</strong> | Household after-tax: <strong>${money(netShingo + netSarah)}</strong>
+                </li>
+              </ul>
+            );
+          })()}
         </section>
 
         <section id="withdrawals" className="card">
@@ -680,9 +783,26 @@ export default function App() {
                 <option value="min">Minimum</option>
               </select>
             </Field>
+
+            <Field label="Target RRIF depletion age">
+              <input
+                type="number"
+                value={vars.withdrawals.rrifDepleteByAge}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      rrifDepleteByAge: num(e.target.value),
+                    },
+                  }))
+                }
+              />
+            </Field>
+
             <div style={{ fontSize: 12, opacity: 0.75, alignSelf: "end" }}>
-              Applied as an annual cap on LIRA/LIF withdrawals. (Currently a v1
-              approximation; we can swap to exact BC rules next.)
+              LIF mode is applied as an annual cap on LIRA/LIF withdrawals.
+              RRIF depletion age is a planning target (v1: not enforced yet).
             </div>
           </div>
 
