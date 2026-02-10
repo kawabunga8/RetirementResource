@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "update:public-rules": "node scripts/update-public-rules.mjs",
+    "prebuild": "npm run update:public-rules",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
