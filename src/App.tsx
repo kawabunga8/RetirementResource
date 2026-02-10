@@ -1386,10 +1386,10 @@ export default function App() {
             <Field
               label={`LIF mode (current: ${
                 vars.withdrawals.lifMode === "max"
-                  ? "Maximum"
+                  ? "max"
                   : vars.withdrawals.lifMode === "mid"
-                    ? "Mid"
-                    : "Minimum"
+                    ? "mid"
+                    : "min"
               })`}
             >
               <select
@@ -1405,9 +1405,9 @@ export default function App() {
                   }))
                 }
               >
-                <option value="max">Maximum</option>
-                <option value="mid">Mid</option>
-                <option value="min">Minimum</option>
+                <option value="max">max</option>
+                <option value="mid">mid</option>
+                <option value="min">min</option>
               </select>
             </Field>
 
