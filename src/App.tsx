@@ -832,7 +832,7 @@ export default function App() {
             that monthly amount into RRSP (same person).
           </p>
 
-          <div className="grid">
+          <div className="tightGrid">
             <Field label="FHSA annual limit (per person, $/yr)">
               <input
                 type="number"

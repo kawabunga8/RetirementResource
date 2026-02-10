@@ -16,6 +16,15 @@
   align-items: end;
 }
 
+/* Tighter grid for small groups of controls (e.g., FHSA facts) */
+.tightGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, max-content));
+  gap: 10px;
+  align-items: end;
+  justify-content: start;
+}
+
 /* Wider screens: allow more fields per row, but keep inputs compact */
 .app.wide .grid {
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
