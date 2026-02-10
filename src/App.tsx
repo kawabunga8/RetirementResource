@@ -1189,7 +1189,7 @@ export default function App() {
 
             <Field label="Drawdown priority #1">
               <select
-                className="compactSelect"
+                className="prioritySelect"
                 value={vars.withdrawals.order[0]}
                 onChange={(e) => {
                   const v = e.target.value as WithdrawalOrder;
@@ -1212,7 +1212,7 @@ export default function App() {
 
             <Field label="Drawdown priority #2">
               <select
-                className="compactSelect"
+                className="prioritySelect"
                 value={vars.withdrawals.order[1]}
                 onChange={(e) => {
                   const v = e.target.value as WithdrawalOrder;
@@ -1240,7 +1240,7 @@ export default function App() {
 
             <Field label="Drawdown priority #3">
               <select
-                className="compactSelect"
+                className="prioritySelect"
                 value={vars.withdrawals.order[2]}
                 onChange={(e) => {
                   const v = e.target.value as WithdrawalOrder;
@@ -1267,7 +1267,7 @@ export default function App() {
 
             <Field label="Drawdown priority #4">
               <select
-                className="compactSelect"
+                className="prioritySelect"
                 value={vars.withdrawals.order[3]}
                 onChange={(e) => {
                   const v = e.target.value as WithdrawalOrder;
@@ -1294,7 +1294,7 @@ export default function App() {
 
             <Field label="Drawdown priority #5">
               <select
-                className="compactSelect"
+                className="prioritySelect"
                 value={vars.withdrawals.order[4]}
                 onChange={(e) => {
                   const v = e.target.value as WithdrawalOrder;

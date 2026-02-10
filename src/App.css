@@ -28,13 +28,18 @@
 }
 
 .yesNoSelect {
-  /* fits “Yes” / “No” with a little breathing room */
-  max-width: 8ch;
+  /* fits “Yes” / “No” comfortably (and the dropdown arrow) */
+  max-width: 10ch;
 }
 
 .lifModeSelect {
-  /* fits “Maximum” */
-  max-width: 10ch;
+  /* fits “max” / “mid” / “min” */
+  max-width: 8ch;
+}
+
+.prioritySelect {
+  /* fits “nonRegistered” (or we can switch to nonReg labels later) */
+  max-width: 14ch;
 }
 
 .moneyInputLg {
