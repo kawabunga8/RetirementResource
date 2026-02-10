@@ -1,3 +1,7 @@
+:root {
+  --ui-gap: 16px; /* global “tab stop” spacing between controls */
+}
+
 #root {
   margin: 0;
 }
@@ -9,7 +13,7 @@
 
 .ageRow {
   display: flex;
-  gap: 16px; /* ~one tab stop */
+  gap: var(--ui-gap);
   flex-wrap: wrap;
   align-items: end;
   justify-content: flex-start;
@@ -17,7 +21,7 @@
 
 .selectRow {
   display: flex;
-  gap: 16px; /* one tab stop */
+  gap: var(--ui-gap);
   flex-wrap: wrap;
   align-items: end;
   justify-content: flex-start;
@@ -102,7 +106,7 @@
   display: grid;
   /* Two compact columns that hug content instead of stretching across the card */
   grid-template-columns: repeat(2, max-content);
-  column-gap: 16px; /* ~one tab stop */
+  column-gap: var(--ui-gap);
   row-gap: 10px;
   align-items: end;
   justify-content: start;
