@@ -190,10 +190,12 @@ export const DEFAULT_VARIABLES: Variables = {
     allowTfsa: false,
 
     // placeholders (we’ll compute these from rules later; for now editable)
+    // Defaults are placeholders; adjust to your Service Canada estimates.
     cppShingoAnnual: DEFAULT_ANCHORS.cppShingoAt70Monthly * 12,
-    cppSarahAnnual: 0,
-    oasShingoAnnual: 0,
-    oasSarahAnnual: 0,
+    cppSarahAnnual: DEFAULT_ANCHORS.cppShingoAt70Monthly * 12,
+    // Rough OAS-at-70 placeholder (annual). Replace with your preferred assumption.
+    oasShingoAnnual: 11000,
+    oasSarahAnnual: 11000,
   },
 
   tax: {

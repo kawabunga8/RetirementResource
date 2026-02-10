@@ -203,12 +203,10 @@ function estimateTaxBCCanada(income: number) {
 
 export default function App() {
   const [vars, setVars] = useState<Variables>(DEFAULT_VARIABLES);
+  const [page, setPage] = useState<"overview" | "tax" | "withdrawals">("overview");
+  const [showFullSchedule, setShowFullSchedule] = useState(false);
 
-  const scrollTo = (id: string) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
+  // navigation uses page tabs now
 
   const pensionAnnual =
     DEFAULT_ANCHORS.pensionShingo + DEFAULT_ANCHORS.pensionSarah;
@@ -524,16 +522,47 @@ export default function App() {
           gap: 8,
           flexWrap: "wrap",
           alignItems: "center",
+          justifyContent: "space-between",
         }}
       >
-        <strong style={{ marginRight: 8 }}>Jump to:</strong>
-        <button type="button" className="linkBtn" onClick={() => scrollTo("expectations")}>Expectations</button>
-        <button type="button" className="linkBtn" onClick={() => scrollTo("retirement-balances")}>Balances @ Retirement</button>
-        <button type="button" className="linkBtn" onClick={() => scrollTo("withdrawals")}>Withdrawal Schedule</button>
-        <button type="button" className="linkBtn" onClick={() => scrollTo("tax")}>Tax estimate</button>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <strong style={{ marginRight: 8 }}>Pages:</strong>
+          <button
+            type="button"
+            className="linkBtn"
+            onClick={() => setPage("overview")}
+            aria-current={page === "overview"}
+          >
+            Overview
+          </button>
+          <button
+            type="button"
+            className="linkBtn"
+            onClick={() => setPage("tax")}
+            aria-current={page === "tax"}
+          >
+            Tax
+          </button>
+          <button
+            type="button"
+            className="linkBtn"
+            onClick={() => setPage("withdrawals")}
+            aria-current={page === "withdrawals"}
+          >
+            Withdrawals
+          </button>
+        </div>
+
+        <div style={{ fontSize: 12, opacity: 0.75 }}>
+          {page === "overview" ? "Edit assumptions + see balances at retirement" : null}
+          {page === "tax" ? "Rough BC+federal tax bracket estimate" : null}
+          {page === "withdrawals" ? "Drawdown order, caps, and the schedule" : null}
+        </div>
       </nav>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
+        {page === "overview" && (
+        <>
         <section id="expectations" className="card">
           <h2>Expectations (adjustable)</h2>
           <div className="grid">
@@ -596,6 +625,10 @@ export default function App() {
           </div>
         </section>
 
+        </>
+        )}
+
+        {page === "tax" && (
         <section id="tax" className="card">
           <h2>Tax estimate (simple, BC + federal)</h2>
           <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
@@ -651,7 +684,9 @@ export default function App() {
             );
           })()}
         </section>
+        )}
 
+        {page === "withdrawals" && (
         <section id="withdrawals" className="card">
           <h2>Withdrawal schedule (simple v1)</h2>
           <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
@@ -1013,7 +1048,15 @@ export default function App() {
             </Field>
           </div>
 
-          <h3 style={{ marginTop: 14 }}>Schedule (first 12 years)</h3>
+          <h3 style={{ marginTop: 14 }}>Schedule</h3>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, opacity: 0.85, marginTop: 6 }}>
+            <input
+              type="checkbox"
+              checked={showFullSchedule}
+              onChange={(e) => setShowFullSchedule(e.target.checked)}
+            />
+            Show full schedule (otherwise first 12 years)
+          </label>
           <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
             Note: Sarah’s CPP/OAS begins when <strong>she</strong> reaches the selected start age (e.g. 70),
             which is typically ~2 years after Shingo given your birth years.
@@ -1055,7 +1098,7 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {model.schedule.slice(0, 12).map((r) => {
+                {(showFullSchedule ? model.schedule : model.schedule.slice(0, 12)).map((r) => {
                   const endTotal =
                     r.endBalances.fhsa +
                     r.endBalances.rrsp +
@@ -1087,6 +1130,7 @@ export default function App() {
             </table>
           </div>
         </section>
+        )}
       </div>
 
       <footer style={{ marginTop: 18, fontSize: 12, opacity: 0.75 }}>
