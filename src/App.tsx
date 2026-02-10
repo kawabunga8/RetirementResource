@@ -339,6 +339,27 @@ export default function App() {
           contributions, return assumptions, spending phases) while keeping
           anchors explicit.
         </p>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            onClick={() => setVars(DEFAULT_VARIABLES)}
+            style={{
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid #cbd5e1",
+              background: "white",
+              cursor: "pointer",
+            }}
+            title="Reset all inputs back to the starting snapshot and default assumptions"
+          >
+            Reset to starting values
+          </button>
+          <div style={{ fontSize: 12, opacity: 0.75, alignSelf: "center" }}>
+            Tip: if you’re viewing on Vercel, hard refresh after deploy so the
+            newest defaults load.
+          </div>
+        </div>
       </header>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
