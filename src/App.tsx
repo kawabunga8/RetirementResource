@@ -1171,7 +1171,7 @@ export default function App() {
           </div>
 
           <h3 style={{ marginTop: 14 }}>Withdrawals (rules)</h3>
-          <div className="grid">
+          <div className="selectRow">
             <Field label="Allow TFSA withdrawals">
               <select
                 value={vars.withdrawals.allowTfsa ? "yes" : "no"}
@@ -1321,7 +1321,7 @@ export default function App() {
           </div>
 
           <h3 style={{ marginTop: 14 }}>Retirement account handling</h3>
-          <div className="grid">
+          <div className="selectRow">
             <Field label="Roll FHSA into RRSP at retirement">
               <select
                 className="yesNoSelect"
@@ -1382,7 +1382,7 @@ export default function App() {
           </div>
 
           <h3 style={{ marginTop: 14 }}>LIF withdrawal setting (BC)</h3>
-          <div className="grid">
+          <div className="selectRow">
             <Field
               label={`LIF mode (current: ${
                 vars.withdrawals.lifMode === "max"
