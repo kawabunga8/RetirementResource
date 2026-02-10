@@ -1083,10 +1083,12 @@ export default function App() {
             chosen target age.
           </p>
 
-          <h3 style={{ marginTop: 14 }}>Phases (ages + spending targets)</h3>
-          <div className="grid">
+          <h3 style={{ marginTop: 14 }}>Phases</h3>
+
+          <div className="ageRow">
             <Field label="Go-Go ends at age">
               <input
+                className="ageInput"
                 type="number"
                 value={vars.phaseAges.goGoEndAge}
                 onChange={(e) =>
@@ -1100,6 +1102,7 @@ export default function App() {
 
             <Field label="Slow-Go ends at age">
               <input
+                className="ageInput"
                 type="number"
                 value={vars.phaseAges.slowGoEndAge}
                 onChange={(e) =>
@@ -1111,8 +1114,9 @@ export default function App() {
               />
             </Field>
 
-            <Field label="Life expectancy / end age (plan stops here)">
+            <Field label="Life expectancy / end age">
               <input
+                className="ageInput"
                 type="number"
                 value={vars.phaseAges.endAge}
                 onChange={(e) =>
@@ -1123,7 +1127,9 @@ export default function App() {
                 }
               />
             </Field>
+          </div>
 
+          <div className="grid" style={{ marginTop: 10 }}>
             <Field label="Go-Go spending target (annual, $)">
               <input
                 type="number"
