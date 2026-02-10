@@ -162,7 +162,7 @@ export const DEFAULT_VARIABLES: Variables = {
   phaseAges: {
     goGoEndAge: 74,
     slowGoEndAge: 84,
-    endAge: 95,
+    endAge: 90,
   },
 
   spending: {

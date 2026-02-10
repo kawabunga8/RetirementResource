@@ -620,6 +620,19 @@ export default function App() {
           </p>
 
           <div className="grid">
+            <Field label="Life expectancy / end age (plan stops here)">
+              <input
+                type="number"
+                value={vars.phaseAges.endAge}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    phaseAges: { ...v.phaseAges, endAge: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+
             <Field label="Allow TFSA withdrawals">
               <select
                 value={vars.withdrawals.allowTfsa ? "yes" : "no"}
@@ -953,6 +966,10 @@ export default function App() {
           </div>
 
           <h3 style={{ marginTop: 14 }}>Schedule (first 12 years)</h3>
+          <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+            Note: Sarah’s CPP/OAS begins when <strong>she</strong> reaches the selected start age (e.g. 70),
+            which is typically ~2 years after Shingo given your birth years.
+          </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
