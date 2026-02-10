@@ -106,6 +106,13 @@ export type TaxInputs = {
   sarahIncome: number;
 };
 
+export type FhsaInputs = {
+  annualLimit: number; // per person
+  lifetimeCap: number; // per person
+  contributedShingo: number;
+  contributedSarah: number;
+};
+
 export type Variables = {
   shingoRetireAge: number;
   sarahRetireAge: number;
@@ -118,6 +125,7 @@ export type Variables = {
 
   // Contributions
   monthly: MonthlyContributions;
+  fhsa: FhsaInputs;
 
   // Retirement phases
   phaseAges: PhaseAges;
@@ -164,6 +172,14 @@ export const DEFAULT_VARIABLES: Variables = {
     rrspSarah: 700,
     fhsaShingo: 666,
     rrspShingo: 700,
+  },
+
+  // FHSA contribution facts + rules
+  fhsa: {
+    annualLimit: 8000,
+    lifetimeCap: 40000,
+    contributedShingo: 16666,
+    contributedSarah: 8666,
   },
 
   phaseAges: {

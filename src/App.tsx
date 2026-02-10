@@ -71,6 +71,58 @@ function futureValueMonthly({
   return pv * growth + monthlyContribution * ((growth - 1) / r);
 }
 
+function simulateWithMonthlyContribCaps({
+  pv,
+  monthlyContribution,
+  annualReturn,
+  months,
+  // Cap mechanics
+  remainingContributionRoom,
+  annualContributionLimit,
+  onOverflowMonthlyContribution,
+}: {
+  pv: number;
+  monthlyContribution: number;
+  annualReturn: number;
+  months: number;
+  remainingContributionRoom: number;
+  annualContributionLimit: number;
+  // If contribution is blocked (room used up or annual limit reached), reroute that month’s amount.
+  onOverflowMonthlyContribution: (overflowMonthly: number) => void;
+}) {
+  let balance = pv;
+  let room = Math.max(0, remainingContributionRoom);
+  let annualUsed = 0;
+  const r = annualReturn / 12;
+
+  for (let m = 0; m < months; m++) {
+    // reset annual counter each 12 months
+    if (m % 12 === 0) annualUsed = 0;
+
+    let contrib = monthlyContribution;
+
+    // enforce annual limit
+    const annualRemaining = Math.max(0, annualContributionLimit - annualUsed);
+    contrib = Math.min(contrib, annualRemaining);
+
+    // enforce lifetime room
+    contrib = Math.min(contrib, room);
+
+    // If we can’t contribute the full planned amount, reroute the difference
+    const overflow = monthlyContribution - contrib;
+    if (overflow > 0) onOverflowMonthlyContribution(overflow);
+
+    balance += contrib;
+    annualUsed += contrib;
+    room -= contrib;
+
+    // growth
+    balance *= 1 + r;
+  }
+
+  return balance;
+}
+
 function toRealDollars(nominal: number, annualInflation: number, years: number) {
   if (years <= 0) return nominal;
   const d = Math.pow(1 + annualInflation, years);
@@ -222,31 +274,63 @@ export default function App() {
     // Split the TFSA total contribution 50/50 for now.
     const tfsaMonthlyEach = vars.monthly.tfsaTotal / 2;
 
+    // FHSA caps: contributions cannot exceed annual limit or lifetime cap.
+    // When FHSA is capped, we redirect the blocked monthly amount into RRSP (same person).
+    let rrspMonthlyShingo = vars.monthly.rrspShingo;
+    let rrspMonthlySarah = vars.monthly.rrspSarah;
+
+    const fhsaRemainingRoomShingo = Math.max(
+      0,
+      vars.fhsa.lifetimeCap - vars.fhsa.contributedShingo
+    );
+    const fhsaRemainingRoomSarah = Math.max(
+      0,
+      vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah
+    );
+
+    const fhsaShingo = simulateWithMonthlyContribCaps({
+      pv: vars.balances.fhsaShingo,
+      monthlyContribution: vars.monthly.fhsaShingo,
+      annualReturn: vars.expectedNominalReturn,
+      months: monthsToRetirement,
+      remainingContributionRoom: fhsaRemainingRoomShingo,
+      annualContributionLimit: vars.fhsa.annualLimit,
+      onOverflowMonthlyContribution: (overflow) => {
+        rrspMonthlyShingo += overflow;
+      },
+    });
+
+    const rrspShingo = futureValueMonthly({
+      pv: vars.balances.rrspShingo,
+      monthlyContribution: rrspMonthlyShingo,
+      annualReturn: vars.expectedNominalReturn,
+      months: monthsToRetirement,
+    });
+
+    const fhsaSarah = simulateWithMonthlyContribCaps({
+      pv: vars.balances.fhsaSarah,
+      monthlyContribution: vars.monthly.fhsaSarah,
+      annualReturn: vars.expectedNominalReturn,
+      months: monthsToRetirement,
+      remainingContributionRoom: fhsaRemainingRoomSarah,
+      annualContributionLimit: vars.fhsa.annualLimit,
+      onOverflowMonthlyContribution: (overflow) => {
+        rrspMonthlySarah += overflow;
+      },
+    });
+
+    const rrspSarah = futureValueMonthly({
+      pv: vars.balances.rrspSarah,
+      monthlyContribution: rrspMonthlySarah,
+      annualReturn: vars.expectedNominalReturn,
+      months: monthsToRetirement,
+    });
+
     const atRetirementByAccount = {
-      fhsaShingo: futureValueMonthly({
-        pv: vars.balances.fhsaShingo,
-        monthlyContribution: vars.monthly.fhsaShingo,
-        annualReturn: vars.expectedNominalReturn,
-        months: monthsToRetirement,
-      }),
-      fhsaSarah: futureValueMonthly({
-        pv: vars.balances.fhsaSarah,
-        monthlyContribution: vars.monthly.fhsaSarah,
-        annualReturn: vars.expectedNominalReturn,
-        months: monthsToRetirement,
-      }),
-      rrspShingo: futureValueMonthly({
-        pv: vars.balances.rrspShingo,
-        monthlyContribution: vars.monthly.rrspShingo,
-        annualReturn: vars.expectedNominalReturn,
-        months: monthsToRetirement,
-      }),
-      rrspSarah: futureValueMonthly({
-        pv: vars.balances.rrspSarah,
-        monthlyContribution: vars.monthly.rrspSarah,
-        annualReturn: vars.expectedNominalReturn,
-        months: monthsToRetirement,
-      }),
+      fhsaShingo,
+      fhsaSarah,
+      rrspShingo,
+      rrspSarah,
       tfsaShingo: futureValueMonthly({
         pv: vars.balances.tfsaShingo,
         monthlyContribution: tfsaMonthlyEach,
@@ -613,6 +697,73 @@ export default function App() {
                 }
               />
             </Field>
+          </div>
+        </section>
+
+        <section className="card">
+          <h2>FHSA caps (facts / rules)</h2>
+          <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
+            FHSA contributions are capped at <strong>$8,000/year</strong> and <strong>$40,000 lifetime</strong> (per person).
+            Growth does not count toward the contribution cap. When FHSA is capped, this model redirects
+            that monthly amount into RRSP (same person).
+          </p>
+
+          <div className="grid">
+            <Field label="FHSA annual limit (per person, $/yr)">
+              <input
+                type="number"
+                value={vars.fhsa.annualLimit}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    fhsa: { ...v.fhsa, annualLimit: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+            <Field label="FHSA lifetime cap (per person, $)">
+              <input
+                type="number"
+                value={vars.fhsa.lifetimeCap}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    fhsa: { ...v.fhsa, lifetimeCap: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+            <Field label="Shingo FHSA contributed (to date, $)">
+              <input
+                type="number"
+                value={vars.fhsa.contributedShingo}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    fhsa: { ...v.fhsa, contributedShingo: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+            <Field label="Sarah FHSA contributed (to date, $)">
+              <input
+                type="number"
+                value={vars.fhsa.contributedSarah}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    fhsa: { ...v.fhsa, contributedSarah: num(e.target.value) },
+                  }))
+                }
+              />
+            </Field>
+          </div>
+
+          <div style={{ marginTop: 10, fontSize: 13 }}>
+            Remaining FHSA room (Shingo):{" "}
+            <strong>${money(Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedShingo))}</strong>
+            {" "} | Remaining FHSA room (Sarah):{" "}
+            <strong>${money(Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah))}</strong>
           </div>
         </section>
 
