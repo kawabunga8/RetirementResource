@@ -74,6 +74,9 @@ export type WithdrawalPlan = {
   // How much TFSA contribution room you expect to have available at retirement (household).
   tfsaRoomAtRetirement: number;
 
+  // New TFSA room created each year during retirement (household)
+  tfsaNewRoomPerYear: number;
+
   // Annual caps (0 = no cap)
   // NOTE: LIRA/LIF is special: cap can be calculated from balance using lifMode.
   caps: {
@@ -203,6 +206,7 @@ export const DEFAULT_VARIABLES: Variables = {
     // Based on Jan 1 2026 remaining room ($185,547.06) + 10 years of new room at ~$7,000/yr
     // minus planned TFSA contributions ($80/mo).
     tfsaRoomAtRetirement: 245947.06,
+    tfsaNewRoomPerYear: 14000,
     caps: {
       fhsa: 0,
       rrsp: 0,

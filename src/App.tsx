@@ -415,6 +415,10 @@ export default function App() {
 
     for (let i = 0; i < yearsInPlan; i++) {
       const year = retireYear + i;
+
+      // Each year in retirement, new TFSA room is created (simple model).
+      tfsaRoom += Math.max(0, vars.withdrawals.tfsaNewRoomPerYear);
+
       const ageShingo = retireAgeShingo + i;
       const ageSarah = retireAgeSarah + i;
 
@@ -1061,6 +1065,22 @@ export default function App() {
                     withdrawals: {
                       ...v.withdrawals,
                       tfsaRoomAtRetirement: num(e.target.value),
+                    },
+                  }))
+                }
+              />
+            </Field>
+
+            <Field label="New TFSA room per year in retirement (household, $/yr)">
+              <input
+                type="number"
+                value={vars.withdrawals.tfsaNewRoomPerYear}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      tfsaNewRoomPerYear: num(e.target.value),
                     },
                   }))
                 }
