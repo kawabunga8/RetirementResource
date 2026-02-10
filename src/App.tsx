@@ -407,9 +407,12 @@ export default function App() {
         <section className="card">
           <h2>Withdrawal schedule (simple v1)</h2>
           <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-            Choose the drawdown order and caps. Each year we fill the spending gap
-            (spending target minus pension/benefits) from accounts in priority
-            order. This is pre-tax and intentionally simplified.
+            This schedule is <strong>annual</strong> and <strong>pre-tax</strong>.
+            Each year we calculate:
+            <br />
+            <strong>Spending gap to fund</strong> = Target spending − (Pensions + CPP/OAS),
+            then withdraw from accounts in your chosen priority order (respecting
+            any annual caps).
           </p>
 
           <div className="grid">
@@ -709,19 +712,19 @@ export default function App() {
                 <tr>
                   {[
                     "Year",
-                    "Age (S)",
-                    "Age (Sa)",
+                    "Age Shingo",
+                    "Age Sarah",
                     "Phase",
-                    "Spend",
-                    "Pension",
-                    "Benefits",
-                    "Need",
-                    "FHSA",
-                    "RRSP",
-                    "LIRA",
-                    "NonReg",
-                    "TFSA",
-                    "End Bal (total)",
+                    "Target spending (annual, $)",
+                    "Pensions (annual, $)",
+                    "CPP/OAS (annual, $)",
+                    "Spending gap to fund (annual, $)",
+                    "Withdraw: FHSA ($)",
+                    "Withdraw: RRSP/RRIF ($)",
+                    "Withdraw: LIRA/LIF ($)",
+                    "Withdraw: Non-registered ($)",
+                    "Withdraw: TFSA ($)",
+                    "End balance total (after growth, $)",
                   ].map((h) => (
                     <th
                       key={h}
