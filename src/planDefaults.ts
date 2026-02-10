@@ -67,6 +67,13 @@ export type WithdrawalPlan = {
   // In v1 we fill the annual income gap using this priority order.
   order: WithdrawalOrder[];
 
+  // Retirement handling
+  rollFhsaIntoRrspAtRetirement: boolean;
+
+  // Surplus routing (forced RRIF, etc.)
+  // How much TFSA contribution room you expect to have available at retirement (household).
+  tfsaRoomAtRetirement: number;
+
   // Annual caps (0 = no cap)
   // NOTE: LIRA/LIF is special: cap can be calculated from balance using lifMode.
   caps: {
@@ -172,7 +179,12 @@ export const DEFAULT_VARIABLES: Variables = {
   },
 
   withdrawals: {
-    order: ["fhsa", "rrsp", "lira", "nonRegistered", "tfsa"],
+    // Default: don’t draw FHSA first (it can be rolled into RRSP)
+    order: ["rrsp", "lira", "nonRegistered", "tfsa", "fhsa"],
+    rollFhsaIntoRrspAtRetirement: true,
+
+    // Default unknown; set this once you know your projected remaining TFSA room at retirement.
+    tfsaRoomAtRetirement: 0,
     caps: {
       fhsa: 0,
       rrsp: 0,

@@ -273,13 +273,22 @@ export default function App() {
       }),
     };
 
-    const retirementBalances: RetirementBalances = {
+    let retirementBalances: RetirementBalances = {
       fhsa: atRetirementByAccount.fhsaShingo + atRetirementByAccount.fhsaSarah,
       rrsp: atRetirementByAccount.rrspShingo + atRetirementByAccount.rrspSarah,
       tfsa: atRetirementByAccount.tfsaShingo + atRetirementByAccount.tfsaSarah,
       lira: atRetirementByAccount.liraShingo,
       nonRegistered: atRetirementByAccount.nonRegistered,
     };
+
+    // Optional: roll FHSA into RRSP at retirement (common if not used for a home purchase).
+    if (vars.withdrawals.rollFhsaIntoRrspAtRetirement) {
+      retirementBalances = {
+        ...retirementBalances,
+        rrsp: retirementBalances.rrsp + retirementBalances.fhsa,
+        fhsa: 0,
+      };
+    }
 
     const totalNominalAtRetirement =
       retirementBalances.fhsa +
@@ -313,10 +322,12 @@ export default function App() {
       withdrawals: Record<string, number>;
       forcedRrif: number;
       surplusInvestedToTfsa: number;
+      surplusInvestedToNonReg: number;
       endBalances: RetirementBalances;
     }> = [];
 
     let balances: RetirementBalances = { ...retirementBalances };
+    let tfsaRoom = Math.max(0, vars.withdrawals.tfsaRoomAtRetirement);
 
     for (let i = 0; i < yearsInPlan; i++) {
       const year = retireYear + i;
@@ -432,8 +443,17 @@ export default function App() {
         withdrawals.tfsa;
 
       const cashIn = guaranteedIncome + benefitsIncome + totalWithdrawals;
-      const surplusInvestedToTfsa = clampToZero(cashIn - targetSpending);
-      balances.tfsa += surplusInvestedToTfsa;
+      const surplus = clampToZero(cashIn - targetSpending);
+
+      // Route surplus: TFSA until room is exhausted, then to non-registered.
+      const toTfsa = Math.min(surplus, tfsaRoom);
+      const toNonReg = surplus - toTfsa;
+      balances.tfsa += toTfsa;
+      balances.nonRegistered += toNonReg;
+      tfsaRoom -= toTfsa;
+
+      const surplusInvestedToTfsa = toTfsa;
+      const surplusInvestedToNonReg = toNonReg;
 
       // Apply growth at year-end to remaining balances (very simplified)
       balances = {
@@ -456,6 +476,7 @@ export default function App() {
         withdrawals,
         forcedRrif,
         surplusInvestedToTfsa,
+        surplusInvestedToNonReg,
         endBalances: { ...balances },
       });
     }
@@ -859,6 +880,48 @@ export default function App() {
             </Field>
           </div>
 
+          <h3 style={{ marginTop: 14 }}>Retirement account handling</h3>
+          <div className="grid">
+            <Field label="Roll FHSA into RRSP at retirement">
+              <select
+                value={vars.withdrawals.rollFhsaIntoRrspAtRetirement ? "yes" : "no"}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      rollFhsaIntoRrspAtRetirement: e.target.value === "yes",
+                    },
+                  }))
+                }
+              >
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </Field>
+
+            <Field label="TFSA room available at retirement (household, $)">
+              <input
+                type="number"
+                value={vars.withdrawals.tfsaRoomAtRetirement}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      tfsaRoomAtRetirement: num(e.target.value),
+                    },
+                  }))
+                }
+              />
+            </Field>
+
+            <div style={{ fontSize: 12, opacity: 0.75, alignSelf: "end" }}>
+              Surplus cash (e.g. from forced RRIF withdrawals) is invested into TFSA
+              until this room is used up, then routed to Non-registered.
+            </div>
+          </div>
+
           <h3 style={{ marginTop: 14 }}>LIF withdrawal setting (BC)</h3>
           <div className="grid">
             <Field label="LIF mode (default: BC maximum)">
@@ -1081,6 +1144,7 @@ export default function App() {
                     "Withdraw: TFSA ($)",
                     "Forced RRIF extra (part of RRSP, $)",
                     "Surplus → TFSA (invested, $)",
+                    "Surplus → NonReg (invested, $)",
                     "End balance total (after growth, $)",
                   ].map((h) => (
                     <th
@@ -1122,6 +1186,7 @@ export default function App() {
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.tfsa)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.forcedRrif)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.surplusInvestedToTfsa)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.surplusInvestedToNonReg)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(endTotal)}</td>
                     </tr>
                   );
