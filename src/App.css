@@ -122,10 +122,17 @@
 }
 
 .scheduleWrap {
-  overflow: auto; /* both X and Y */
+  display: block;
+  overflow-x: auto;
+  overflow-y: auto;
   max-height: 60vh;
+  max-width: 100%;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y;
+  scrollbar-gutter: stable both-edges;
 }
 
 /* Allow horizontal scrolling: prevent the table from shrinking to fit the container */
