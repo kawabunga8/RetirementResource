@@ -17,9 +17,14 @@ function Field({
   label: string;
   children: React.ReactNode;
 }) {
+  const lines = label.split("\n");
   return (
     <label style={{ display: "grid", gap: 6, justifyItems: "start" }}>
-      <div style={{ fontSize: 12, opacity: 0.8 }}>{label}</div>
+      <div style={{ fontSize: 12, opacity: 0.8, lineHeight: 1.15 }}>
+        {lines.map((line, i) => (
+          <div key={i}>{line}</div>
+        ))}
+      </div>
       {children}
     </label>
   );
@@ -1335,7 +1340,7 @@ export default function App() {
 
           <h3 style={{ marginTop: 14 }}>Retirement account handling</h3>
           <div className="selectRow">
-            <Field label="Roll FHSA into RRSP at retirement">
+            <Field label="Roll FHSA into RRSP\n(at retirement)">
               <select
                 className="yesNoSelect"
                 value={vars.withdrawals.rollFhsaIntoRrspAtRetirement ? "yes" : "no"}
@@ -1354,7 +1359,7 @@ export default function App() {
               </select>
             </Field>
 
-            <Field label="TFSA room available at retirement (household, $) — used for surplus routing">
+            <Field label="TFSA room @ retirement (household, $)\n(used for surplus routing)">
               <input
                 className="moneyInputLg"
                 type="number"
@@ -1371,7 +1376,7 @@ export default function App() {
               />
             </Field>
 
-            <Field label="New TFSA room per year in retirement (household, $/yr)">
+            <Field label="New TFSA room per year\n(household, $/yr)">
               <input
                 className="moneyInputSm"
                 type="number"
@@ -1441,7 +1446,7 @@ export default function App() {
               />
             </Field>
 
-            <Field label="Force LIF withdrawals starting at retirement">
+            <Field label="Force LIF withdrawals\n(starting at retirement)">
               <select
                 className="yesNoSelect"
                 value={vars.withdrawals.forceLifFromRetirement ? "yes" : "no"}
