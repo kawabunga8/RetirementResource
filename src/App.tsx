@@ -626,6 +626,7 @@ export default function App() {
       withdrawals: Record<string, number>;
       forcedLif: number;
       forcedRrif: number;
+      tax: number;
       surplusInvestedToTfsa: number;
       surplusInvestedToNonReg: number;
       endBalances: RetirementBalances;
@@ -757,7 +758,112 @@ export default function App() {
         balances.rrsp = r.newBalance;
       }
 
-      // 4) Any surplus (because we forced withdrawals) is invested into TFSA.
+      // 4) Estimate tax and make the schedule post-tax.
+      // We treat this as a planning approximation (not filing-accurate).
+      // If tax is owed, we withdraw additional cash to pay it (which may itself increase taxable income).
+
+      const estimateHouseholdTaxForYear = () => {
+        const shingoTaxable =
+          DEFAULT_ANCHORS.pensionShingo +
+          (ageShingo >= vars.cppStartAge ? vars.withdrawals.cppShingoAnnual : 0) +
+          (ageShingo >= vars.oasStartAge ? vars.withdrawals.oasShingoAnnual : 0) +
+          withdrawals.lira +
+          withdrawals.rrsp * 0.5 +
+          withdrawals.fhsa * 0.5 +
+          withdrawals.nonRegistered * 0.5;
+
+        const sarahTaxable =
+          DEFAULT_ANCHORS.pensionSarah +
+          (ageSarah >= vars.cppStartAge ? vars.withdrawals.cppSarahAnnual : 0) +
+          (ageSarah >= vars.oasStartAge ? vars.withdrawals.oasSarahAnnual : 0) +
+          withdrawals.rrsp * 0.5 +
+          withdrawals.fhsa * 0.5 +
+          withdrawals.nonRegistered * 0.5;
+
+        const creditsShingo = taxCreditsEstimate({
+          taxYear: year,
+          age: ageShingo,
+          eligiblePensionIncome: vars.tax.eligiblePensionIncomeShingo,
+          useBpa: vars.tax.useBpa,
+          useAgeAmount: vars.tax.useAgeAmount,
+          usePensionCredit: vars.tax.usePensionCredit,
+        });
+
+        const creditsSarah = taxCreditsEstimate({
+          taxYear: year,
+          age: ageSarah,
+          eligiblePensionIncome: vars.tax.eligiblePensionIncomeSarah,
+          useBpa: vars.tax.useBpa,
+          useAgeAmount: vars.tax.useAgeAmount,
+          usePensionCredit: vars.tax.usePensionCredit,
+        });
+
+        const taxShingo = Math.max(0, estimateTaxBCCanada(shingoTaxable) - creditsShingo.totalCreditValue);
+        const taxSarah = Math.max(0, estimateTaxBCCanada(sarahTaxable) - creditsSarah.totalCreditValue);
+        return taxShingo + taxSarah;
+      };
+
+      // Iteratively withdraw enough to pay tax, since taxes depend on withdrawals.
+      let tax = 0;
+      for (let iter = 0; iter < 3; iter++) {
+        tax = estimateHouseholdTaxForYear();
+
+        const totalWithdrawals =
+          withdrawals.fhsa +
+          withdrawals.rrsp +
+          withdrawals.lira +
+          withdrawals.nonRegistered +
+          withdrawals.tfsa;
+
+        const cashIn = guaranteedIncome + benefitsIncome + totalWithdrawals;
+        const surplusBeforeTax = clampToZero(cashIn - targetSpending);
+        const extraNeeded = clampToZero(tax - surplusBeforeTax);
+
+        if (extraNeeded <= 1) break;
+
+        // Pull extra cash using the same order (this is simplistic).
+        let need = extraNeeded;
+        for (const src of vars.withdrawals.order) {
+          if (need <= 0) break;
+          if (src === "pension") continue;
+          if (src === "tfsa" && !vars.withdrawals.allowTfsa) continue;
+
+          if (src === "fhsa") {
+            const r = withdrawFrom(need, balances.fhsa, vars.withdrawals.caps.fhsa);
+            withdrawals.fhsa += r.withdrawn;
+            balances.fhsa = r.newBalance;
+            need = r.remainingNeed;
+          } else if (src === "rrsp") {
+            const r = withdrawFrom(need, balances.rrsp, vars.withdrawals.caps.rrsp);
+            withdrawals.rrsp += r.withdrawn;
+            balances.rrsp = r.newBalance;
+            need = r.remainingNeed;
+          } else if (src === "lira") {
+            const lifCap = balances.lira * lifFactorApprox(ageShingo, vars.withdrawals.lifMode);
+            const explicitCap = vars.withdrawals.caps.lira;
+            const cap = explicitCap > 0 ? Math.min(explicitCap, lifCap) : lifCap;
+            const r = withdrawFrom(need, balances.lira, cap);
+            withdrawals.lira += r.withdrawn;
+            balances.lira = r.newBalance;
+            need = r.remainingNeed;
+          } else if (src === "nonRegistered") {
+            const r = withdrawFrom(need, balances.nonRegistered, vars.withdrawals.caps.nonRegistered);
+            withdrawals.nonRegistered += r.withdrawn;
+            balances.nonRegistered = r.newBalance;
+            need = r.remainingNeed;
+          } else if (src === "tfsa") {
+            const r = withdrawFrom(need, balances.tfsa, vars.withdrawals.caps.tfsa);
+            withdrawals.tfsa += r.withdrawn;
+            balances.tfsa = r.newBalance;
+            need = r.remainingNeed;
+          }
+        }
+
+        // If we still can't fund taxes, we stop iterating (plan infeasible under these assumptions).
+        if (need > 1) break;
+      }
+
+      // 5) Any surplus after tax is invested into TFSA / non-registered.
       const totalWithdrawals =
         withdrawals.fhsa +
         withdrawals.rrsp +
@@ -766,7 +872,7 @@ export default function App() {
         withdrawals.tfsa;
 
       const cashIn = guaranteedIncome + benefitsIncome + totalWithdrawals;
-      const surplus = clampToZero(cashIn - targetSpending);
+      const surplus = clampToZero(cashIn - targetSpending - tax);
 
       // Route surplus: TFSA until room is exhausted, then to non-registered.
       const toTfsa = Math.min(surplus, tfsaRoom);
@@ -799,6 +905,7 @@ export default function App() {
         withdrawals,
         forcedLif,
         forcedRrif,
+        tax,
         surplusInvestedToTfsa,
         surplusInvestedToNonReg,
         endBalances: { ...balances },
@@ -1429,7 +1536,7 @@ export default function App() {
         <section id="withdrawals" className="card">
           <h2>Withdrawal schedule (simple v1)</h2>
           <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-            This schedule is <strong>annual</strong> and <strong>pre-tax</strong>.
+            This schedule is <strong>annual</strong> and includes a simple <strong>tax estimate</strong>.
             Each year we calculate:
             <br />
             <strong>Spending gap to fund</strong> = Target spending − (Pensions + CPP/OAS),
@@ -2021,6 +2128,7 @@ export default function App() {
                     // (removed W/d TFSA)
                     // (removed Forced LIF)
                     // (removed Forced RRIF)
+                    ["Tax", "$/yr"],
                     ["Surplus→", "TFSA"],
                     ["Surplus→", "NonReg"],
                     ["End bal", "$"],
@@ -2069,6 +2177,7 @@ export default function App() {
                       {/* removed W/d TFSA */}
                       {/* removed Forced LIF */}
                       {/* removed Forced RRIF */}
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.tax, r.year)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.surplusInvestedToTfsa, r.year)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.surplusInvestedToNonReg, r.year)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(endTotal, r.year)}</td>
@@ -2084,8 +2193,7 @@ export default function App() {
 
       <footer style={{ marginTop: 18, fontSize: 12, opacity: 0.75 }}>
         <div>
-          Note: withdrawal schedule is pre-tax and simplified. Next step is to add
-          RRIF/LIF rules + tax brackets.
+          Note: withdrawal schedule includes a simplified tax estimate and remains approximate.
         </div>
       </footer>
     </div>
