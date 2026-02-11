@@ -121,6 +121,20 @@
   max-width: 10ch;
 }
 
+.scheduleWrap {
+  overflow: auto; /* both X and Y */
+  max-height: 60vh;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.scheduleWrap thead th {
+  position: sticky;
+  top: 0;
+  background: #ffffff;
+  z-index: 1;
+}
+
 @media (max-width: 520px) {
   .tightGrid {
     grid-template-columns: 1fr;

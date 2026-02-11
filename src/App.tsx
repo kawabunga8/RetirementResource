@@ -934,7 +934,7 @@ export default function App() {
           </div>
 
           <h3 style={{ marginTop: 14 }}>Accumulation table (years leading up to retirement)</h3>
-          <div style={{ overflowX: "auto" }}>
+          <div className="scheduleWrap">
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr>
@@ -1624,7 +1624,7 @@ export default function App() {
             Note: Sarah’s CPP/OAS begins when <strong>she</strong> reaches the selected start age (e.g. 70),
             which is typically ~2 years after Shingo given your birth years.
           </div>
-          <div style={{ overflowX: "auto" }}>
+          <div className="scheduleWrap">
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr>
