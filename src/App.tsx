@@ -990,10 +990,15 @@ export default function App() {
             <div style={{ fontSize: 13 }}>
               Total (nominal): <strong>${money(model.totalNominalAtRetirement)}</strong>
             </div>
-            <div style={{ fontSize: 13 }}>
-              Total (in today’s dollars):{" "}
-              <strong>${money(model.totalRealAtRetirement)}</strong>
-            </div>
+
+            <details style={{ marginTop: 6 }}>
+              <summary style={{ cursor: "pointer", fontSize: 13, opacity: 0.85 }}>
+                Show in today’s dollars (inflation-adjusted)
+              </summary>
+              <div style={{ fontSize: 13, marginTop: 6 }}>
+                Total (today’s dollars): <strong>${money(model.totalRealAtRetirement)}</strong>
+              </div>
+            </details>
           </div>
 
           <h3 style={{ marginTop: 14 }}>Accumulation table (years leading up to retirement)</h3>
