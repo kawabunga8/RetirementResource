@@ -414,11 +414,27 @@ export default function App() {
   const withdrawalTableRef = useRef<HTMLDivElement | null>(null);
   const accumulationTableRef = useRef<HTMLDivElement | null>(null);
 
-  const scrollTable = (ref: React.RefObject<HTMLDivElement | null>, dir: "left" | "right") => {
+  const scrollTable = (
+    ref: React.RefObject<HTMLDivElement | null>,
+    action: "left" | "right" | "edge-left" | "edge-right"
+  ) => {
     const el = ref.current;
     if (!el) return;
+
+    // Some browsers/devices are flaky with scrollBy({behavior:"smooth"}).
+    // Use explicit scrollLeft updates for reliability.
+    if (action === "edge-left") {
+      el.scrollLeft = 0;
+      return;
+    }
+
+    if (action === "edge-right") {
+      el.scrollLeft = el.scrollWidth;
+      return;
+    }
+
     const dx = Math.max(200, Math.floor(el.clientWidth * 0.9));
-    el.scrollBy({ left: dir === "left" ? -dx : dx, behavior: "smooth" });
+    el.scrollLeft += action === "left" ? -dx : dx;
   };
 
   // navigation uses page tabs now
@@ -954,12 +970,18 @@ export default function App() {
           </div>
 
           <h3 style={{ marginTop: 14 }}>Accumulation table (years leading up to retirement)</h3>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "8px 0" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "8px 0", flexWrap: "wrap" }}>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "edge-left")}>
+              ⏮
+            </button>
             <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "left")}>
               ◀
             </button>
             <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "right")}>
               ▶
+            </button>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "edge-right")}>
+              ⏭
             </button>
             <span style={{ fontSize: 12, opacity: 0.7 }}>
               Scroll table horizontally
@@ -1660,12 +1682,18 @@ export default function App() {
             Note: Sarah’s CPP/OAS begins when <strong>she</strong> reaches the selected start age (e.g. 70),
             which is typically ~2 years after Shingo given your birth years.
           </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "8px 0" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "8px 0", flexWrap: "wrap" }}>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "edge-left")}>
+              ⏮
+            </button>
             <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "left")}>
               ◀
             </button>
             <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "right")}>
               ▶
+            </button>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "edge-right")}>
+              ⏭
             </button>
             <span style={{ fontSize: 12, opacity: 0.7 }}>
               Scroll table horizontally
