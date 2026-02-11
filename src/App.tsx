@@ -940,7 +940,7 @@ export default function App() {
 
           <h3 style={{ marginTop: 14 }}>Accumulation table (years leading up to retirement)</h3>
           <div className="scheduleWrap">
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr>
                   {[
@@ -1635,7 +1635,7 @@ export default function App() {
             which is typically ~2 years after Shingo given your birth years.
           </div>
           <div className="scheduleWrap">
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr>
                   {[

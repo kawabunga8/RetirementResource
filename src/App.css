@@ -137,7 +137,7 @@
 
 /* Allow horizontal scrolling: prevent the table from shrinking to fit the container */
 .scheduleWrap table {
-  width: max-content;
+  width: max-content !important; /* override inline styles */
   min-width: 100%;
 }
 
