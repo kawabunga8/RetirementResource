@@ -137,6 +137,9 @@ export type FhsaInputs = {
 };
 
 export type Variables = {
+  // Display mode
+  dollarsMode: "nominal" | "real";
+
   // Target year you stop working / begin retirement plan
   retirementYear: number;
 
@@ -184,6 +187,7 @@ export const DEFAULT_ANCHORS: Anchors = {
 };
 
 export const DEFAULT_VARIABLES: Variables = {
+  dollarsMode: "nominal",
   retirementYear: DEFAULT_ANCHORS.targetRetirementYear,
   shingoRetireAge: 67,
   sarahRetireAge: 65,

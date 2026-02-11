@@ -470,6 +470,14 @@ export default function App() {
   const [showFullSchedule, setShowFullSchedule] = useState(false);
   const [wideLayout, setWideLayout] = useState(false);
 
+  const adjustDollars = (amountNominal: number, year: number) => {
+    if (vars.dollarsMode !== "real") return amountNominal;
+    const yearsFromBaseline = year - DEFAULT_ANCHORS.baselineYear;
+    return toRealDollars(amountNominal, vars.expectedInflation, yearsFromBaseline);
+  };
+
+  const moneyY = (amountNominal: number, year: number) => money(adjustDollars(amountNominal, year));
+
   const withdrawalTableRef = useRef<HTMLDivElement | null>(null);
   const accumulationTableRef = useRef<HTMLDivElement | null>(null);
 
@@ -900,7 +908,24 @@ export default function App() {
           </button>
         </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.85 }}>
+            Dollars:
+            <select
+              className="yesNoSelect"
+              value={vars.dollarsMode}
+              onChange={(e) =>
+                setVars((v) => ({
+                  ...v,
+                  dollarsMode: e.target.value === "real" ? "real" : "nominal",
+                }))
+              }
+            >
+              <option value="nominal">Nominal</option>
+              <option value="real">Today’s (real)</option>
+            </select>
+          </label>
+
           <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.85 }}>
             <input
               type="checkbox"
@@ -909,9 +934,10 @@ export default function App() {
             />
             Wide-screen layout
           </label>
+
           <div style={{ fontSize: 12, opacity: 0.75 }}>
             {page === "overview" ? "Edit assumptions + see balances at retirement" : null}
-            {page === "tax" ? "Rough BC+federal tax bracket estimate" : null}
+            {page === "tax" ? "Rough BC+federal tax estimate with simple credits" : null}
             {page === "withdrawals" ? "Drawdown order, caps, and the schedule" : null}
           </div>
         </div>
@@ -1057,9 +1083,9 @@ export default function App() {
 
           <div style={{ marginTop: 10, fontSize: 13 }}>
             Remaining FHSA room (Shingo):{" "}
-            <strong>${money(Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedShingo))}</strong>
+            <strong>${moneyY(Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedShingo), DEFAULT_ANCHORS.baselineYear)}</strong>
             {" "} | Remaining FHSA room (Sarah):{" "}
-            <strong>${money(Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah))}</strong>
+            <strong>${moneyY(Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah), DEFAULT_ANCHORS.baselineYear)}</strong>
           </div>
         </section>
 
@@ -1071,34 +1097,29 @@ export default function App() {
           </p>
           <ul>
             <li>
-              FHSA (household): <strong>${money(model.retirementBalances.fhsa)}</strong>
+              FHSA (household): <strong>${moneyY(model.retirementBalances.fhsa, vars.retirementYear)}</strong>
             </li>
             <li>
-              RRSP (household): <strong>${money(model.retirementBalances.rrsp)}</strong>
+              RRSP (household): <strong>${moneyY(model.retirementBalances.rrsp, vars.retirementYear)}</strong>
             </li>
             <li>
-              TFSA (household): <strong>${money(model.retirementBalances.tfsa)}</strong>
+              TFSA (household): <strong>${moneyY(model.retirementBalances.tfsa, vars.retirementYear)}</strong>
             </li>
             <li>
-              LIRA/LIF (Shingo): <strong>${money(model.retirementBalances.lira)}</strong>
+              LIRA/LIF (Shingo): <strong>${moneyY(model.retirementBalances.lira, vars.retirementYear)}</strong>
             </li>
             <li>
-              Non-registered: <strong>${money(model.retirementBalances.nonRegistered)}</strong>
+              Non-registered: <strong>${moneyY(model.retirementBalances.nonRegistered, vars.retirementYear)}</strong>
             </li>
           </ul>
           <div style={{ marginTop: 10 }}>
             <div style={{ fontSize: 13 }}>
-              Total (nominal): <strong>${money(model.totalNominalAtRetirement)}</strong>
+              Total ({vars.dollarsMode === "real" ? "today’s dollars" : "nominal"}):{" "}
+              <strong>${moneyY(model.totalNominalAtRetirement, vars.retirementYear)}</strong>
             </div>
-
-            <details style={{ marginTop: 6 }}>
-              <summary style={{ cursor: "pointer", fontSize: 13, opacity: 0.85 }}>
-                Show in today’s dollars (inflation-adjusted)
-              </summary>
-              <div style={{ fontSize: 13, marginTop: 6 }}>
-                Total (today’s dollars): <strong>${money(model.totalRealAtRetirement)}</strong>
-              </div>
-            </details>
+            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
+              Toggle Nominal vs Today’s (real) in the top bar.
+            </div>
           </div>
 
           <h3 style={{ marginTop: 14 }}>Accumulation table (years leading up to retirement)</h3>
@@ -1165,17 +1186,17 @@ export default function App() {
                 {model.accumulationSchedule.map((r) => (
                   <tr key={r.year}>
                     <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.year}</td>
-                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.fhsaContribShingo)}</td>
-                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.fhsaContribSarah)}</td>
-                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.rrspContribShingo)}</td>
-                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.rrspContribSarah)}</td>
-                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.tfsaContribTotal)}</td>
-                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.estRefundToTfsa)}</td>
-                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.endFhsaTotal)}</td>
-                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.endRrspTotal)}</td>
-                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.endTfsaTotal)}</td>
-                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.endLira)}</td>
-                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.endTotal)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.fhsaContribShingo, r.year)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.fhsaContribSarah, r.year)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.rrspContribShingo, r.year)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.rrspContribSarah, r.year)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.tfsaContribTotal, r.year)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.estRefundToTfsa, r.year)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.endFhsaTotal, r.year)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.endRrspTotal, r.year)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.endTfsaTotal, r.year)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.endLira, r.year)}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.endTotal, r.year)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1389,13 +1410,13 @@ export default function App() {
                 <h3 style={{ marginTop: 14 }}>Results (estimated)</h3>
                 <ul style={{ marginTop: 10 }}>
                   <li>
-                    Shingo tax est.: <strong>${money(taxShingo)}</strong> | After-tax: <strong>${money(netShingo)}</strong>
+                    Shingo tax est.: <strong>${moneyY(taxShingo, vars.tax.taxYear)}</strong> | After-tax: <strong>${moneyY(netShingo, vars.tax.taxYear)}</strong>
                   </li>
                   <li>
-                    Sarah tax est.: <strong>${money(taxSarah)}</strong> | After-tax: <strong>${money(netSarah)}</strong>
+                    Sarah tax est.: <strong>${moneyY(taxSarah, vars.tax.taxYear)}</strong> | After-tax: <strong>${moneyY(netSarah, vars.tax.taxYear)}</strong>
                   </li>
                   <li>
-                    Household tax est.: <strong>${money(taxShingo + taxSarah)}</strong> | Household after-tax: <strong>${money(netShingo + netSarah)}</strong>
+                    Household tax est.: <strong>${moneyY(taxShingo + taxSarah, vars.tax.taxYear)}</strong> | Household after-tax: <strong>${moneyY(netShingo + netSarah, vars.tax.taxYear)}</strong>
                   </li>
                 </ul>
               </>
@@ -2037,20 +2058,20 @@ export default function App() {
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.ageShingo}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.ageSarah}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.phase}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.targetSpending)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.guaranteedIncome)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.benefitsIncome)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.targetSpending - r.guaranteedIncome - r.benefitsIncome)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.targetSpending, r.year)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.guaranteedIncome, r.year)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.benefitsIncome, r.year)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.targetSpending - r.guaranteedIncome - r.benefitsIncome, r.year)}</td>
                       {/* removed W/d FHSA */}
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.rrsp)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.lira)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.rrsp, r.year)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.lira, r.year)}</td>
                       {/* removed W/d NonReg */}
                       {/* removed W/d TFSA */}
                       {/* removed Forced LIF */}
                       {/* removed Forced RRIF */}
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.surplusInvestedToTfsa)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.surplusInvestedToNonReg)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(endTotal)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.surplusInvestedToTfsa, r.year)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.surplusInvestedToNonReg, r.year)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(endTotal, r.year)}</td>
                     </tr>
                   );
                 })}
