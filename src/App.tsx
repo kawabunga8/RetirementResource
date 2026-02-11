@@ -366,7 +366,7 @@ function progressiveTax(income: number, brackets: Array<{ upTo: number; rate: nu
 }
 
 function estimateFederalTaxCanada(income: number) {
-  // Approximate current-style brackets; excludes BPA/credits/surtaxes.
+  // Approximate current-style brackets; excludes credits/surtaxes.
   return progressiveTax(income, [
     { upTo: 55867, rate: 0.15 },
     { upTo: 111733, rate: 0.205 },
@@ -391,6 +391,65 @@ function estimateBCTax(income: number) {
 
 function estimateTaxBCCanada(income: number) {
   return estimateFederalTaxCanada(income) + estimateBCTax(income);
+}
+
+function taxCreditsEstimate(params: {
+  taxYear: number;
+  age: number;
+  eligiblePensionIncome: number;
+  useBpa: boolean;
+  useAgeAmount: boolean;
+  usePensionCredit: boolean;
+}) {
+  // Very simplified non-refundable credit modeling.
+  // Credits reduce tax by (credit amount * lowest rate).
+  // These constants are approximate and meant for planning sensitivity.
+
+  const FED_LOWEST = 0.15;
+  const BC_LOWEST = 0.0506;
+
+  // Approx BPA (federal). Using a rough modern value.
+  const FED_BPA = 15705;
+  // Approx BC BPA.
+  const BC_BPA = 12580;
+
+  // Approx age amount (federal/BC) maximums.
+  // Phase-outs are ignored in v1; toggle indicates "assume fully eligible".
+  const FED_AGE_AMOUNT = 9028;
+  const BC_AGE_AMOUNT = 5450;
+
+  // Pension amount credit: first ~$2,000 of eligible pension income.
+  const PENSION_CREDIT_BASE = 2000;
+
+  const credits = {
+    fedCreditAmt: 0,
+    bcCreditAmt: 0,
+  };
+
+  if (params.useBpa) {
+    credits.fedCreditAmt += FED_BPA;
+    credits.bcCreditAmt += BC_BPA;
+  }
+
+  if (params.useAgeAmount && params.age >= 65) {
+    credits.fedCreditAmt += FED_AGE_AMOUNT;
+    credits.bcCreditAmt += BC_AGE_AMOUNT;
+  }
+
+  if (params.usePensionCredit && params.eligiblePensionIncome > 0) {
+    const eligible = Math.min(PENSION_CREDIT_BASE, params.eligiblePensionIncome);
+    credits.fedCreditAmt += eligible;
+    credits.bcCreditAmt += eligible;
+  }
+
+  const fedCreditValue = credits.fedCreditAmt * FED_LOWEST;
+  const bcCreditValue = credits.bcCreditAmt * BC_LOWEST;
+
+  return {
+    fedCreditValue,
+    bcCreditValue,
+    totalCreditValue: fedCreditValue + bcCreditValue,
+  };
 }
 
 function estimateTaxSavingsFromDeduction(params: {
@@ -1088,78 +1147,217 @@ export default function App() {
 
         {page === "tax" && (
         <section id="tax" className="card">
-          <h2>Tax estimate (simple, BC + federal)</h2>
+          <h2>Tax estimate (BC + federal)</h2>
           <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-            This is a rough estimator using progressive brackets and <strong>no credits</strong>
-            (no BPA, age amount, pension credit, splitting, etc.). It’s useful for
-            ballpark sensitivity, not exact filing.
+            Now includes simple toggles for common non-refundable credits. This is still a planning estimator
+            (not filing-accurate).
           </p>
 
-          <div className="selectRow">
-            <Field label="Refund → TFSA">
-              <select
-                className="yesNoSelect"
-                value={vars.tax.enableRefundToTfsa ? "yes" : "no"}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    tax: {
-                      ...v.tax,
-                      enableRefundToTfsa: e.target.value === "yes",
-                    },
-                  }))
-                }
-              >
-                <option value="yes">Yes</option>
-                <option value="no">No</option>
-              </select>
-            </Field>
-
-            <Field label="Shingo income ($/yr)">
-              <input
-                className="moneyInputLg"
-                type="number"
-                value={vars.tax.shingoIncome}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    tax: { ...v.tax, shingoIncome: num(e.target.value) },
-                  }))
-                }
-              />
-            </Field>
-            <Field label="Sarah income ($/yr)">
-              <input
-                className="moneyInputLg"
-                type="number"
-                value={vars.tax.sarahIncome}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    tax: { ...v.tax, sarahIncome: num(e.target.value) },
-                  }))
-                }
-              />
-            </Field>
-          </div>
-
           {(() => {
-            const taxShingo = estimateTaxBCCanada(vars.tax.shingoIncome);
-            const taxSarah = estimateTaxBCCanada(vars.tax.sarahIncome);
+            const shingoAge = vars.tax.taxYear - DEFAULT_ANCHORS.shingoBirthYear;
+            const sarahAge = vars.tax.taxYear - DEFAULT_ANCHORS.sarahBirthYear;
+
+            const creditsShingo = taxCreditsEstimate({
+              taxYear: vars.tax.taxYear,
+              age: shingoAge,
+              eligiblePensionIncome: vars.tax.eligiblePensionIncomeShingo,
+              useBpa: vars.tax.useBpa,
+              useAgeAmount: vars.tax.useAgeAmount,
+              usePensionCredit: vars.tax.usePensionCredit,
+            });
+
+            const creditsSarah = taxCreditsEstimate({
+              taxYear: vars.tax.taxYear,
+              age: sarahAge,
+              eligiblePensionIncome: vars.tax.eligiblePensionIncomeSarah,
+              useBpa: vars.tax.useBpa,
+              useAgeAmount: vars.tax.useAgeAmount,
+              usePensionCredit: vars.tax.usePensionCredit,
+            });
+
+            const grossTaxShingo = estimateTaxBCCanada(vars.tax.shingoIncome);
+            const grossTaxSarah = estimateTaxBCCanada(vars.tax.sarahIncome);
+
+            const taxShingo = Math.max(0, grossTaxShingo - creditsShingo.totalCreditValue);
+            const taxSarah = Math.max(0, grossTaxSarah - creditsSarah.totalCreditValue);
+
             const netShingo = vars.tax.shingoIncome - taxShingo;
             const netSarah = vars.tax.sarahIncome - taxSarah;
+
             return (
-              <ul style={{ marginTop: 10 }}>
-                <li>
-                  Shingo tax est.: <strong>${money(taxShingo)}</strong> | After-tax: <strong>${money(netShingo)}</strong>
-                </li>
-                <li>
-                  Sarah tax est.: <strong>${money(taxSarah)}</strong> | After-tax: <strong>${money(netSarah)}</strong>
-                </li>
-                <li>
-                  Household tax est.: <strong>${money(taxShingo + taxSarah)}</strong> | Household after-tax: <strong>${money(netShingo + netSarah)}</strong>
-                </li>
-              </ul>
+              <>
+                <div className="selectRow">
+                  <Field label="Tax year">
+                    <input
+                      className="ageInput"
+                      type="number"
+                      value={vars.tax.taxYear}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          tax: { ...v.tax, taxYear: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Refund → TFSA">
+                    <select
+                      className="yesNoSelect"
+                      value={vars.tax.enableRefundToTfsa ? "yes" : "no"}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          tax: {
+                            ...v.tax,
+                            enableRefundToTfsa: e.target.value === "yes",
+                          },
+                        }))
+                      }
+                    >
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </Field>
+
+                  <Field label={`Shingo age in ${vars.tax.taxYear}`}>
+                    <input className="ageInput" type="number" value={shingoAge} disabled />
+                  </Field>
+                  <Field label={`Sarah age in ${vars.tax.taxYear}`}>
+                    <input className="ageInput" type="number" value={sarahAge} disabled />
+                  </Field>
+                </div>
+
+                <h3 style={{ marginTop: 14 }}>Income</h3>
+                <div className="selectRow">
+                  <Field label="Shingo income ($/yr)">
+                    <input
+                      className="moneyInputLg"
+                      type="number"
+                      value={vars.tax.shingoIncome}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          tax: { ...v.tax, shingoIncome: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Sarah income ($/yr)">
+                    <input
+                      className="moneyInputLg"
+                      type="number"
+                      value={vars.tax.sarahIncome}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          tax: { ...v.tax, sarahIncome: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                </div>
+
+                <h3 style={{ marginTop: 14 }}>Credits (toggles)</h3>
+                <div className="selectRow">
+                  <Field label="BPA">
+                    <select
+                      className="yesNoSelect"
+                      value={vars.tax.useBpa ? "yes" : "no"}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          tax: { ...v.tax, useBpa: e.target.value === "yes" },
+                        }))
+                      }
+                    >
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </Field>
+
+                  <Field label="Age amount">
+                    <select
+                      className="yesNoSelect"
+                      value={vars.tax.useAgeAmount ? "yes" : "no"}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          tax: { ...v.tax, useAgeAmount: e.target.value === "yes" },
+                        }))
+                      }
+                    >
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </Field>
+
+                  <Field label="Pension credit">
+                    <select
+                      className="yesNoSelect"
+                      value={vars.tax.usePensionCredit ? "yes" : "no"}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          tax: { ...v.tax, usePensionCredit: e.target.value === "yes" },
+                        }))
+                      }
+                    >
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </Field>
+                </div>
+
+                <h3 style={{ marginTop: 14 }}>Eligible pension income (for pension credit)</h3>
+                <div className="selectRow">
+                  <Field label="Shingo eligible pension ($/yr)">
+                    <input
+                      className="moneyInputLg"
+                      type="number"
+                      value={vars.tax.eligiblePensionIncomeShingo}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          tax: {
+                            ...v.tax,
+                            eligiblePensionIncomeShingo: num(e.target.value),
+                          },
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Sarah eligible pension ($/yr)">
+                    <input
+                      className="moneyInputLg"
+                      type="number"
+                      value={vars.tax.eligiblePensionIncomeSarah}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          tax: {
+                            ...v.tax,
+                            eligiblePensionIncomeSarah: num(e.target.value),
+                          },
+                        }))
+                      }
+                    />
+                  </Field>
+                </div>
+
+                <h3 style={{ marginTop: 14 }}>Results (estimated)</h3>
+                <ul style={{ marginTop: 10 }}>
+                  <li>
+                    Shingo tax est.: <strong>${money(taxShingo)}</strong> | After-tax: <strong>${money(netShingo)}</strong>
+                  </li>
+                  <li>
+                    Sarah tax est.: <strong>${money(taxSarah)}</strong> | After-tax: <strong>${money(netSarah)}</strong>
+                  </li>
+                  <li>
+                    Household tax est.: <strong>${money(taxShingo + taxSarah)}</strong> | Household after-tax: <strong>${money(netShingo + netSarah)}</strong>
+                  </li>
+                </ul>
+              </>
             );
           })()}
         </section>

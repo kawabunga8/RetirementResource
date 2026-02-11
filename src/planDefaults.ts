@@ -107,9 +107,21 @@ export type WithdrawalPlan = {
 };
 
 export type TaxInputs = {
-  // Simple income-based tax estimate (federal + BC), pre-credits.
+  // Tax year for credits/age-related features
+  taxYear: number;
+
+  // Income inputs (taxable income approximation)
   shingoIncome: number;
   sarahIncome: number;
+
+  // Credits toggles (auto defaults based on age)
+  useBpa: boolean;
+  useAgeAmount: boolean;
+  usePensionCredit: boolean;
+
+  // Eligible pension income used for the pension amount credit
+  eligiblePensionIncomeShingo: number;
+  eligiblePensionIncomeSarah: number;
 
   // Refund modeling (v1)
   // If enabled, we estimate annual tax savings from RRSP+FHSA contributions
@@ -242,8 +254,18 @@ export const DEFAULT_VARIABLES: Variables = {
   },
 
   tax: {
+    taxYear: 2036,
     shingoIncome: 100000,
     sarahIncome: 100000,
+
+    useBpa: true,
+    useAgeAmount: true,
+    usePensionCredit: true,
+
+    // Default: treat pensions as eligible for the pension amount credit (adjust if needed)
+    eligiblePensionIncomeShingo: 29000,
+    eligiblePensionIncomeSarah: 35000,
+
     enableRefundToTfsa: true,
   },
 
