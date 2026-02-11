@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import "./App.css";
 import {
   DEFAULT_ANCHORS,
@@ -410,6 +410,16 @@ export default function App() {
   const [page, setPage] = useState<"overview" | "tax" | "withdrawals">("overview");
   const [showFullSchedule, setShowFullSchedule] = useState(false);
   const [wideLayout, setWideLayout] = useState(false);
+
+  const withdrawalTableRef = useRef<HTMLDivElement | null>(null);
+  const accumulationTableRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollTable = (ref: React.RefObject<HTMLDivElement | null>, dir: "left" | "right") => {
+    const el = ref.current;
+    if (!el) return;
+    const dx = Math.max(200, Math.floor(el.clientWidth * 0.9));
+    el.scrollBy({ left: dir === "left" ? -dx : dx, behavior: "smooth" });
+  };
 
   // navigation uses page tabs now
 
@@ -944,7 +954,18 @@ export default function App() {
           </div>
 
           <h3 style={{ marginTop: 14 }}>Accumulation table (years leading up to retirement)</h3>
-          <div className="scheduleWrap">
+          <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "8px 0" }}>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "left")}>
+              ◀
+            </button>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "right")}>
+              ▶
+            </button>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>
+              Scroll table horizontally
+            </span>
+          </div>
+          <div className="scheduleWrap" ref={accumulationTableRef}>
             <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr>
@@ -1639,7 +1660,18 @@ export default function App() {
             Note: Sarah’s CPP/OAS begins when <strong>she</strong> reaches the selected start age (e.g. 70),
             which is typically ~2 years after Shingo given your birth years.
           </div>
-          <div className="scheduleWrap">
+          <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "8px 0" }}>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "left")}>
+              ◀
+            </button>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "right")}>
+              ▶
+            </button>
+            <span style={{ fontSize: 12, opacity: 0.7 }}>
+              Scroll table horizontally
+            </span>
+          </div>
+          <div className="scheduleWrap" ref={withdrawalTableRef}>
             <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr>
