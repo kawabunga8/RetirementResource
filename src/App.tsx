@@ -1712,7 +1712,7 @@ export default function App() {
                     ["Pension", "$/yr"],
                     ["CPP+OAS", "$/yr"],
                     ["Gap", "$/yr"],
-                    ["W/d", "FHSA"],
+                    // (removed W/d FHSA)
                     ["W/d", "RRSP"],
                     ["W/d", "LIF"],
                     // (removed W/d NonReg)
@@ -1760,7 +1760,7 @@ export default function App() {
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.guaranteedIncome)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.benefitsIncome)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.targetSpending - r.guaranteedIncome - r.benefitsIncome)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.fhsa)}</td>
+                      {/* removed W/d FHSA */}
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.rrsp)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.lira)}</td>
                       {/* removed W/d NonReg */}
