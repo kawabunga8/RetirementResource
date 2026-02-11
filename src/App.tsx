@@ -414,32 +414,44 @@ export default function App() {
   const withdrawalTableRef = useRef<HTMLDivElement | null>(null);
   const accumulationTableRef = useRef<HTMLDivElement | null>(null);
 
+  const getScrollEl = (key: "withdrawal" | "accumulation") => {
+    const byId = document.getElementById(
+      key === "withdrawal" ? "withdrawalScheduleWrap" : "accumulationScheduleWrap"
+    ) as HTMLDivElement | null;
+
+    if (byId) return byId;
+
+    return document.querySelector(
+      `[data-scrolltable="${key}"]`
+    ) as HTMLDivElement | null;
+  };
+
   const scrollTable = (
     ref: React.RefObject<HTMLDivElement | null>,
     key: "withdrawal" | "accumulation",
     action: "left" | "right" | "edge-left" | "edge-right"
   ) => {
-    const fallback = document.querySelector(
-      `[data-scrolltable="${key}"]`
-    ) as HTMLDivElement | null;
-
-    const el = ref.current ?? fallback;
-    if (!el) return;
+    const el = ref.current ?? getScrollEl(key);
+    if (!el) {
+      console.warn("scrollTable: no element found", { key, action });
+      return;
+    }
 
     // Some browsers/devices are flaky with scrollBy({behavior:"smooth"}).
     // Use explicit scrollLeft updates for reliability.
+    const before = { left: el.scrollLeft, width: el.scrollWidth, client: el.clientWidth };
+
     if (action === "edge-left") {
-      el.scrollLeft = 0;
-      return;
+      el.scrollTo({ left: 0 });
+    } else if (action === "edge-right") {
+      el.scrollTo({ left: el.scrollWidth });
+    } else {
+      const dx = Math.max(200, Math.floor(el.clientWidth * 0.9));
+      el.scrollTo({ left: el.scrollLeft + (action === "left" ? -dx : dx) });
     }
 
-    if (action === "edge-right") {
-      el.scrollLeft = el.scrollWidth;
-      return;
-    }
-
-    const dx = Math.max(200, Math.floor(el.clientWidth * 0.9));
-    el.scrollLeft += action === "left" ? -dx : dx;
+    const after = { left: el.scrollLeft, width: el.scrollWidth, client: el.clientWidth };
+    console.log("scrollTable", key, action, { before, after });
   };
 
   // navigation uses page tabs now
@@ -992,7 +1004,12 @@ export default function App() {
               Scroll table horizontally
             </span>
           </div>
-          <div className="scheduleWrap" ref={accumulationTableRef} data-scrolltable="accumulation">
+          <div
+            id="accumulationScheduleWrap"
+            className="scheduleWrap"
+            ref={accumulationTableRef}
+            data-scrolltable="accumulation"
+          >
             <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr>
@@ -1704,7 +1721,12 @@ export default function App() {
               Scroll table horizontally
             </span>
           </div>
-          <div className="scheduleWrap" ref={withdrawalTableRef} data-scrolltable="withdrawal">
+          <div
+            id="withdrawalScheduleWrap"
+            className="scheduleWrap"
+            ref={withdrawalTableRef}
+            data-scrolltable="withdrawal"
+          >
             <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr>
