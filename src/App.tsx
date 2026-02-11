@@ -31,7 +31,10 @@ function num(v: string) {
 }
 
 function money(n: number) {
-  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return n.toLocaleString(undefined, {
+    maximumFractionDigits: 0,
+    minimumFractionDigits: 0,
+  });
 }
 
 function sumBalances(b: AccountBalances) {
