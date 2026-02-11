@@ -31,7 +31,9 @@ function num(v: string) {
 }
 
 function money(n: number) {
-  return n.toLocaleString(undefined, {
+  // Round UP to the nearest dollar
+  const rounded = Math.ceil(n);
+  return rounded.toLocaleString(undefined, {
     maximumFractionDigits: 0,
     minimumFractionDigits: 0,
   });
