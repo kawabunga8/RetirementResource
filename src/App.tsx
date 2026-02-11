@@ -432,26 +432,36 @@ export default function App() {
     action: "left" | "right" | "edge-left" | "edge-right"
   ) => {
     const el = ref.current ?? getScrollEl(key);
-    if (!el) {
-      console.warn("scrollTable: no element found", { key, action });
+    if (!el) return;
+
+    // iOS Safari: direct scrollLeft writes are most reliable.
+    if (action === "edge-left") {
+      el.scrollLeft = 0;
       return;
     }
 
-    // Some browsers/devices are flaky with scrollBy({behavior:"smooth"}).
-    // Use explicit scrollLeft updates for reliability.
-    const before = { left: el.scrollLeft, width: el.scrollWidth, client: el.clientWidth };
-
-    if (action === "edge-left") {
-      el.scrollTo({ left: 0 });
-    } else if (action === "edge-right") {
-      el.scrollTo({ left: el.scrollWidth });
-    } else {
-      const dx = Math.max(200, Math.floor(el.clientWidth * 0.9));
-      el.scrollTo({ left: el.scrollLeft + (action === "left" ? -dx : dx) });
+    if (action === "edge-right") {
+      el.scrollLeft = el.scrollWidth;
+      return;
     }
 
-    const after = { left: el.scrollLeft, width: el.scrollWidth, client: el.clientWidth };
-    console.log("scrollTable", key, action, { before, after });
+    const dx = Math.max(200, Math.floor(el.clientWidth * 0.9));
+    el.scrollLeft += action === "left" ? -dx : dx;
+  };
+
+  const makeScrollHandlers = (
+    ref: React.RefObject<HTMLDivElement | null>,
+    key: "withdrawal" | "accumulation",
+    action: "left" | "right" | "edge-left" | "edge-right"
+  ) => {
+    const fn = () => scrollTable(ref, key, action);
+    return {
+      onClick: fn,
+      onTouchEnd: (e: React.TouchEvent) => {
+        e.preventDefault();
+        fn();
+      },
+    };
   };
 
   // navigation uses page tabs now
@@ -988,16 +998,16 @@ export default function App() {
 
           <h3 style={{ marginTop: 14 }}>Accumulation table (years leading up to retirement)</h3>
           <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "8px 0", flexWrap: "wrap" }}>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "accumulation", "edge-left")}>
+            <button type="button" className="linkBtn" {...makeScrollHandlers(accumulationTableRef, "accumulation", "edge-left")}>
               ⏮
             </button>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "accumulation", "left")}>
+            <button type="button" className="linkBtn" {...makeScrollHandlers(accumulationTableRef, "accumulation", "left")}>
               ◀
             </button>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "accumulation", "right")}>
+            <button type="button" className="linkBtn" {...makeScrollHandlers(accumulationTableRef, "accumulation", "right")}>
               ▶
             </button>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "accumulation", "edge-right")}>
+            <button type="button" className="linkBtn" {...makeScrollHandlers(accumulationTableRef, "accumulation", "edge-right")}>
               ⏭
             </button>
             <span style={{ fontSize: 12, opacity: 0.7 }}>
@@ -1705,16 +1715,16 @@ export default function App() {
             which is typically ~2 years after Shingo given your birth years.
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "8px 0", flexWrap: "wrap" }}>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "withdrawal", "edge-left")}>
+            <button type="button" className="linkBtn" {...makeScrollHandlers(withdrawalTableRef, "withdrawal", "edge-left")}>
               ⏮
             </button>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "withdrawal", "left")}>
+            <button type="button" className="linkBtn" {...makeScrollHandlers(withdrawalTableRef, "withdrawal", "left")}>
               ◀
             </button>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "withdrawal", "right")}>
+            <button type="button" className="linkBtn" {...makeScrollHandlers(withdrawalTableRef, "withdrawal", "right")}>
               ▶
             </button>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "withdrawal", "edge-right")}>
+            <button type="button" className="linkBtn" {...makeScrollHandlers(withdrawalTableRef, "withdrawal", "edge-right")}>
               ⏭
             </button>
             <span style={{ fontSize: 12, opacity: 0.7 }}>
