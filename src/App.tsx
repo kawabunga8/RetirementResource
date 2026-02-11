@@ -942,31 +942,36 @@ export default function App() {
               <thead>
                 <tr>
                   {[
-                    "Year",
-                    "FHSA contrib Shingo ($/yr)",
-                    "FHSA contrib Sarah ($/yr)",
-                    "RRSP contrib Shingo ($/yr)",
-                    "RRSP contrib Sarah ($/yr)",
-                    "TFSA contrib household ($/yr)",
-                    "Est. tax refund → TFSA ($/yr)",
-                    "End FHSA total ($)",
-                    "End RRSP total ($)",
-                    "End TFSA total ($)",
-                    "End LIRA ($)",
-                    "End total ($)",
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      style={{
-                        textAlign: "right",
-                        padding: "6px 8px",
-                        borderBottom: "1px solid #e5e7eb",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
+                    ["Year", ""],
+                    ["Contrib", "FHSA S"],
+                    ["Contrib", "FHSA Sa"],
+                    ["Contrib", "RRSP S"],
+                    ["Contrib", "RRSP Sa"],
+                    ["Contrib", "TFSA HH"],
+                    ["Refund→", "TFSA"],
+                    ["End", "FHSA"],
+                    ["End", "RRSP"],
+                    ["End", "TFSA"],
+                    ["End", "LIRA"],
+                    ["End", "Total"],
+                  ].map(([top, bottom]) => {
+                    const key = `${top}-${bottom}`;
+                    return (
+                      <th
+                        key={key}
+                        style={{
+                          textAlign: "right",
+                          padding: "6px 8px",
+                          borderBottom: "1px solid #e5e7eb",
+                          whiteSpace: "nowrap",
+                          lineHeight: 1.1,
+                        }}
+                      >
+                        <div>{top}</div>
+                        {bottom ? <div style={{ fontSize: 11, opacity: 0.8 }}>{bottom}</div> : null}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
