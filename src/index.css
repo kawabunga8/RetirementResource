@@ -29,6 +29,7 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background: #f3f8ff; /* subtle light blue */
+  overflow-x: hidden; /* prevent page-level horizontal scroll */
 }
 
 button {

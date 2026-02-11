@@ -7,8 +7,8 @@
 }
 
 .app {
-  /* Prevent horizontal page scroll; tables use their own scroll containers. */
-  overflow-x: hidden;
+  /* Allow nested horizontal scrolling (especially on iOS Safari). */
+  overflow-x: visible;
 }
 
 .ageRow {
