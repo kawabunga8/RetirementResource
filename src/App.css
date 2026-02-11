@@ -123,22 +123,26 @@
 
 .scheduleWrap {
   display: block;
-  overflow-x: auto;
+  position: relative;
+  overflow-x: scroll; /* force a horizontal scrollbar */
   overflow-y: auto;
   max-height: 60vh;
   max-width: 100%;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
-  touch-action: pan-x pan-y;
-  scrollbar-gutter: stable both-edges;
+  padding-bottom: 6px; /* ensure scrollbar doesn't overlap content */
 }
 
 /* Allow horizontal scrolling: prevent the table from shrinking to fit the container */
 .scheduleWrap table {
-  width: max-content !important; /* override inline styles */
+  width: max-content !important;
   min-width: 100%;
+}
+
+.scheduleWrap th,
+.scheduleWrap td {
+  white-space: nowrap;
 }
 
 .scheduleWrap thead th {
