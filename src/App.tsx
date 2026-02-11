@@ -416,9 +416,14 @@ export default function App() {
 
   const scrollTable = (
     ref: React.RefObject<HTMLDivElement | null>,
+    key: "withdrawal" | "accumulation",
     action: "left" | "right" | "edge-left" | "edge-right"
   ) => {
-    const el = ref.current;
+    const fallback = document.querySelector(
+      `[data-scrolltable="${key}"]`
+    ) as HTMLDivElement | null;
+
+    const el = ref.current ?? fallback;
     if (!el) return;
 
     // Some browsers/devices are flaky with scrollBy({behavior:"smooth"}).
@@ -971,23 +976,23 @@ export default function App() {
 
           <h3 style={{ marginTop: 14 }}>Accumulation table (years leading up to retirement)</h3>
           <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "8px 0", flexWrap: "wrap" }}>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "edge-left")}>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "accumulation", "edge-left")}>
               ⏮
             </button>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "left")}>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "accumulation", "left")}>
               ◀
             </button>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "right")}>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "accumulation", "right")}>
               ▶
             </button>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "edge-right")}>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(accumulationTableRef, "accumulation", "edge-right")}>
               ⏭
             </button>
             <span style={{ fontSize: 12, opacity: 0.7 }}>
               Scroll table horizontally
             </span>
           </div>
-          <div className="scheduleWrap" ref={accumulationTableRef}>
+          <div className="scheduleWrap" ref={accumulationTableRef} data-scrolltable="accumulation">
             <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr>
@@ -1683,23 +1688,23 @@ export default function App() {
             which is typically ~2 years after Shingo given your birth years.
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "8px 0", flexWrap: "wrap" }}>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "edge-left")}>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "withdrawal", "edge-left")}>
               ⏮
             </button>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "left")}>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "withdrawal", "left")}>
               ◀
             </button>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "right")}>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "withdrawal", "right")}>
               ▶
             </button>
-            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "edge-right")}>
+            <button type="button" className="linkBtn" onClick={() => scrollTable(withdrawalTableRef, "withdrawal", "edge-right")}>
               ⏭
             </button>
             <span style={{ fontSize: 12, opacity: 0.7 }}>
               Scroll table horizontally
             </span>
           </div>
-          <div className="scheduleWrap" ref={withdrawalTableRef}>
+          <div className="scheduleWrap" ref={withdrawalTableRef} data-scrolltable="withdrawal">
             <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
                 <tr>
