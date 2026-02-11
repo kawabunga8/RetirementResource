@@ -94,6 +94,10 @@
   padding: 14px;
 }
 
+body {
+  background: #eaf5ff; /* light blue */
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -149,6 +153,7 @@ input, select {
   font-size: 14px;
   width: 100%;
   max-width: 260px;
+  background: #ffffff;
 }
 
 .linkBtn {
