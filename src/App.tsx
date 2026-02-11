@@ -532,13 +532,12 @@ export default function App() {
   const monthlyTotal = useMemo(() => sumMonthly(vars.monthly), [vars.monthly]);
 
   const model = useMemo(() => {
-    const yearsToRetirement =
-      DEFAULT_ANCHORS.targetRetirementYear - DEFAULT_ANCHORS.baselineYear;
+    const yearsToRetirement = vars.retirementYear - DEFAULT_ANCHORS.baselineYear;
     const monthsToRetirement = Math.max(0, Math.round(yearsToRetirement * 12));
 
     const accumulationSchedule = buildAccumulationSchedule({
       baselineYear: DEFAULT_ANCHORS.baselineYear,
-      retirementYear: DEFAULT_ANCHORS.targetRetirementYear,
+      retirementYear: vars.retirementYear,
       annualReturn: vars.expectedNominalReturn,
       fhsaShingo: vars.balances.fhsaShingo,
       fhsaSarah: vars.balances.fhsaSarah,
@@ -601,7 +600,7 @@ export default function App() {
     );
 
     // --- Withdrawal schedule (simple v1) ---
-    const retireYear = DEFAULT_ANCHORS.targetRetirementYear;
+    const retireYear = vars.retirementYear;
     const retireAgeShingo = vars.shingoRetireAge;
     const retireAgeSarah = vars.sarahRetireAge;
 
@@ -921,6 +920,48 @@ export default function App() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
         {page === "overview" && (
         <>
+        <section id="retirementTiming" className="card">
+          <h2>Retirement timing</h2>
+          {(() => {
+            const shingoAge = vars.retirementYear - DEFAULT_ANCHORS.shingoBirthYear;
+            const sarahAge = vars.retirementYear - DEFAULT_ANCHORS.sarahBirthYear;
+            return (
+              <>
+                <div className="selectRow">
+                  <Field label="Retirement year">
+                    <input
+                      className="ageInput"
+                      type="number"
+                      value={vars.retirementYear}
+                      onChange={(e) => {
+                        const year = num(e.target.value);
+                        setVars((v) => ({
+                          ...v,
+                          retirementYear: year,
+                          shingoRetireAge: year - DEFAULT_ANCHORS.shingoBirthYear,
+                          sarahRetireAge: year - DEFAULT_ANCHORS.sarahBirthYear,
+                          tax: { ...v.tax, taxYear: year },
+                        }));
+                      }}
+                    />
+                  </Field>
+                  <Field label={`Shingo age in ${vars.retirementYear}`}>
+                    <input className="ageInput" type="number" value={shingoAge} disabled />
+                  </Field>
+                  <Field label={`Sarah age in ${vars.retirementYear}`}>
+                    <input className="ageInput" type="number" value={sarahAge} disabled />
+                  </Field>
+                </div>
+
+                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+                  Changing the retirement year automatically updates the retirement ages and re-runs the accumulation model
+                  up to that year.
+                </div>
+              </>
+            );
+          })()}
+        </section>
+
         <section id="expectations" className="card">
           <h2>Expectations (adjustable)</h2>
           <div className="selectRow">
@@ -1025,7 +1066,7 @@ export default function App() {
         <section id="retirement-balances" className="card">
           <h2>Starting balances at retirement (projected)</h2>
           <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-            This is calculated by simulating contributions month-by-month from {DEFAULT_ANCHORS.baselineYear} to {DEFAULT_ANCHORS.targetRetirementYear},
+            This is calculated by simulating contributions month-by-month from {DEFAULT_ANCHORS.baselineYear} to {vars.retirementYear},
             including FHSA annual/lifetime caps and redirecting any capped FHSA contribution into RRSP.
           </p>
           <ul>

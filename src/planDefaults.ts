@@ -137,6 +137,10 @@ export type FhsaInputs = {
 };
 
 export type Variables = {
+  // Target year you stop working / begin retirement plan
+  retirementYear: number;
+
+  // Derived from retirementYear by default, but can be overridden if you want.
   shingoRetireAge: number;
   sarahRetireAge: number;
   cppStartAge: number;
@@ -180,6 +184,7 @@ export const DEFAULT_ANCHORS: Anchors = {
 };
 
 export const DEFAULT_VARIABLES: Variables = {
+  retirementYear: DEFAULT_ANCHORS.targetRetirementYear,
   shingoRetireAge: 67,
   sarahRetireAge: 65,
   cppStartAge: 70,
