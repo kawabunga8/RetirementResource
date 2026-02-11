@@ -1687,8 +1687,8 @@ export default function App() {
                     ["W/d", "FHSA"],
                     ["W/d", "RRSP"],
                     ["W/d", "LIF"],
-                    ["W/d", "NonReg"],
-                    ["W/d", "TFSA"],
+                    // (removed W/d NonReg)
+                    // (removed W/d TFSA)
                     ["Forced", "LIF"],
                     ["Forced", "RRIF"],
                     ["Surplus→", "TFSA"],
@@ -1735,8 +1735,8 @@ export default function App() {
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.fhsa)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.rrsp)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.lira)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.nonRegistered)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.withdrawals.tfsa)}</td>
+                      {/* removed W/d NonReg */}
+                      {/* removed W/d TFSA */}
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.forcedLif)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.forcedRrif)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${money(r.surplusInvestedToTfsa)}</td>
