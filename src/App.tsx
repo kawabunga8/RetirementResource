@@ -1425,6 +1425,106 @@ export default function App() {
                   As of <strong>{currentLabel}</strong> (simulated from baseline {DEFAULT_ANCHORS.baselineYear} using your current monthly contributions and return assumptions).
                 </p>
 
+                <h3 style={{ marginTop: 14 }}>Current balances (editable)</h3>
+                <div className="tightGrid">
+                  <Field label="FHSA Shingo (starting, $)">
+                    <input
+                      type="number"
+                      value={vars.balances.fhsaShingo}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          balances: { ...v.balances, fhsaShingo: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="FHSA Sarah (starting, $)">
+                    <input
+                      type="number"
+                      value={vars.balances.fhsaSarah}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          balances: { ...v.balances, fhsaSarah: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="RRSP Shingo (starting, $)">
+                    <input
+                      type="number"
+                      value={vars.balances.rrspShingo}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          balances: { ...v.balances, rrspShingo: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="RRSP Sarah (starting, $)">
+                    <input
+                      type="number"
+                      value={vars.balances.rrspSarah}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          balances: { ...v.balances, rrspSarah: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="TFSA Shingo (starting, $)">
+                    <input
+                      type="number"
+                      value={vars.balances.tfsaShingo}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          balances: { ...v.balances, tfsaShingo: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="TFSA Sarah (starting, $)">
+                    <input
+                      type="number"
+                      value={vars.balances.tfsaSarah}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          balances: { ...v.balances, tfsaSarah: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="LIRA/LIF Shingo (starting, $)">
+                    <input
+                      type="number"
+                      value={vars.balances.liraShingo}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          balances: { ...v.balances, liraShingo: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Non-registered (starting, $)">
+                    <input
+                      type="number"
+                      value={vars.balances.nonRegistered}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          balances: { ...v.balances, nonRegistered: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                </div>
+
                 <h3 style={{ marginTop: 14 }}>Current monthly contributions</h3>
                 <ul style={{ marginTop: 8 }}>
                   <li>FHSA Shingo: <strong>${moneyY(vars.monthly.fhsaShingo * 12, yearForDollars)}</strong> /yr (${moneyY(vars.monthly.fhsaShingo, yearForDollars)}/mo)</li>
