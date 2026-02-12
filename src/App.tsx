@@ -466,7 +466,7 @@ function estimateTaxSavingsFromDeduction(params: {
 
 export default function App() {
   const [vars, setVars] = useState<Variables>(DEFAULT_VARIABLES);
-  const [page, setPage] = useState<"overview" | "tax" | "withdrawals">("overview");
+  const [page, setPage] = useState<"overview" | "current" | "tax" | "withdrawals">("overview");
   const [showFullSchedule, setShowFullSchedule] = useState(false);
   const [wideLayout, setWideLayout] = useState(false);
 
@@ -1000,6 +1000,14 @@ export default function App() {
           <button
             type="button"
             className="linkBtn"
+            onClick={() => setPage("current")}
+            aria-current={page === "current"}
+          >
+            Current
+          </button>
+          <button
+            type="button"
+            className="linkBtn"
             onClick={() => setPage("tax")}
             aria-current={page === "tax"}
           >
@@ -1044,6 +1052,7 @@ export default function App() {
 
           <div style={{ fontSize: 12, opacity: 0.75 }}>
             {page === "overview" ? "Edit assumptions + see balances at retirement" : null}
+            {page === "current" ? "Live snapshot: contributions and totals as of this month" : null}
             {page === "tax" ? "Rough BC+federal tax estimate with simple credits" : null}
             {page === "withdrawals" ? "Drawdown order, caps, and the schedule" : null}
           </div>
@@ -1312,6 +1321,136 @@ export default function App() {
         </section>
 
         </>
+        )}
+
+        {page === "current" && (
+        <section id="current" className="card">
+          <h2>Current snapshot</h2>
+          {(() => {
+            const now = new Date();
+            const nowYear = now.getFullYear();
+            const nowMonth = now.getMonth(); // 0-11
+
+            const monthsElapsed = Math.max(
+              0,
+              (nowYear - DEFAULT_ANCHORS.baselineYear) * 12 + nowMonth
+            );
+
+            // Simulate month-by-month from baseline to the start of the current month.
+            const r = vars.expectedNominalReturn / 12;
+
+            let fhsaS = vars.balances.fhsaShingo;
+            let fhsaSa = vars.balances.fhsaSarah;
+            let rrspS = vars.balances.rrspShingo;
+            let rrspSa = vars.balances.rrspSarah;
+            let tfsaS = vars.balances.tfsaShingo;
+            let tfsaSa = vars.balances.tfsaSarah;
+            let lira = vars.balances.liraShingo;
+            let nonReg = vars.balances.nonRegistered;
+
+            let roomFhsaS = Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedShingo);
+            let roomFhsaSa = Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah);
+
+            let fhsaAnnualUsedS = 0;
+            let fhsaAnnualUsedSa = 0;
+
+            for (let m = 0; m < monthsElapsed; m++) {
+              // const year = DEFAULT_ANCHORS.baselineYear + Math.floor(m / 12);
+
+              if (m % 12 === 0) {
+                fhsaAnnualUsedS = 0;
+                fhsaAnnualUsedSa = 0;
+              }
+
+              // TFSA split (household)
+              const tfsaEach = vars.monthly.tfsaTotal / 2;
+
+              // RRSP base
+              let rrspContribS = vars.monthly.rrspShingo;
+              let rrspContribSa = vars.monthly.rrspSarah;
+
+              // FHSA with annual + lifetime caps; overflow -> RRSP
+              let fhsaContribS = vars.monthly.fhsaShingo;
+              fhsaContribS = Math.min(fhsaContribS, Math.max(0, vars.fhsa.annualLimit - fhsaAnnualUsedS));
+              fhsaContribS = Math.min(fhsaContribS, roomFhsaS);
+              const overflowS = vars.monthly.fhsaShingo - fhsaContribS;
+              if (overflowS > 0) rrspContribS += overflowS;
+
+              let fhsaContribSa = vars.monthly.fhsaSarah;
+              fhsaContribSa = Math.min(fhsaContribSa, Math.max(0, vars.fhsa.annualLimit - fhsaAnnualUsedSa));
+              fhsaContribSa = Math.min(fhsaContribSa, roomFhsaSa);
+              const overflowSa = vars.monthly.fhsaSarah - fhsaContribSa;
+              if (overflowSa > 0) rrspContribSa += overflowSa;
+
+              // apply contribs
+              fhsaS += fhsaContribS;
+              fhsaSa += fhsaContribSa;
+              rrspS += rrspContribS;
+              rrspSa += rrspContribSa;
+              tfsaS += tfsaEach;
+              tfsaSa += tfsaEach;
+
+              fhsaAnnualUsedS += fhsaContribS;
+              fhsaAnnualUsedSa += fhsaContribSa;
+              roomFhsaS -= fhsaContribS;
+              roomFhsaSa -= fhsaContribSa;
+
+              // growth
+              fhsaS *= 1 + r;
+              fhsaSa *= 1 + r;
+              rrspS *= 1 + r;
+              rrspSa *= 1 + r;
+              tfsaS *= 1 + r;
+              tfsaSa *= 1 + r;
+              lira *= 1 + r;
+              nonReg *= 1 + r;
+            }
+
+            const currentLabel = now.toLocaleString(undefined, { month: "long", year: "numeric" });
+            const yearForDollars = nowYear; // approximate
+
+            const totals = {
+              fhsa: fhsaS + fhsaSa,
+              rrsp: rrspS + rrspSa,
+              tfsa: tfsaS + tfsaSa,
+              lira,
+              nonReg,
+            };
+
+            const grandTotal = totals.fhsa + totals.rrsp + totals.tfsa + totals.lira + totals.nonReg;
+
+            return (
+              <>
+                <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
+                  As of <strong>{currentLabel}</strong> (simulated from baseline {DEFAULT_ANCHORS.baselineYear} using your current monthly contributions and return assumptions).
+                </p>
+
+                <h3 style={{ marginTop: 14 }}>Current monthly contributions</h3>
+                <ul style={{ marginTop: 8 }}>
+                  <li>FHSA Shingo: <strong>${moneyY(vars.monthly.fhsaShingo * 12, yearForDollars)}</strong> /yr (${moneyY(vars.monthly.fhsaShingo, yearForDollars)}/mo)</li>
+                  <li>FHSA Sarah: <strong>${moneyY(vars.monthly.fhsaSarah * 12, yearForDollars)}</strong> /yr (${moneyY(vars.monthly.fhsaSarah, yearForDollars)}/mo)</li>
+                  <li>RRSP Shingo: <strong>${moneyY(vars.monthly.rrspShingo * 12, yearForDollars)}</strong> /yr (${moneyY(vars.monthly.rrspShingo, yearForDollars)}/mo)</li>
+                  <li>RRSP Sarah: <strong>${moneyY(vars.monthly.rrspSarah * 12, yearForDollars)}</strong> /yr (${moneyY(vars.monthly.rrspSarah, yearForDollars)}/mo)</li>
+                  <li>TFSA household: <strong>${moneyY(vars.monthly.tfsaTotal * 12, yearForDollars)}</strong> /yr (${moneyY(vars.monthly.tfsaTotal, yearForDollars)}/mo)</li>
+                </ul>
+
+                <h3 style={{ marginTop: 14 }}>Current totals</h3>
+                <ul style={{ marginTop: 8 }}>
+                  <li>FHSA (household): <strong>${moneyY(totals.fhsa, yearForDollars)}</strong></li>
+                  <li>RRSP (household): <strong>${moneyY(totals.rrsp, yearForDollars)}</strong></li>
+                  <li>TFSA (household): <strong>${moneyY(totals.tfsa, yearForDollars)}</strong></li>
+                  <li>LIRA/LIF (Shingo): <strong>${moneyY(totals.lira, yearForDollars)}</strong></li>
+                  <li>Non-registered: <strong>${moneyY(totals.nonReg, yearForDollars)}</strong></li>
+                </ul>
+
+                <div style={{ marginTop: 10 }}>
+                  Total ({vars.dollarsMode === "real" ? "today’s dollars" : "nominal"}):{" "}
+                  <strong>${moneyY(grandTotal, yearForDollars)}</strong>
+                </div>
+              </>
+            );
+          })()}
+        </section>
         )}
 
         {page === "tax" && (
