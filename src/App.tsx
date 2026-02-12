@@ -1525,14 +1525,77 @@ export default function App() {
                   </Field>
                 </div>
 
-                <h3 style={{ marginTop: 14 }}>Current monthly contributions</h3>
-                <ul style={{ marginTop: 8 }}>
-                  <li>FHSA Shingo: <strong>${moneyY(vars.monthly.fhsaShingo * 12, yearForDollars)}</strong> /yr (${moneyY(vars.monthly.fhsaShingo, yearForDollars)}/mo)</li>
-                  <li>FHSA Sarah: <strong>${moneyY(vars.monthly.fhsaSarah * 12, yearForDollars)}</strong> /yr (${moneyY(vars.monthly.fhsaSarah, yearForDollars)}/mo)</li>
-                  <li>RRSP Shingo: <strong>${moneyY(vars.monthly.rrspShingo * 12, yearForDollars)}</strong> /yr (${moneyY(vars.monthly.rrspShingo, yearForDollars)}/mo)</li>
-                  <li>RRSP Sarah: <strong>${moneyY(vars.monthly.rrspSarah * 12, yearForDollars)}</strong> /yr (${moneyY(vars.monthly.rrspSarah, yearForDollars)}/mo)</li>
-                  <li>TFSA household: <strong>${moneyY(vars.monthly.tfsaTotal * 12, yearForDollars)}</strong> /yr (${moneyY(vars.monthly.tfsaTotal, yearForDollars)}/mo)</li>
-                </ul>
+                <h3 style={{ marginTop: 14 }}>Current monthly contributions (editable)</h3>
+                <div className="tightGrid">
+                  <Field label="FHSA Shingo ($/mo)">
+                    <input
+                      type="number"
+                      value={vars.monthly.fhsaShingo}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          monthly: { ...v.monthly, fhsaShingo: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="FHSA Sarah ($/mo)">
+                    <input
+                      type="number"
+                      value={vars.monthly.fhsaSarah}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          monthly: { ...v.monthly, fhsaSarah: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="RRSP Shingo ($/mo)">
+                    <input
+                      type="number"
+                      value={vars.monthly.rrspShingo}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          monthly: { ...v.monthly, rrspShingo: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="RRSP Sarah ($/mo)">
+                    <input
+                      type="number"
+                      value={vars.monthly.rrspSarah}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          monthly: { ...v.monthly, rrspSarah: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="TFSA household ($/mo)">
+                    <input
+                      type="number"
+                      value={vars.monthly.tfsaTotal}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          monthly: { ...v.monthly, tfsaTotal: num(e.target.value) },
+                        }))
+                      }
+                    />
+                  </Field>
+                </div>
+
+                <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
+                  Annualized totals: FHSA Shingo <strong>${moneyY(vars.monthly.fhsaShingo * 12, yearForDollars)}</strong>,
+                  FHSA Sarah <strong>${moneyY(vars.monthly.fhsaSarah * 12, yearForDollars)}</strong>,
+                  RRSP Shingo <strong>${moneyY(vars.monthly.rrspShingo * 12, yearForDollars)}</strong>,
+                  RRSP Sarah <strong>${moneyY(vars.monthly.rrspSarah * 12, yearForDollars)}</strong>,
+                  TFSA household <strong>${moneyY(vars.monthly.tfsaTotal * 12, yearForDollars)}</strong>
+                </div>
 
                 <h3 style={{ marginTop: 14 }}>Current totals</h3>
                 <ul style={{ marginTop: 8 }}>
