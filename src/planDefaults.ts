@@ -140,6 +140,10 @@ export type Variables = {
   // Display mode
   dollarsMode: "nominal" | "real";
 
+  // Indexation (annual). Used for pensions/CPP/OAS.
+  // "Partial CPI" means indexationRate = cpiMultiplier * expectedInflation
+  cpiMultiplier: number; // e.g. 0.7 means 70% of CPI
+
   // Target year you stop working / begin retirement plan
   retirementYear: number;
 
@@ -188,6 +192,7 @@ export const DEFAULT_ANCHORS: Anchors = {
 
 export const DEFAULT_VARIABLES: Variables = {
   dollarsMode: "nominal",
+  cpiMultiplier: 0.7,
   retirementYear: DEFAULT_ANCHORS.targetRetirementYear,
   shingoRetireAge: 67,
   sarahRetireAge: 65,

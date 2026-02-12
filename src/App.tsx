@@ -478,6 +478,12 @@ export default function App() {
 
   const moneyY = (amountNominal: number, year: number) => money(adjustDollars(amountNominal, year));
 
+  const indexRate = vars.expectedInflation * vars.cpiMultiplier;
+  const indexAmount = (baseAmountNominal: number, yearsFromStart: number) => {
+    if (vars.dollarsMode === "real") return baseAmountNominal;
+    return baseAmountNominal * Math.pow(1 + indexRate, Math.max(0, yearsFromStart));
+  };
+
   const withdrawalTableRef = useRef<HTMLDivElement | null>(null);
   const accumulationTableRef = useRef<HTMLDivElement | null>(null);
 
@@ -654,13 +660,16 @@ export default function App() {
             ? vars.spending.slowGo
             : vars.spending.noGo;
 
-      const guaranteedIncome = pensionAnnual;
+      const yearsIntoRetirement = i;
+
+      const guaranteedIncome =
+        indexAmount(pensionAnnual, yearsIntoRetirement);
 
       const benefitsIncome =
-        (ageShingo >= vars.cppStartAge ? vars.withdrawals.cppShingoAnnual : 0) +
-        (ageSarah >= vars.cppStartAge ? vars.withdrawals.cppSarahAnnual : 0) +
-        (ageShingo >= vars.oasStartAge ? vars.withdrawals.oasShingoAnnual : 0) +
-        (ageSarah >= vars.oasStartAge ? vars.withdrawals.oasSarahAnnual : 0);
+        (ageShingo >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppShingoAnnual, yearsIntoRetirement) : 0) +
+        (ageSarah >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppSarahAnnual, yearsIntoRetirement) : 0) +
+        (ageShingo >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasShingoAnnual, yearsIntoRetirement) : 0) +
+        (ageSarah >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasSarahAnnual, yearsIntoRetirement) : 0);
 
       let spendingGap = clampToZero(targetSpending - guaranteedIncome - benefitsIncome);
 
@@ -763,19 +772,21 @@ export default function App() {
       // If tax is owed, we withdraw additional cash to pay it (which may itself increase taxable income).
 
       const estimateHouseholdTaxForYear = () => {
+        const yearsIntoRetirement = i;
+
         const shingoTaxable =
-          DEFAULT_ANCHORS.pensionShingo +
-          (ageShingo >= vars.cppStartAge ? vars.withdrawals.cppShingoAnnual : 0) +
-          (ageShingo >= vars.oasStartAge ? vars.withdrawals.oasShingoAnnual : 0) +
+          indexAmount(DEFAULT_ANCHORS.pensionShingo, yearsIntoRetirement) +
+          (ageShingo >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppShingoAnnual, yearsIntoRetirement) : 0) +
+          (ageShingo >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasShingoAnnual, yearsIntoRetirement) : 0) +
           withdrawals.lira +
           withdrawals.rrsp * 0.5 +
           withdrawals.fhsa * 0.5 +
           withdrawals.nonRegistered * 0.5;
 
         const sarahTaxable =
-          DEFAULT_ANCHORS.pensionSarah +
-          (ageSarah >= vars.cppStartAge ? vars.withdrawals.cppSarahAnnual : 0) +
-          (ageSarah >= vars.oasStartAge ? vars.withdrawals.oasSarahAnnual : 0) +
+          indexAmount(DEFAULT_ANCHORS.pensionSarah, yearsIntoRetirement) +
+          (ageSarah >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppSarahAnnual, yearsIntoRetirement) : 0) +
+          (ageSarah >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasSarahAnnual, yearsIntoRetirement) : 0) +
           withdrawals.rrsp * 0.5 +
           withdrawals.fhsa * 0.5 +
           withdrawals.nonRegistered * 0.5;
@@ -1107,6 +1118,20 @@ export default function App() {
         <section id="expectations" className="card">
           <h2>Expectations (adjustable)</h2>
           <div className="selectRow">
+            <Field label="Indexation (partial CPI multiplier)">
+              <input
+                type="number"
+                step="0.05"
+                value={vars.cpiMultiplier}
+                style={{ maxWidth: 90 }}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    cpiMultiplier: num(e.target.value),
+                  }))
+                }
+              />
+            </Field>
             <Field label="Expected nominal return (e.g. 0.07 = 7%)">
               <input
                 type="number"
