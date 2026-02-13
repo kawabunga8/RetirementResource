@@ -1607,8 +1607,26 @@ export default function App() {
                   {/* total line */}
                   <path d={totalPath} fill="none" stroke="#0f172a" strokeWidth={2.5} />
 
-                  <text x={padL} y={H - 10} fontSize={12} fill="#64748b">{xMin}</text>
-                  <text x={W - padR} y={H - 10} fontSize={12} fill="#64748b" textAnchor="end">{xMax}</text>
+                  {/* year tick marks */}
+                  {(() => {
+                    const desiredTicks = 6;
+                    const step = Math.max(1, Math.round((xMax - xMin) / desiredTicks));
+                    const ticks: number[] = [];
+                    for (let y = xMin; y <= xMax; y += step) ticks.push(y);
+                    if (ticks[ticks.length - 1] !== xMax) ticks.push(xMax);
+
+                    return ticks.map((y) => {
+                      const x = xScale(y);
+                      return (
+                        <g key={`tick-${y}`}>
+                          <line x1={x} y1={H - padB} x2={x} y2={H - padB + 4} stroke="#cbd5e1" />
+                          <text x={x} y={H - 10} fontSize={12} fill="#64748b" textAnchor="middle">
+                            {y}
+                          </text>
+                        </g>
+                      );
+                    });
+                  })()}
                   <text x={padL} y={padT + 10} fontSize={12} fill="#64748b" textAnchor="start">{money(yMax)}</text>
                   <text x={padL} y={H - padB - 6} fontSize={12} fill="#64748b" textAnchor="start">{money(0)}</text>
                 </svg>
