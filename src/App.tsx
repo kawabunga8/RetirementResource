@@ -9,6 +9,7 @@ import {
   type WithdrawalOrder,
   type LifMode,
 } from "./planDefaults";
+import { TFSA_ANNUAL_LIMIT_BY_YEAR } from "./data/publicRules";
 
 function Field({
   label,
@@ -110,6 +111,12 @@ function buildAccumulationSchedule(params: {
   tfsaShingo: number;
   tfsaSarah: number;
   liraShingo: number;
+  nonRegistered: number;
+  // starting contribution room
+  tfsaRoomShingo: number;
+  tfsaRoomSarah: number;
+  rrspRoomShingo: number;
+  rrspRoomSarah: number;
   // contributions
   monthlyFhsaShingo: number;
   monthlyFhsaSarah: number;
@@ -138,6 +145,13 @@ function buildAccumulationSchedule(params: {
   let tfsaS = params.tfsaShingo;
   let tfsaSa = params.tfsaSarah;
   let lira = params.liraShingo;
+  let nonReg = params.nonRegistered;
+
+  // contribution room trackers
+  let tfsaRoomS = Math.max(0, params.tfsaRoomShingo);
+  let tfsaRoomSa = Math.max(0, params.tfsaRoomSarah);
+  let rrspRoomS = Math.max(0, params.rrspRoomShingo);
+  let rrspRoomSa = Math.max(0, params.rrspRoomSarah);
 
   // FHSA remaining contribution room (lifetime) from facts
   let roomFhsaS = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateShingo);
@@ -161,10 +175,17 @@ function buildAccumulationSchedule(params: {
       fhsaAnnualUsedSa = 0;
       rrspAnnualS = 0;
       rrspAnnualSa = 0;
+
+      // TFSA room increases each Jan 1 (excluding baseline snapshot year, since room is already provided as-of baseline).
+      if (year > params.baselineYear) {
+        const add = TFSA_ANNUAL_LIMIT_BY_YEAR[String(year) as keyof typeof TFSA_ANNUAL_LIMIT_BY_YEAR] ?? 0;
+        tfsaRoomS += add;
+        tfsaRoomSa += add;
+      }
     }
 
     // planned TFSA split
-    const tfsaEach = params.monthlyTfsaTotal / 2;
+    const tfsaEachPlanned = params.monthlyTfsaTotal / 2;
 
     // planned RRSP
     let rrspContribS = params.monthlyRrspShingo;
@@ -187,15 +208,43 @@ function buildAccumulationSchedule(params: {
     const overflowSa = params.monthlyFhsaSarah - fhsaContribSa;
     if (overflowSa > 0) rrspContribSa += overflowSa;
 
-    // apply contributions
+    // Enforce RRSP room (overflow to TFSA, then non-registered)
+    const rrspSAllowed = Math.min(rrspContribS, rrspRoomS);
+    const rrspSaAllowed = Math.min(rrspContribSa, rrspRoomSa);
+    let rrspOverflowS = rrspContribS - rrspSAllowed;
+    let rrspOverflowSa = rrspContribSa - rrspSaAllowed;
+    rrspContribS = rrspSAllowed;
+    rrspContribSa = rrspSaAllowed;
+
+    // Apply contributions (FHSA + RRSP)
     fhsaS += fhsaContribS;
     fhsaSa += fhsaContribSa;
     rrspS += rrspContribS;
     rrspSa += rrspContribSa;
     rrspAnnualS += rrspContribS;
     rrspAnnualSa += rrspContribSa;
-    tfsaS += tfsaEach;
-    tfsaSa += tfsaEach;
+
+    rrspRoomS -= rrspContribS;
+    rrspRoomSa -= rrspContribSa;
+
+    // TFSA contributions (planned + RRSP overflow), capped by TFSA room; overflow to non-registered
+    const tfsaContribSPlanned = tfsaEachPlanned;
+    const tfsaContribSaPlanned = tfsaEachPlanned;
+
+    const tfsaSDesired = tfsaContribSPlanned + rrspOverflowS;
+    const tfsaSaDesired = tfsaContribSaPlanned + rrspOverflowSa;
+
+    const tfsaSAllowed = Math.min(tfsaSDesired, tfsaRoomS);
+    const tfsaSaAllowed = Math.min(tfsaSaDesired, tfsaRoomSa);
+
+    const tfsaOverflowToNonReg = (tfsaSDesired - tfsaSAllowed) + (tfsaSaDesired - tfsaSaAllowed);
+
+    tfsaS += tfsaSAllowed;
+    tfsaSa += tfsaSaAllowed;
+    nonReg += tfsaOverflowToNonReg;
+
+    tfsaRoomS -= tfsaSAllowed;
+    tfsaRoomSa -= tfsaSaAllowed;
 
     // update cap trackers
     fhsaAnnualUsedS += fhsaContribS;
@@ -211,6 +260,7 @@ function buildAccumulationSchedule(params: {
     tfsaS *= 1 + r;
     tfsaSa *= 1 + r;
     lira *= 1 + r;
+    nonReg *= 1 + r;
 
     // record end-of-year snapshot
     const endOfYear = (m % 12) === 11;
@@ -232,16 +282,23 @@ function buildAccumulationSchedule(params: {
           })
         : 0;
 
-      // Deposit refund into TFSA (split 50/50 for now)
+      // Deposit refund into TFSA (split 50/50) but respect TFSA room; overflow to non-registered.
       if (estRefundToTfsa > 0) {
-        tfsaS += estRefundToTfsa / 2;
-        tfsaSa += estRefundToTfsa / 2;
+        const each = estRefundToTfsa / 2;
+        const addS = Math.min(each, tfsaRoomS);
+        const addSa = Math.min(each, tfsaRoomSa);
+        const overflow = (each - addS) + (each - addSa);
+        tfsaS += addS;
+        tfsaSa += addSa;
+        nonReg += overflow;
+        tfsaRoomS -= addS;
+        tfsaRoomSa -= addSa;
       }
 
       const endFhsaTotal = fhsaS + fhsaSa;
       const endRrspTotal = rrspS + rrspSa;
       const endTfsaTotal = tfsaS + tfsaSa;
-      const endTotal = endFhsaTotal + endRrspTotal + endTfsaTotal + lira;
+      const endTotal = endFhsaTotal + endRrspTotal + endTfsaTotal + lira + nonReg;
 
       rows.push({
         year,
@@ -560,6 +617,11 @@ export default function App() {
       tfsaShingo: vars.balances.tfsaShingo,
       tfsaSarah: vars.balances.tfsaSarah,
       liraShingo: vars.balances.liraShingo,
+      nonRegistered: vars.balances.nonRegistered,
+      tfsaRoomShingo: vars.tfsaRoomShingo,
+      tfsaRoomSarah: vars.tfsaRoomSarah,
+      rrspRoomShingo: vars.rrspRoomShingo,
+      rrspRoomSarah: vars.rrspRoomSarah,
       monthlyFhsaShingo: vars.monthly.fhsaShingo,
       monthlyFhsaSarah: vars.monthly.fhsaSarah,
       monthlyRrspShingo: vars.monthly.rrspShingo,

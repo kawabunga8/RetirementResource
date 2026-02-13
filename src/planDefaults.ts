@@ -148,6 +148,12 @@ export type Variables = {
   // "Partial CPI" means indexationRate = cpiMultiplier * expectedInflation
   cpiMultiplier: number; // e.g. 0.7 means 70% of CPI
 
+  // Contribution room snapshot (as-of baselineYear)
+  tfsaRoomShingo: number;
+  tfsaRoomSarah: number;
+  rrspRoomShingo: number;
+  rrspRoomSarah: number;
+
   // Target year you stop working / begin retirement plan
   retirementYear: number;
 
@@ -197,6 +203,13 @@ export const DEFAULT_ANCHORS: Anchors = {
 export const DEFAULT_VARIABLES: Variables = {
   dollarsMode: "nominal",
   cpiMultiplier: 0.7,
+
+  // As-of baseline snapshot (Jan 2026)
+  tfsaRoomShingo: 102339.19,
+  tfsaRoomSarah: 109000,
+  rrspRoomShingo: 120125,
+  rrspRoomSarah: 63252,
+
   retirementYear: DEFAULT_ANCHORS.targetRetirementYear,
   shingoRetireAge: 67,
   sarahRetireAge: 65,
