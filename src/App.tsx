@@ -1534,6 +1534,58 @@ export default function App() {
                   As of <strong>{currentLabel}</strong> (simulated from baseline {DEFAULT_ANCHORS.baselineYear} using your current monthly contributions and return assumptions).
                 </p>
 
+                <h3 style={{ marginTop: 14 }}>Contribution room (editable)</h3>
+                <div className="tightGrid">
+                  <Field label="TFSA room Shingo (as of 2026, $)">
+                    <input
+                      type="number"
+                      value={vars.tfsaRoomShingo}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          tfsaRoomShingo: num(e.target.value),
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="TFSA room Sarah (as of 2026, $)">
+                    <input
+                      type="number"
+                      value={vars.tfsaRoomSarah}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          tfsaRoomSarah: num(e.target.value),
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="RRSP room Shingo (as of 2025 limit, $)">
+                    <input
+                      type="number"
+                      value={vars.rrspRoomShingo}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          rrspRoomShingo: num(e.target.value),
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="RRSP room Sarah (as of 2025 limit, $)">
+                    <input
+                      type="number"
+                      value={vars.rrspRoomSarah}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          rrspRoomSarah: num(e.target.value),
+                        }))
+                      }
+                    />
+                  </Field>
+                </div>
+
                 <h3 style={{ marginTop: 14 }}>Current balances (editable)</h3>
                 <div className="tightGrid">
                   <Field label="FHSA Shingo (starting, $)">
