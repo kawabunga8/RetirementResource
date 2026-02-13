@@ -208,11 +208,9 @@ function buildAccumulationSchedule(params: {
     const overflowSa = params.monthlyFhsaSarah - fhsaContribSa;
     if (overflowSa > 0) rrspContribSa += overflowSa;
 
-    // Enforce RRSP room (overflow to TFSA, then non-registered)
+    // Enforce RRSP room. If room is exhausted, contributions pause (no overflow routing).
     const rrspSAllowed = Math.min(rrspContribS, rrspRoomS);
     const rrspSaAllowed = Math.min(rrspContribSa, rrspRoomSa);
-    let rrspOverflowS = rrspContribS - rrspSAllowed;
-    let rrspOverflowSa = rrspContribSa - rrspSaAllowed;
     rrspContribS = rrspSAllowed;
     rrspContribSa = rrspSaAllowed;
 
@@ -227,21 +225,12 @@ function buildAccumulationSchedule(params: {
     rrspRoomS -= rrspContribS;
     rrspRoomSa -= rrspContribSa;
 
-    // TFSA contributions (planned + RRSP overflow), capped by TFSA room; overflow to non-registered
-    const tfsaContribSPlanned = tfsaEachPlanned;
-    const tfsaContribSaPlanned = tfsaEachPlanned;
-
-    const tfsaSDesired = tfsaContribSPlanned + rrspOverflowS;
-    const tfsaSaDesired = tfsaContribSaPlanned + rrspOverflowSa;
-
-    const tfsaSAllowed = Math.min(tfsaSDesired, tfsaRoomS);
-    const tfsaSaAllowed = Math.min(tfsaSaDesired, tfsaRoomSa);
-
-    const tfsaOverflowToNonReg = (tfsaSDesired - tfsaSAllowed) + (tfsaSaDesired - tfsaSaAllowed);
+    // TFSA contributions (planned), capped by TFSA room. If room is exhausted, contributions pause.
+    const tfsaSAllowed = Math.min(tfsaEachPlanned, tfsaRoomS);
+    const tfsaSaAllowed = Math.min(tfsaEachPlanned, tfsaRoomSa);
 
     tfsaS += tfsaSAllowed;
     tfsaSa += tfsaSaAllowed;
-    nonReg += tfsaOverflowToNonReg;
 
     tfsaRoomS -= tfsaSAllowed;
     tfsaRoomSa -= tfsaSaAllowed;
@@ -282,15 +271,14 @@ function buildAccumulationSchedule(params: {
           })
         : 0;
 
-      // Deposit refund into TFSA (split 50/50) but respect TFSA room; overflow to non-registered.
+      // Deposit refund into TFSA (split 50/50) but respect TFSA room.
+      // If TFSA room is exhausted, the refund is not invested (paused) in this simplified model.
       if (estRefundToTfsa > 0) {
         const each = estRefundToTfsa / 2;
         const addS = Math.min(each, tfsaRoomS);
         const addSa = Math.min(each, tfsaRoomSa);
-        const overflow = (each - addS) + (each - addSa);
         tfsaS += addS;
         tfsaSa += addSa;
-        nonReg += overflow;
         tfsaRoomS -= addS;
         tfsaRoomSa -= addSa;
       }
