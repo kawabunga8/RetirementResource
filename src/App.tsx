@@ -96,6 +96,7 @@ type AccumRow = {
   endRrspTotal: number;
   endTfsaTotal: number;
   endLira: number;
+  endNonReg: number;
   endTotal: number;
 };
 
@@ -286,7 +287,8 @@ function buildAccumulationSchedule(params: {
       const endFhsaTotal = fhsaS + fhsaSa;
       const endRrspTotal = rrspS + rrspSa;
       const endTfsaTotal = tfsaS + tfsaSa;
-      const endTotal = endFhsaTotal + endRrspTotal + endTfsaTotal + lira + nonReg;
+      const endNonReg = nonReg;
+      const endTotal = endFhsaTotal + endRrspTotal + endTfsaTotal + lira + endNonReg;
 
       rows.push({
         year,
@@ -300,6 +302,7 @@ function buildAccumulationSchedule(params: {
         endRrspTotal,
         endTfsaTotal,
         endLira: lira,
+        endNonReg,
         endTotal,
       });
     }
@@ -1491,51 +1494,118 @@ export default function App() {
 
           <h3 style={{ marginTop: 14 }}>Accumulation graph</h3>
           <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-            End-of-year total across all accounts (including non-registered). Uses the Dollars mode toggle.
+            End-of-year balances by account (stacked shading) + total line. Uses the Dollars mode toggle.
           </div>
           {(() => {
             const rows = model.accumulationSchedule;
             if (!rows || rows.length === 0) return null;
 
-            const W = 760;
-            const H = 220;
-            const padL = 44;
-            const padR = 14;
-            const padT = 14;
-            const padB = 30;
+            const W = 820;
+            const H = 260;
+            const padL = 52;
+            const padR = 16;
+            const padT = 16;
+            const padB = 34;
 
             const xs = rows.map((r) => r.year);
-            const ys = rows.map((r) => adjustDollars(r.endTotal, r.year));
-
             const xMin = Math.min(...xs);
             const xMax = Math.max(...xs);
+
+            const get = (r: AccumRow) => {
+              const fhsa = adjustDollars(r.endFhsaTotal, r.year);
+              const rrsp = adjustDollars(r.endRrspTotal, r.year);
+              const tfsa = adjustDollars(r.endTfsaTotal, r.year);
+              const lif = adjustDollars(r.endLira, r.year);
+              const nonReg = adjustDollars(r.endNonReg, r.year);
+              const total = fhsa + rrsp + tfsa + lif + nonReg;
+              return { fhsa, rrsp, tfsa, lif, nonReg, total };
+            };
+
+            const ysTotal = rows.map((r) => get(r).total);
             const yMin = 0;
-            const yMax = Math.max(...ys, 1);
+            const yMax = Math.max(...ysTotal, 1);
 
             const xScale = (x: number) =>
               padL + ((x - xMin) / Math.max(1, xMax - xMin)) * (W - padL - padR);
             const yScale = (y: number) =>
               padT + (1 - (y - yMin) / Math.max(1, yMax - yMin)) * (H - padT - padB);
 
-            const path = rows
-              .map((r, i) => {
-                const x = xScale(r.year);
-                const y = yScale(adjustDollars(r.endTotal, r.year));
+            const series = [
+              { key: "fhsa", label: "FHSA", color: "#22c55e" },
+              { key: "rrsp", label: "RRSP", color: "#3b82f6" },
+              { key: "tfsa", label: "TFSA", color: "#a855f7" },
+              { key: "lif", label: "LIF", color: "#f59e0b" },
+              { key: "nonReg", label: "NonReg", color: "#64748b" },
+            ] as const;
+
+            // Build cumulative stacks
+            const stacks = rows.map((r) => {
+              const v = get(r);
+              const cum: Record<string, number> = {};
+              let acc = 0;
+              for (const s of series) {
+                acc += v[s.key];
+                cum[s.key] = acc;
+              }
+              return { year: r.year, v, cum };
+            });
+
+            const areaPath = (key: (typeof series)[number]["key"], prevKey?: (typeof series)[number]["key"]) => {
+              const top = stacks.map((p) => ({ x: xScale(p.year), y: yScale(p.cum[key]) }));
+              const base = stacks
+                .slice()
+                .reverse()
+                .map((p) => ({ x: xScale(p.year), y: yScale(prevKey ? p.cum[prevKey] : 0) }));
+              const pts = top.concat(base);
+              return pts
+                .map((pt, i) => `${i === 0 ? "M" : "L"} ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`)
+                .join(" ") + " Z";
+            };
+
+            const linePath = (key: (typeof series)[number]["key"]) =>
+              stacks
+                .map((p, i) => {
+                  const x = xScale(p.year);
+                  const y = yScale(p.cum[key]);
+                  return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+                })
+                .join(" ");
+
+            const totalPath = stacks
+              .map((p, i) => {
+                const x = xScale(p.year);
+                const y = yScale(p.v.total);
                 return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
               })
               .join(" ");
 
-            const start = rows[0];
-            const end = rows[rows.length - 1];
+            const start = stacks[0];
+            const end = stacks[stacks.length - 1];
 
             return (
               <div style={{ marginTop: 10, overflowX: "auto" }}>
-                <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", minWidth: 520, display: "block" }}>
+                <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", minWidth: 560, display: "block" }}>
                   <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="#e5e7eb" />
                   <line x1={padL} y1={padT} x2={padL} y2={H - padB} stroke="#e5e7eb" />
-                  <path d={path} fill="none" stroke="#0ea5e9" strokeWidth={2.5} />
-                  <circle cx={xScale(start.year)} cy={yScale(adjustDollars(start.endTotal, start.year))} r={4} fill="#0ea5e9" />
-                  <circle cx={xScale(end.year)} cy={yScale(adjustDollars(end.endTotal, end.year))} r={4} fill="#0ea5e9" />
+
+                  {/* stacked shaded areas */}
+                  {series.map((s, idx) => (
+                    <path
+                      key={s.key}
+                      d={areaPath(s.key, idx === 0 ? undefined : series[idx - 1].key)}
+                      fill={s.color}
+                      opacity={0.12}
+                      stroke="none"
+                    />
+                  ))}
+
+                  {/* boundary lines for each stack */}
+                  {series.map((s) => (
+                    <path key={`line-${s.key}`} d={linePath(s.key)} fill="none" stroke={s.color} strokeWidth={1.5} opacity={0.9} />
+                  ))}
+
+                  {/* total line */}
+                  <path d={totalPath} fill="none" stroke="#0f172a" strokeWidth={2.5} />
 
                   <text x={padL} y={H - 10} fontSize={12} fill="#64748b">{xMin}</text>
                   <text x={W - padR} y={H - 10} fontSize={12} fill="#64748b" textAnchor="end">{xMax}</text>
@@ -1543,8 +1613,21 @@ export default function App() {
                   <text x={padL} y={H - padB - 6} fontSize={12} fill="#64748b" textAnchor="start">{money(0)}</text>
                 </svg>
 
-                <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>
-                  {start.year}: <strong>${moneyY(start.endTotal, start.year)}</strong> → {end.year}: <strong>${moneyY(end.endTotal, end.year)}</strong>
+                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, marginTop: 8 }}>
+                  {series.map((s) => (
+                    <div key={`legend-${s.key}`} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 10, height: 10, background: s.color, display: "inline-block", borderRadius: 2, opacity: 0.8 }} />
+                      <span style={{ opacity: 0.85 }}>{s.label}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ width: 14, height: 2, background: "#0f172a", display: "inline-block" }} />
+                    <span style={{ opacity: 0.85 }}>Total</span>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>
+                  {start.year}: <strong>${moneyY(start.v.total, start.year)}</strong> → {end.year}: <strong>${moneyY(end.v.total, end.year)}</strong>
                 </div>
               </div>
             );
