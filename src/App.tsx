@@ -2097,7 +2097,7 @@ export default function App() {
 
                 <h3 style={{ marginTop: 14 }}>Credits (toggles)</h3>
                 <div className="selectRow">
-                  <Field label="Assume income split in retirement">
+                  <Field label="Income split?">
                     <select
                       className="yesNoSelect"
                       value={vars.tax.splitIncomeInRetirement ? "yes" : "no"}
