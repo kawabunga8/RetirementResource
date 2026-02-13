@@ -53,6 +53,11 @@
   max-width: 10ch;
 }
 
+.dollarsModeSelect {
+  /* fits “Today’s (real)” + dropdown arrow on mobile */
+  max-width: 18ch;
+}
+
 .lifModeSelect {
   /* fits “max” / “mid” / “min” + dropdown arrow */
   min-width: 7ch;

@@ -1110,7 +1110,7 @@ export default function App() {
           <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.85 }}>
             Dollars:
             <select
-              className="yesNoSelect"
+              className="dollarsModeSelect"
               value={vars.dollarsMode}
               onChange={(e) =>
                 setVars((v) => ({
