@@ -2559,8 +2559,16 @@ export default function App() {
 
           {model.schedule.some((r) => r.oasClawbackRiskShingo || r.oasClawbackRiskSarah) ? (
             <div style={{ marginTop: 10, padding: 10, border: "1px solid #fecaca", background: "#fff1f2", borderRadius: 10, fontSize: 12 }}>
-              <strong>OAS clawback alert (rough):</strong> one or more years has estimated individual taxable income around/above
-              the clawback threshold. Consider lowering registered withdrawals, improving splitting, or deferring OAS.
+              <strong>OAS clawback alert (rough):</strong>
+              {" "}
+              <span style={{ color: "#b91c1c", fontWeight: 700 }}>
+                {model.schedule
+                  .filter((r) => r.oasClawbackRiskShingo || r.oasClawbackRiskSarah)
+                  .map((r) => r.year)
+                  .join(", ")}
+              </span>
+              {" "}
+              (year(s) potentially above threshold). Consider lowering registered withdrawals, improving splitting, or deferring OAS.
             </div>
           ) : null}
           <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "8px 0", flexWrap: "wrap" }}>
