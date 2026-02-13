@@ -327,6 +327,11 @@ function clampToZero(n: number) {
   return n < 0 ? 0 : n;
 }
 
+function clamp01(n: number) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
 function withdrawFrom(
   amount: number,
   balance: number,
@@ -808,11 +813,20 @@ export default function App() {
       }
 
       // 3) Hard-force RRSP/RRIF withdrawal to hit the depletion target age.
-      // Simple approach: amortize remaining RRSP balance over remaining years.
+      // Optionally front-load withdrawals early in retirement.
       let forcedRrif = 0;
       if (ageShingo <= vars.withdrawals.rrifDepleteByAge && balances.rrsp > 0) {
         const yearsLeft = Math.max(1, vars.withdrawals.rrifDepleteByAge - ageShingo + 1);
-        const requiredThisYear = balances.rrsp / yearsLeft;
+
+        const f = clamp01(vars.withdrawals.rrifFrontLoad);
+        const ratio = 1 + 4 * f; // 1..5 (higher = more front-loaded)
+
+        // Weight this year more heavily than future years.
+        // This creates a decreasing schedule that still fully depletes the remaining balance over yearsLeft.
+        const sumWeights = ratio === 1 ? yearsLeft : (Math.pow(ratio, yearsLeft) - 1) / (ratio - 1);
+        const w0 = Math.pow(ratio, yearsLeft - 1);
+        const requiredThisYear = balances.rrsp * (w0 / sumWeights);
+
         const extraNeeded = Math.max(0, requiredThisYear - withdrawals.rrsp);
 
         const r = withdrawFrom(extraNeeded, balances.rrsp, 0);
@@ -2418,6 +2432,27 @@ export default function App() {
                     withdrawals: {
                       ...v.withdrawals,
                       rrifDepleteByAge: num(e.target.value),
+                    },
+                  }))
+                }
+              />
+            </Field>
+
+            <Field label="RRIF front-load (0–1)
+(0=even, 1=aggressive)">
+              <input
+                className="compactNumber"
+                type="number"
+                step="0.05"
+                min={0}
+                max={1}
+                value={vars.withdrawals.rrifFrontLoad}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      rrifFrontLoad: clamp01(num(e.target.value)),
                     },
                   }))
                 }

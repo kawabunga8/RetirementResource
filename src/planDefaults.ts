@@ -67,6 +67,10 @@ export type WithdrawalPlan = {
   // In v1 we fill the annual income gap using this priority order.
   order: WithdrawalOrder[];
 
+  // RRIF depletion behavior
+  // 0 = even amortization, 1 = strongly front-loaded
+  rrifFrontLoad: number;
+
   // Retirement handling
   rollFhsaIntoRrspAtRetirement: boolean;
 
@@ -251,6 +255,7 @@ export const DEFAULT_VARIABLES: Variables = {
   withdrawals: {
     // Default: don’t draw FHSA first (it can be rolled into RRSP)
     order: ["rrsp", "lira", "nonRegistered", "tfsa", "fhsa"],
+    rrifFrontLoad: 0.6,
     rollFhsaIntoRrspAtRetirement: true,
 
     // Default: projected household TFSA room at retirement.
