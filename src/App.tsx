@@ -1415,6 +1415,67 @@ export default function App() {
               </tbody>
             </table>
           </div>
+
+          <h3 style={{ marginTop: 14 }}>Accumulation graph</h3>
+          <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+            End-of-year total across all accounts (including non-registered). Uses the Dollars mode toggle.
+          </div>
+          {(() => {
+            const rows = model.accumulationSchedule;
+            if (!rows || rows.length === 0) return null;
+
+            const W = 760;
+            const H = 220;
+            const padL = 44;
+            const padR = 14;
+            const padT = 14;
+            const padB = 30;
+
+            const xs = rows.map((r) => r.year);
+            const ys = rows.map((r) => adjustDollars(r.endTotal, r.year));
+
+            const xMin = Math.min(...xs);
+            const xMax = Math.max(...xs);
+            const yMin = 0;
+            const yMax = Math.max(...ys, 1);
+
+            const xScale = (x: number) =>
+              padL + ((x - xMin) / Math.max(1, xMax - xMin)) * (W - padL - padR);
+            const yScale = (y: number) =>
+              padT + (1 - (y - yMin) / Math.max(1, yMax - yMin)) * (H - padT - padB);
+
+            const path = rows
+              .map((r, i) => {
+                const x = xScale(r.year);
+                const y = yScale(adjustDollars(r.endTotal, r.year));
+                return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+              })
+              .join(" ");
+
+            const start = rows[0];
+            const end = rows[rows.length - 1];
+
+            return (
+              <div style={{ marginTop: 10, overflowX: "auto" }}>
+                <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", minWidth: 520, display: "block" }}>
+                  <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="#e5e7eb" />
+                  <line x1={padL} y1={padT} x2={padL} y2={H - padB} stroke="#e5e7eb" />
+                  <path d={path} fill="none" stroke="#0ea5e9" strokeWidth={2.5} />
+                  <circle cx={xScale(start.year)} cy={yScale(adjustDollars(start.endTotal, start.year))} r={4} fill="#0ea5e9" />
+                  <circle cx={xScale(end.year)} cy={yScale(adjustDollars(end.endTotal, end.year))} r={4} fill="#0ea5e9" />
+
+                  <text x={padL} y={H - 10} fontSize={12} fill="#64748b">{xMin}</text>
+                  <text x={W - padR} y={H - 10} fontSize={12} fill="#64748b" textAnchor="end">{xMax}</text>
+                  <text x={padL} y={padT + 10} fontSize={12} fill="#64748b" textAnchor="start">{money(yMax)}</text>
+                  <text x={padL} y={H - padB - 6} fontSize={12} fill="#64748b" textAnchor="start">{money(0)}</text>
+                </svg>
+
+                <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>
+                  {start.year}: <strong>${moneyY(start.endTotal, start.year)}</strong> → {end.year}: <strong>${moneyY(end.endTotal, end.year)}</strong>
+                </div>
+              </div>
+            );
+          })()}
         </section>
 
         </>
