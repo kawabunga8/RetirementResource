@@ -633,6 +633,10 @@ export default function App() {
       forcedLif: number;
       forcedRrif: number;
       tax: number;
+      taxableIncomeShingo: number;
+      taxableIncomeSarah: number;
+      oasClawbackRiskShingo: boolean;
+      oasClawbackRiskSarah: boolean;
       surplusInvestedToTfsa: number;
       surplusInvestedToNonReg: number;
       endBalances: RetirementBalances;
@@ -771,10 +775,13 @@ export default function App() {
       // We treat this as a planning approximation (not filing-accurate).
       // If tax is owed, we withdraw additional cash to pay it (which may itself increase taxable income).
 
+      let taxableIncomeShingo = 0;
+      let taxableIncomeSarah = 0;
+
       const estimateHouseholdTaxForYear = () => {
         const yearsIntoRetirement = i;
 
-        const shingoTaxable =
+        const shingoTaxableRaw =
           indexAmount(DEFAULT_ANCHORS.pensionShingo, yearsIntoRetirement) +
           (ageShingo >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppShingoAnnual, yearsIntoRetirement) : 0) +
           (ageShingo >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasShingoAnnual, yearsIntoRetirement) : 0) +
@@ -783,13 +790,18 @@ export default function App() {
           withdrawals.fhsa * 0.5 +
           withdrawals.nonRegistered * 0.5;
 
-        const sarahTaxable =
+        const sarahTaxableRaw =
           indexAmount(DEFAULT_ANCHORS.pensionSarah, yearsIntoRetirement) +
           (ageSarah >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppSarahAnnual, yearsIntoRetirement) : 0) +
           (ageSarah >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasSarahAnnual, yearsIntoRetirement) : 0) +
           withdrawals.rrsp * 0.5 +
           withdrawals.fhsa * 0.5 +
           withdrawals.nonRegistered * 0.5;
+
+        // Planning assumption: pool and split retirement taxable income 50/50.
+        const householdTaxable = shingoTaxableRaw + sarahTaxableRaw;
+        taxableIncomeShingo = vars.tax.splitIncomeInRetirement ? householdTaxable / 2 : shingoTaxableRaw;
+        taxableIncomeSarah = vars.tax.splitIncomeInRetirement ? householdTaxable / 2 : sarahTaxableRaw;
 
         const creditsShingo = taxCreditsEstimate({
           taxYear: year,
@@ -809,8 +821,8 @@ export default function App() {
           usePensionCredit: vars.tax.usePensionCredit,
         });
 
-        const taxShingo = Math.max(0, estimateTaxBCCanada(shingoTaxable) - creditsShingo.totalCreditValue);
-        const taxSarah = Math.max(0, estimateTaxBCCanada(sarahTaxable) - creditsSarah.totalCreditValue);
+        const taxShingo = Math.max(0, estimateTaxBCCanada(taxableIncomeShingo) - creditsShingo.totalCreditValue);
+        const taxSarah = Math.max(0, estimateTaxBCCanada(taxableIncomeSarah) - creditsSarah.totalCreditValue);
         return taxShingo + taxSarah;
       };
 
@@ -904,6 +916,12 @@ export default function App() {
         nonRegistered: balances.nonRegistered * (1 + vars.expectedNominalReturn),
       };
 
+      // OAS clawback warning (rough): recovery tax begins above a net income threshold.
+      // Using a rounded constant as a planning alert.
+      const OAS_CLAWBACK_THRESHOLD = 90000;
+      const oasClawbackRiskShingo = ageShingo >= vars.oasStartAge && taxableIncomeShingo >= OAS_CLAWBACK_THRESHOLD;
+      const oasClawbackRiskSarah = ageSarah >= vars.oasStartAge && taxableIncomeSarah >= OAS_CLAWBACK_THRESHOLD;
+
       rows.push({
         year,
         ageShingo,
@@ -917,6 +935,10 @@ export default function App() {
         forcedLif,
         forcedRrif,
         tax,
+        taxableIncomeShingo,
+        taxableIncomeSarah,
+        oasClawbackRiskShingo,
+        oasClawbackRiskSarah,
         surplusInvestedToTfsa,
         surplusInvestedToNonReg,
         endBalances: { ...balances },
@@ -1756,6 +1778,22 @@ export default function App() {
 
                 <h3 style={{ marginTop: 14 }}>Credits (toggles)</h3>
                 <div className="selectRow">
+                  <Field label="Assume income split in retirement">
+                    <select
+                      className="yesNoSelect"
+                      value={vars.tax.splitIncomeInRetirement ? "yes" : "no"}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          tax: { ...v.tax, splitIncomeInRetirement: e.target.value === "yes" },
+                        }))
+                      }
+                    >
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </Field>
+
                   <Field label="BPA">
                     <select
                       className="yesNoSelect"
@@ -1842,6 +1880,9 @@ export default function App() {
                 </div>
 
                 <h3 style={{ marginTop: 14 }}>Results (estimated)</h3>
+                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+                  Retirement schedule tax uses: <strong>{vars.tax.splitIncomeInRetirement ? "assumed income-splitting (50/50)" : "no splitting"}</strong>
+                </div>
                 <ul style={{ marginTop: 10 }}>
                   <li>
                     Shingo tax est.: <strong>${moneyY(taxShingo, vars.tax.taxYear)}</strong> | After-tax: <strong>${moneyY(netShingo, vars.tax.taxYear)}</strong>
@@ -2413,6 +2454,13 @@ export default function App() {
             Note: Sarah’s CPP/OAS begins when <strong>she</strong> reaches the selected start age (e.g. 70),
             which is typically ~2 years after Shingo given your birth years.
           </div>
+
+          {model.schedule.some((r) => r.oasClawbackRiskShingo || r.oasClawbackRiskSarah) ? (
+            <div style={{ marginTop: 10, padding: 10, border: "1px solid #fecaca", background: "#fff1f2", borderRadius: 10, fontSize: 12 }}>
+              <strong>OAS clawback alert (rough):</strong> one or more years has estimated individual taxable income around/above
+              the clawback threshold. Consider lowering registered withdrawals, improving splitting, or deferring OAS.
+            </div>
+          ) : null}
           <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "8px 0", flexWrap: "wrap" }}>
             <button type="button" className="linkBtn" {...makeScrollHandlers(withdrawalTableRef, "withdrawal", "edge-left")}>
               ⏮

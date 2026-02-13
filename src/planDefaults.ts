@@ -110,6 +110,10 @@ export type TaxInputs = {
   // Tax year for credits/age-related features
   taxYear: number;
 
+  // If true, assume retirement taxable income is pooled and split evenly between spouses
+  // for tax/clawback estimation (planning approximation).
+  splitIncomeInRetirement: boolean;
+
   // Income inputs (taxable income approximation)
   shingoIncome: number;
   sarahIncome: number;
@@ -269,6 +273,7 @@ export const DEFAULT_VARIABLES: Variables = {
 
   tax: {
     taxYear: 2036,
+    splitIncomeInRetirement: true,
     shingoIncome: 100000,
     sarahIncome: 100000,
 
