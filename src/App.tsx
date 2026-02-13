@@ -835,7 +835,66 @@ export default function App() {
         balances.rrsp = r.newBalance;
       }
 
-      // 4) Estimate tax and make the schedule post-tax.
+      // 4) Optional: attempt to avoid OAS clawback by reducing RRSP/RRIF withdrawals
+      // (shifting them to TFSA/non-registered where possible).
+      if (vars.withdrawals.avoidOasClawback && (ageShingo >= vars.oasStartAge || ageSarah >= vars.oasStartAge)) {
+        const OAS_CLAWBACK_THRESHOLD = 90000;
+
+        const yearsIntoRetirement = i;
+        const pensionShingo = indexAmount(DEFAULT_ANCHORS.pensionShingo, yearsIntoRetirement);
+        const pensionSarah = indexAmount(DEFAULT_ANCHORS.pensionSarah, yearsIntoRetirement);
+        const cppShingo = ageShingo >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppShingoAnnual, yearsIntoRetirement) : 0;
+        const cppSarah = ageSarah >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppSarahAnnual, yearsIntoRetirement) : 0;
+        const oasShingo = ageShingo >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasShingoAnnual, yearsIntoRetirement) : 0;
+        const oasSarah = ageSarah >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasSarahAnnual, yearsIntoRetirement) : 0;
+
+        // Rough taxable income (before split assumption).
+        const shingoTaxableRaw = pensionShingo + cppShingo + oasShingo + withdrawals.lira + withdrawals.rrsp * 0.5 + withdrawals.fhsa * 0.5 + withdrawals.nonRegistered * 0.5;
+        const sarahTaxableRaw = pensionSarah + cppSarah + oasSarah + withdrawals.rrsp * 0.5 + withdrawals.fhsa * 0.5 + withdrawals.nonRegistered * 0.5;
+        const householdTaxable = shingoTaxableRaw + sarahTaxableRaw;
+
+        const shingoTaxable = vars.tax.splitIncomeInRetirement ? householdTaxable / 2 : shingoTaxableRaw;
+        const sarahTaxable = vars.tax.splitIncomeInRetirement ? householdTaxable / 2 : sarahTaxableRaw;
+
+        const excessShingo = ageShingo >= vars.oasStartAge ? Math.max(0, shingoTaxable - OAS_CLAWBACK_THRESHOLD) : 0;
+        const excessSarah = ageSarah >= vars.oasStartAge ? Math.max(0, sarahTaxable - OAS_CLAWBACK_THRESHOLD) : 0;
+
+        // Under 50/50 split, reducing household taxable by $1 reduces each person's taxable by $0.50.
+        const neededHouseholdReduction = vars.tax.splitIncomeInRetirement
+          ? 2 * Math.max(excessShingo, excessSarah)
+          : Math.max(excessShingo, excessSarah);
+
+        if (neededHouseholdReduction > 1 && withdrawals.rrsp > 0) {
+          // Only reduce RRSP withdrawals by the amount we can replace from TFSA/non-reg.
+          let needReplace = Math.min(withdrawals.rrsp, neededHouseholdReduction);
+
+          // Pull replacement cash from TFSA then non-registered.
+          let replaced = 0;
+          if (needReplace > 0 && vars.withdrawals.allowTfsa && balances.tfsa > 0) {
+            const r = withdrawFrom(needReplace, balances.tfsa, vars.withdrawals.caps.tfsa);
+            withdrawals.tfsa += r.withdrawn;
+            balances.tfsa = r.newBalance;
+            replaced += r.withdrawn;
+            needReplace = r.remainingNeed;
+          }
+
+          if (needReplace > 0 && balances.nonRegistered > 0) {
+            const r = withdrawFrom(needReplace, balances.nonRegistered, vars.withdrawals.caps.nonRegistered);
+            withdrawals.nonRegistered += r.withdrawn;
+            balances.nonRegistered = r.newBalance;
+            replaced += r.withdrawn;
+            needReplace = r.remainingNeed;
+          }
+
+          if (replaced > 0) {
+            // Reduce RRSP withdrawal by the amount we replaced, and restore that much to the RRSP balance.
+            withdrawals.rrsp -= replaced;
+            balances.rrsp += replaced;
+          }
+        }
+      }
+
+      // 5) Estimate tax and make the schedule post-tax.
       // We treat this as a planning approximation (not filing-accurate).
       // If tax is owed, we withdraw additional cash to pay it (which may itself increase taxable income).
 
@@ -2457,6 +2516,25 @@ export default function App() {
                   }))
                 }
               />
+            </Field>
+
+            <Field label="Avoid OAS clawback\n(shift RRSP→TFSA/NonReg)">
+              <select
+                className="yesNoSelect"
+                value={vars.withdrawals.avoidOasClawback ? "yes" : "no"}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      avoidOasClawback: e.target.value === "yes",
+                    },
+                  }))
+                }
+              >
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
             </Field>
 
             <Field label="Force LIF withdrawals\n(starting at retirement)">

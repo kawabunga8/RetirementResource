@@ -67,6 +67,10 @@ export type WithdrawalPlan = {
   // In v1 we fill the annual income gap using this priority order.
   order: WithdrawalOrder[];
 
+  // If true, try to keep individual taxable income below the (rough) OAS clawback threshold
+  // by shifting RRSP/RRIF withdrawals to TFSA/non-registered where possible.
+  avoidOasClawback: boolean;
+
   // RRIF depletion behavior
   // 0 = even amortization, 1 = strongly front-loaded
   rrifFrontLoad: number;
@@ -255,6 +259,7 @@ export const DEFAULT_VARIABLES: Variables = {
   withdrawals: {
     // Default: don’t draw FHSA first (it can be rolled into RRSP)
     order: ["rrsp", "lira", "nonRegistered", "tfsa", "fhsa"],
+    avoidOasClawback: true,
     rrifFrontLoad: 0.6,
     rollFhsaIntoRrspAtRetirement: true,
 
