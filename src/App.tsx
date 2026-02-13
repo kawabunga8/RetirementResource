@@ -1170,10 +1170,10 @@ export default function App() {
                       }}
                     />
                   </Field>
-                  <Field label={`Shingo age in ${vars.retirementYear}`}>
+                  <Field label="Shingo age">
                     <input className="ageInput" type="number" value={shingoAge} disabled />
                   </Field>
-                  <Field label={`Sarah age in ${vars.retirementYear}`}>
+                  <Field label="Sarah age">
                     <input className="ageInput" type="number" value={sarahAge} disabled />
                   </Field>
                 </div>
