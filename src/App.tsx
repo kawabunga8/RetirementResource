@@ -3071,13 +3071,13 @@ export default function App() {
           </div>
 
           <h3 style={{ marginTop: 14 }}>Schedule</h3>
-          <label style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-start", fontSize: 12, opacity: 0.85, marginTop: 6 }}>
+          <label style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-start", textAlign: "left", fontSize: 12, opacity: 0.85, marginTop: 6 }}>
             <input
               type="checkbox"
               checked={showFullSchedule}
               onChange={(e) => setShowFullSchedule(e.target.checked)}
             />
-            Show full schedule (otherwise first 12 years)
+            Show full schedule
           </label>
           <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
             Note: Sarah’s CPP/OAS begins when <strong>she</strong> reaches the selected start age (e.g. 70),
