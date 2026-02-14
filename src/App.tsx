@@ -465,7 +465,6 @@ export default function App() {
   const [vars, setVars] = useState<Variables>(DEFAULT_VARIABLES);
   const [page, setPage] = useState<"overview" | "current" | "tax" | "taxBrackets" | "withdrawals">("overview");
   const [showFullSchedule, setShowFullSchedule] = useState(false);
-  const [wideLayout, setWideLayout] = useState(false);
 
   const [bracketsPerson, setBracketsPerson] = useState<"Shingo" | "Sarah">("Shingo");
   const [bracketsUseTestIncome, setBracketsUseTestIncome] = useState(false);
@@ -1051,11 +1050,10 @@ export default function App() {
 
   return (
     <div
-      className={wideLayout ? "app wide" : "app"}
+      className="app"
       style={{
         width: "100%",
-        // Wide layout should still fit within the viewport; only tables should scroll.
-        maxWidth: wideLayout ? 1200 : 1080,
+        maxWidth: 1080,
         margin: "0 auto",
         padding: 24,
       }}
@@ -1165,14 +1163,7 @@ export default function App() {
             </select>
           </label>
 
-          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.85 }}>
-            <input
-              type="checkbox"
-              checked={wideLayout}
-              onChange={(e) => setWideLayout(e.target.checked)}
-            />
-            Wide-screen layout
-          </label>
+          {/* wide-screen layout toggle removed */}
 
           <div style={{ fontSize: 12, opacity: 0.75 }}>
             {page === "overview" ? "Edit assumptions + see balances at retirement" : null}
