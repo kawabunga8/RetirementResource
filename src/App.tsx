@@ -11,6 +11,7 @@ import {
 } from "./planDefaults";
 import { TFSA_ANNUAL_LIMIT_BY_YEAR } from "./data/publicRules";
 import { computeHouseholdTax } from "./tax/v2";
+import { buildWithdrawalSchedule } from "./withdrawals/engine";
 
 function Field({
   label,
@@ -327,78 +328,9 @@ type RetirementBalances = {
   nonRegistered: number;
 };
 
-function clampToZero(n: number) {
-  return n < 0 ? 0 : n;
-}
-
 function clamp01(n: number) {
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(1, n));
-}
-
-function withdrawFrom(
-  amount: number,
-  balance: number,
-  cap: number
-): { withdrawn: number; remainingNeed: number; newBalance: number } {
-  if (amount <= 0) return { withdrawn: 0, remainingNeed: 0, newBalance: balance };
-
-  const allowed = cap > 0 ? Math.min(amount, cap) : amount;
-  const withdrawn = Math.min(allowed, balance);
-  return {
-    withdrawn,
-    remainingNeed: amount - withdrawn,
-    newBalance: balance - withdrawn,
-  };
-}
-
-function rrifMinFactor(age: number) {
-  // Canada RRIF minimum factors:
-  // - age <= 70: 1 / (90 - age)
-  // - age >= 71: prescribed table
-  if (age <= 0) return 0;
-  if (age <= 70) return 1 / (90 - age);
-
-  const table: Record<number, number> = {
-    71: 0.0528,
-    72: 0.054,
-    73: 0.0553,
-    74: 0.0567,
-    75: 0.0582,
-    76: 0.0598,
-    77: 0.0617,
-    78: 0.0636,
-    79: 0.0658,
-    80: 0.0682,
-    81: 0.0708,
-    82: 0.0738,
-    83: 0.0771,
-    84: 0.0808,
-    85: 0.0851,
-    86: 0.0899,
-    87: 0.0955,
-    88: 0.1021,
-    89: 0.1099,
-    90: 0.1192,
-    91: 0.1306,
-    92: 0.1449,
-    93: 0.1634,
-    94: 0.1879,
-    95: 0.2,
-  };
-
-  if (age >= 95) return 0.2;
-  return table[age] ?? (1 / (90 - 70));
-}
-
-function lifFactorApprox(age: number, mode: LifMode) {
-  // NOTE: This is a simplified approximation to support the UI right now.
-  // Min is modeled as RRIF minimum factor; Max is modeled as ~2x min (capped at 20%).
-  const minF = rrifMinFactor(age);
-  const maxF = Math.min(0.2, minF * 2);
-  if (mode === "min") return minF;
-  if (mode === "max") return maxF;
-  return (minF + maxF) / 2;
 }
 
 function progressiveTax(income: number, brackets: Array<{ upTo: number; rate: number }>) {
@@ -478,11 +410,7 @@ export default function App() {
 
   const moneyY = (amountNominal: number, year: number) => money(adjustDollars(amountNominal, year));
 
-  const indexRate = vars.expectedInflation * vars.cpiMultiplier;
-  const indexAmount = (baseAmountNominal: number, yearsFromStart: number) => {
-    if (vars.dollarsMode === "real") return baseAmountNominal;
-    return baseAmountNominal * Math.pow(1 + indexRate, Math.max(0, yearsFromStart));
-  };
+  // (indexAmount removed; withdrawal engine handles indexation internally)
 
   const withdrawalTableRef = useRef<HTMLDivElement | null>(null);
   const accumulationTableRef = useRef<HTMLDivElement | null>(null);
@@ -618,416 +546,14 @@ export default function App() {
       yearsToRetirement
     );
 
-    // --- Withdrawal schedule (simple v1) ---
-    const retireYear = vars.retirementYear;
-    const retireAgeShingo = vars.shingoRetireAge;
-    const retireAgeSarah = vars.sarahRetireAge;
+    // --- Withdrawal schedule (v2, after-tax real targets) ---
+    const schedule = buildWithdrawalSchedule({
+      vars,
+      retirementYear: vars.retirementYear,
+      retirementBalances,
+    });
 
-    const yearsInPlan = Math.max(0, vars.phaseAges.endAge - Math.min(retireAgeShingo, retireAgeSarah) + 1);
-
-    const rows: Array<{
-      year: number;
-      ageShingo: number;
-      ageSarah: number;
-      phase: "Go-Go" | "Slow-Go" | "No-Go";
-      targetSpending: number;
-      guaranteedIncome: number;
-      benefitsIncome: number;
-      spendingGap: number;
-      withdrawals: Record<string, number>;
-      forcedLif: number;
-      forcedRrif: number;
-      tax: number;
-      taxableIncomeShingo: number;
-      taxableIncomeSarah: number;
-      oasClawbackRiskShingo: boolean;
-      oasClawbackRiskSarah: boolean;
-      surplusInvestedToTfsa: number;
-      surplusInvestedToNonReg: number;
-      endBalances: RetirementBalances;
-    }> = [];
-
-    let balances: RetirementBalances = { ...retirementBalances };
-    let tfsaRoom = Math.max(0, vars.withdrawals.tfsaRoomAtRetirement);
-
-    for (let i = 0; i < yearsInPlan; i++) {
-      const year = retireYear + i;
-
-      // Each year in retirement, new TFSA room is created (simple model).
-      tfsaRoom += Math.max(0, vars.withdrawals.tfsaNewRoomPerYear);
-
-      const ageShingo = retireAgeShingo + i;
-      const ageSarah = retireAgeSarah + i;
-
-      const phase: "Go-Go" | "Slow-Go" | "No-Go" =
-        ageShingo <= vars.phaseAges.goGoEndAge ? "Go-Go" : ageShingo <= vars.phaseAges.slowGoEndAge ? "Slow-Go" : "No-Go";
-
-      const targetSpending =
-        phase === "Go-Go"
-          ? vars.spending.goGo
-          : phase === "Slow-Go"
-            ? vars.spending.slowGo
-            : vars.spending.noGo;
-
-      const yearsIntoRetirement = i;
-
-      const guaranteedIncome =
-        indexAmount(pensionAnnual, yearsIntoRetirement);
-
-      const benefitsIncome =
-        (ageShingo >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppShingoAnnual, yearsIntoRetirement) : 0) +
-        (ageSarah >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppSarahAnnual, yearsIntoRetirement) : 0) +
-        (ageShingo >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasShingoAnnual, yearsIntoRetirement) : 0) +
-        (ageSarah >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasSarahAnnual, yearsIntoRetirement) : 0);
-
-      let spendingGap = clampToZero(targetSpending - guaranteedIncome - benefitsIncome);
-
-      const withdrawals: Record<string, number> = {
-        fhsa: 0,
-        rrsp: 0,
-        lira: 0,
-        nonRegistered: 0,
-        tfsa: 0,
-      };
-
-      // 1) Fund the spending gap from accounts, using the chosen priority order.
-      for (const src of vars.withdrawals.order) {
-        if (spendingGap <= 0) break;
-
-        if (src === "tfsa" && !vars.withdrawals.allowTfsa) continue;
-        if (src === "pension") continue;
-
-        if (src === "fhsa") {
-          const r = withdrawFrom(
-            spendingGap,
-            balances.fhsa,
-            vars.withdrawals.caps.fhsa
-          );
-          withdrawals.fhsa += r.withdrawn;
-          balances.fhsa = r.newBalance;
-          spendingGap = r.remainingNeed;
-        } else if (src === "rrsp") {
-          const r = withdrawFrom(
-            spendingGap,
-            balances.rrsp,
-            vars.withdrawals.caps.rrsp
-          );
-          withdrawals.rrsp += r.withdrawn;
-          balances.rrsp = r.newBalance;
-          spendingGap = r.remainingNeed;
-        } else if (src === "lira") {
-          // LIF cap: use BC mode (min/mid/max). If user entered an explicit cap,
-          // we apply the tighter (smaller) of the two.
-          const lifCap =
-            balances.lira * lifFactorApprox(ageShingo, vars.withdrawals.lifMode);
-          const explicitCap = vars.withdrawals.caps.lira;
-          const cap = explicitCap > 0 ? Math.min(explicitCap, lifCap) : lifCap;
-
-          const r = withdrawFrom(spendingGap, balances.lira, cap);
-          withdrawals.lira += r.withdrawn;
-          balances.lira = r.newBalance;
-          spendingGap = r.remainingNeed;
-        } else if (src === "nonRegistered") {
-          const r = withdrawFrom(
-            spendingGap,
-            balances.nonRegistered,
-            vars.withdrawals.caps.nonRegistered
-          );
-          withdrawals.nonRegistered += r.withdrawn;
-          balances.nonRegistered = r.newBalance;
-          spendingGap = r.remainingNeed;
-        } else if (src === "tfsa") {
-          const r = withdrawFrom(
-            spendingGap,
-            balances.tfsa,
-            vars.withdrawals.caps.tfsa
-          );
-          withdrawals.tfsa += r.withdrawn;
-          balances.tfsa = r.newBalance;
-          spendingGap = r.remainingNeed;
-        }
-      }
-
-      // 2) Force LIF withdrawals starting at retirement (if enabled).
-      // This is independent of spending needs; it can create surplus.
-      let forcedLif = 0;
-      if (vars.withdrawals.forceLifFromRetirement && balances.lira > 0) {
-        const lifCap = balances.lira * lifFactorApprox(ageShingo, vars.withdrawals.lifMode);
-        const explicitCap = vars.withdrawals.caps.lira;
-        const cap = explicitCap > 0 ? Math.min(explicitCap, lifCap) : lifCap;
-
-        const r = withdrawFrom(cap, balances.lira, cap);
-        forcedLif = r.withdrawn;
-        withdrawals.lira += r.withdrawn;
-        balances.lira = r.newBalance;
-      }
-
-      // 3) Hard-force RRSP/RRIF withdrawal to hit the depletion target age.
-      // Optionally front-load withdrawals early in retirement.
-      let forcedRrif = 0;
-      if (ageShingo <= vars.withdrawals.rrifDepleteByAge && balances.rrsp > 0) {
-        const yearsLeft = Math.max(1, vars.withdrawals.rrifDepleteByAge - ageShingo + 1);
-
-        const f = clamp01(vars.withdrawals.rrifFrontLoad);
-        const ratio = 1 + 4 * f; // 1..5 (higher = more front-loaded)
-
-        // Weight this year more heavily than future years.
-        // This creates a decreasing schedule that still fully depletes the remaining balance over yearsLeft.
-        const sumWeights = ratio === 1 ? yearsLeft : (Math.pow(ratio, yearsLeft) - 1) / (ratio - 1);
-        const w0 = Math.pow(ratio, yearsLeft - 1);
-        const requiredThisYear = balances.rrsp * (w0 / sumWeights);
-
-        const extraNeeded = Math.max(0, requiredThisYear - withdrawals.rrsp);
-
-        const r = withdrawFrom(extraNeeded, balances.rrsp, 0);
-        forcedRrif = r.withdrawn;
-        withdrawals.rrsp += r.withdrawn;
-        balances.rrsp = r.newBalance;
-      }
-
-      // 4) Optional: attempt to avoid OAS clawback by reducing RRSP/RRIF withdrawals
-      // (shifting them to TFSA/non-registered where possible).
-      if (vars.withdrawals.avoidOasClawback && (ageShingo >= vars.oasStartAge || ageSarah >= vars.oasStartAge)) {
-        const OAS_CLAWBACK_THRESHOLD = 91000; // planning approximation
-
-        const yearsIntoRetirement = i;
-        const pensionShingo = indexAmount(DEFAULT_ANCHORS.pensionShingo, yearsIntoRetirement);
-        const pensionSarah = indexAmount(DEFAULT_ANCHORS.pensionSarah, yearsIntoRetirement);
-        const cppShingo = ageShingo >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppShingoAnnual, yearsIntoRetirement) : 0;
-        const cppSarah = ageSarah >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppSarahAnnual, yearsIntoRetirement) : 0;
-        const oasShingo = ageShingo >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasShingoAnnual, yearsIntoRetirement) : 0;
-        const oasSarah = ageSarah >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasSarahAnnual, yearsIntoRetirement) : 0;
-
-        // Rough taxable income (before pension-splitting optimization). We treat RRSP/RRIF as split 50/50.
-        const shingoTaxableRaw = pensionShingo + cppShingo + oasShingo + withdrawals.lira + withdrawals.rrsp * 0.5;
-        const sarahTaxableRaw = pensionSarah + cppSarah + oasSarah + withdrawals.rrsp * 0.5;
-        const householdTaxable = shingoTaxableRaw + sarahTaxableRaw;
-
-        const assumeSplit50 = vars.tax.enablePensionSplitting;
-        const shingoTaxable = assumeSplit50 ? householdTaxable / 2 : shingoTaxableRaw;
-        const sarahTaxable = assumeSplit50 ? householdTaxable / 2 : sarahTaxableRaw;
-
-        const excessShingo = ageShingo >= vars.oasStartAge ? Math.max(0, shingoTaxable - OAS_CLAWBACK_THRESHOLD) : 0;
-        const excessSarah = ageSarah >= vars.oasStartAge ? Math.max(0, sarahTaxable - OAS_CLAWBACK_THRESHOLD) : 0;
-
-        const neededHouseholdReduction = assumeSplit50
-          ? 2 * Math.max(excessShingo, excessSarah)
-          : Math.max(excessShingo, excessSarah);
-
-        if (neededHouseholdReduction > 1 && withdrawals.rrsp > 0) {
-          // Only reduce RRSP withdrawals by the amount we can replace from TFSA/non-reg.
-          let needReplace = Math.min(withdrawals.rrsp, neededHouseholdReduction);
-
-          // Pull replacement cash from TFSA then non-registered.
-          let replaced = 0;
-          if (needReplace > 0 && vars.withdrawals.allowTfsa && balances.tfsa > 0) {
-            const r = withdrawFrom(needReplace, balances.tfsa, vars.withdrawals.caps.tfsa);
-            withdrawals.tfsa += r.withdrawn;
-            balances.tfsa = r.newBalance;
-            replaced += r.withdrawn;
-            needReplace = r.remainingNeed;
-          }
-
-          if (needReplace > 0 && balances.nonRegistered > 0) {
-            const r = withdrawFrom(needReplace, balances.nonRegistered, vars.withdrawals.caps.nonRegistered);
-            withdrawals.nonRegistered += r.withdrawn;
-            balances.nonRegistered = r.newBalance;
-            replaced += r.withdrawn;
-            needReplace = r.remainingNeed;
-          }
-
-          if (replaced > 0) {
-            // Reduce RRSP withdrawal by the amount we replaced, and restore that much to the RRSP balance.
-            withdrawals.rrsp -= replaced;
-            balances.rrsp += replaced;
-          }
-        }
-      }
-
-      // 5) Estimate tax and make the schedule post-tax.
-      // We treat this as a planning approximation (not filing-accurate).
-      // If tax is owed, we withdraw additional cash to pay it (which may itself increase taxable income).
-
-      let taxableIncomeShingo = 0;
-      let taxableIncomeSarah = 0;
-
-      const estimateHouseholdTaxForYear = () => {
-        const yearsIntoRetirement = i;
-
-        const pensionShingo = indexAmount(DEFAULT_ANCHORS.pensionShingo, yearsIntoRetirement);
-        const pensionSarah = indexAmount(DEFAULT_ANCHORS.pensionSarah, yearsIntoRetirement);
-        const cppShingo = ageShingo >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppShingoAnnual, yearsIntoRetirement) : 0;
-        const cppSarah = ageSarah >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppSarahAnnual, yearsIntoRetirement) : 0;
-        const oasShingo = ageShingo >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasShingoAnnual, yearsIntoRetirement) : 0;
-        const oasSarah = ageSarah >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasSarahAnnual, yearsIntoRetirement) : 0;
-
-        const taxRes = computeHouseholdTax({
-          taxYear: year,
-          spouseA: {
-            name: "Shingo",
-            age: ageShingo,
-            incomes: {
-              employment: 0,
-              pensionDb: pensionShingo,
-              rrspWithdrawal: 0,
-              rrifWithdrawal: withdrawals.rrsp * 0.5,
-              lifWithdrawal: withdrawals.lira,
-              cpp: cppShingo,
-              oas: oasShingo,
-              tfsaWithdrawal: withdrawals.tfsa * 0.5,
-            },
-          },
-          spouseB: {
-            name: "Sarah",
-            age: ageSarah,
-            incomes: {
-              employment: 0,
-              pensionDb: pensionSarah,
-              rrspWithdrawal: 0,
-              rrifWithdrawal: withdrawals.rrsp * 0.5,
-              lifWithdrawal: 0,
-              cpp: cppSarah,
-              oas: oasSarah,
-              tfsaWithdrawal: withdrawals.tfsa * 0.5,
-            },
-          },
-          credits: {
-            useBpa: vars.tax.useBpa,
-            useAgeAmount: vars.tax.useAgeAmount,
-            usePensionCredit: vars.tax.usePensionCredit,
-          },
-          pensionSplitting: {
-            enabled: vars.tax.enablePensionSplitting,
-            optimize: true,
-            step: 500,
-          },
-        });
-
-        taxableIncomeShingo = taxRes.spouseA.taxableIncome;
-        taxableIncomeSarah = taxRes.spouseB.taxableIncome;
-        return taxRes.household.totalTax;
-      };
-
-      // Iteratively withdraw enough to pay tax, since taxes depend on withdrawals.
-      let tax = 0;
-      for (let iter = 0; iter < 3; iter++) {
-        tax = estimateHouseholdTaxForYear();
-
-        const totalWithdrawals =
-          withdrawals.fhsa +
-          withdrawals.rrsp +
-          withdrawals.lira +
-          withdrawals.nonRegistered +
-          withdrawals.tfsa;
-
-        const cashIn = guaranteedIncome + benefitsIncome + totalWithdrawals;
-        const surplusBeforeTax = clampToZero(cashIn - targetSpending);
-        const extraNeeded = clampToZero(tax - surplusBeforeTax);
-
-        if (extraNeeded <= 1) break;
-
-        // Pull extra cash using the same order (this is simplistic).
-        let need = extraNeeded;
-        for (const src of vars.withdrawals.order) {
-          if (need <= 0) break;
-          if (src === "pension") continue;
-          if (src === "tfsa" && !vars.withdrawals.allowTfsa) continue;
-
-          if (src === "fhsa") {
-            const r = withdrawFrom(need, balances.fhsa, vars.withdrawals.caps.fhsa);
-            withdrawals.fhsa += r.withdrawn;
-            balances.fhsa = r.newBalance;
-            need = r.remainingNeed;
-          } else if (src === "rrsp") {
-            const r = withdrawFrom(need, balances.rrsp, vars.withdrawals.caps.rrsp);
-            withdrawals.rrsp += r.withdrawn;
-            balances.rrsp = r.newBalance;
-            need = r.remainingNeed;
-          } else if (src === "lira") {
-            const lifCap = balances.lira * lifFactorApprox(ageShingo, vars.withdrawals.lifMode);
-            const explicitCap = vars.withdrawals.caps.lira;
-            const cap = explicitCap > 0 ? Math.min(explicitCap, lifCap) : lifCap;
-            const r = withdrawFrom(need, balances.lira, cap);
-            withdrawals.lira += r.withdrawn;
-            balances.lira = r.newBalance;
-            need = r.remainingNeed;
-          } else if (src === "nonRegistered") {
-            const r = withdrawFrom(need, balances.nonRegistered, vars.withdrawals.caps.nonRegistered);
-            withdrawals.nonRegistered += r.withdrawn;
-            balances.nonRegistered = r.newBalance;
-            need = r.remainingNeed;
-          } else if (src === "tfsa") {
-            const r = withdrawFrom(need, balances.tfsa, vars.withdrawals.caps.tfsa);
-            withdrawals.tfsa += r.withdrawn;
-            balances.tfsa = r.newBalance;
-            need = r.remainingNeed;
-          }
-        }
-
-        // If we still can't fund taxes, we stop iterating (plan infeasible under these assumptions).
-        if (need > 1) break;
-      }
-
-      // 5) Any surplus after tax is invested into TFSA / non-registered.
-      const totalWithdrawals =
-        withdrawals.fhsa +
-        withdrawals.rrsp +
-        withdrawals.lira +
-        withdrawals.nonRegistered +
-        withdrawals.tfsa;
-
-      const cashIn = guaranteedIncome + benefitsIncome + totalWithdrawals;
-      const surplus = clampToZero(cashIn - targetSpending - tax);
-
-      // Route surplus: TFSA until room is exhausted, then to non-registered.
-      const toTfsa = Math.min(surplus, tfsaRoom);
-      const toNonReg = surplus - toTfsa;
-      balances.tfsa += toTfsa;
-      balances.nonRegistered += toNonReg;
-      tfsaRoom -= toTfsa;
-
-      const surplusInvestedToTfsa = toTfsa;
-      const surplusInvestedToNonReg = toNonReg;
-
-      // Apply growth at year-end to remaining balances (very simplified)
-      balances = {
-        fhsa: balances.fhsa * (1 + vars.expectedNominalReturn),
-        rrsp: balances.rrsp * (1 + vars.expectedNominalReturn),
-        tfsa: balances.tfsa * (1 + vars.expectedNominalReturn),
-        lira: balances.lira * (1 + vars.expectedNominalReturn),
-        nonRegistered: balances.nonRegistered * (1 + vars.expectedNominalReturn),
-      };
-
-      // OAS clawback warning (rough): recovery tax begins above a net income threshold.
-      // Using a rounded constant as a planning alert.
-      const OAS_CLAWBACK_THRESHOLD = 90000;
-      const oasClawbackRiskShingo = ageShingo >= vars.oasStartAge && taxableIncomeShingo >= OAS_CLAWBACK_THRESHOLD;
-      const oasClawbackRiskSarah = ageSarah >= vars.oasStartAge && taxableIncomeSarah >= OAS_CLAWBACK_THRESHOLD;
-
-      rows.push({
-        year,
-        ageShingo,
-        ageSarah,
-        phase,
-        targetSpending,
-        guaranteedIncome,
-        benefitsIncome,
-        spendingGap,
-        withdrawals,
-        forcedLif,
-        forcedRrif,
-        tax,
-        taxableIncomeShingo,
-        taxableIncomeSarah,
-        oasClawbackRiskShingo,
-        oasClawbackRiskSarah,
-        surplusInvestedToTfsa,
-        surplusInvestedToNonReg,
-        endBalances: { ...balances },
-      });
-    }
-
-    return {
+return {
       yearsToRetirement,
       monthsToRetirement,
       baselineTotal,
@@ -1036,7 +562,7 @@ export default function App() {
       retirementBalances,
       totalNominalAtRetirement,
       totalRealAtRetirement,
-      schedule: rows,
+      schedule,
     };
   }, [vars, pensionAnnual, baselineTotal, monthlyTotal]);
 
@@ -2491,7 +2017,7 @@ export default function App() {
 
         {page === "withdrawals" && (
         <section id="withdrawals" className="card">
-          <h2>Withdrawal schedule (simple v1)</h2>
+          <h2>Withdrawal schedule (after-tax targets, tax v2)</h2>
           <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
             This schedule is <strong>annual</strong> and includes a simple <strong>tax estimate</strong>.
             Each year we calculate:
@@ -3084,13 +2610,13 @@ export default function App() {
             which is typically ~2 years after Shingo given your birth years.
           </div>
 
-          {model.schedule.some((r) => r.oasClawbackRiskShingo || r.oasClawbackRiskSarah) ? (
+          {model.schedule.some((r) => r.debug.oasClawbackShingo > 0 || r.debug.oasClawbackSarah > 0) ? (
             <div style={{ marginTop: 10, padding: 10, border: "1px solid #fecaca", background: "#fff1f2", borderRadius: 10, fontSize: 12 }}>
               <strong>OAS clawback alert (rough):</strong>
               {" "}
               <span style={{ color: "#b91c1c", fontWeight: 700 }}>
                 {model.schedule
-                  .filter((r) => r.oasClawbackRiskShingo || r.oasClawbackRiskSarah)
+                  .filter((r) => r.debug.oasClawbackShingo > 0 || r.debug.oasClawbackSarah > 0)
                   .map((r) => r.year)
                   .join(", ")}
               </span>
@@ -3129,20 +2655,18 @@ export default function App() {
                     ["Age", "Shingo"],
                     ["Age", "Sarah"],
                     ["Phase", ""],
-                    ["Spend", "$/yr"],
+                    ["Spend", "after-tax"],
                     ["Pension", "$/yr"],
                     ["CPP+OAS", "$/yr"],
-                    ["Gap", "$/yr"],
-                    // (removed W/d FHSA)
                     ["W/d", "RRSP"],
                     ["W/d", "LIF"],
-                    // (removed W/d NonReg)
-                    // (removed W/d TFSA)
-                    // (removed Forced LIF)
-                    // (removed Forced RRIF)
+                    ["W/d", "TFSA"],
+                    ["W/d", "NonReg"],
                     ["Tax", "$/yr"],
-                    ["Surplus→", "TFSA"],
-                    ["Surplus→", "NonReg"],
+                    ["After-tax", "cash"],
+                    ["Surplus", "after-tax"],
+                    ["Taxable", "max"],
+                    ["OAS claw", "$/yr"],
                     ["End bal", "$"],
                   ].map(([top, bottom]) => {
                     const key = `${top}-${bottom}`;
@@ -3178,20 +2702,18 @@ export default function App() {
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.ageShingo}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.ageSarah}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.phase}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.targetSpending, r.year)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.targetAfterTaxSpending, r.year)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.guaranteedIncome, r.year)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.benefitsIncome, r.year)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.targetSpending - r.guaranteedIncome - r.benefitsIncome, r.year)}</td>
-                      {/* removed W/d FHSA */}
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.rrsp, r.year)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.lira, r.year)}</td>
-                      {/* removed W/d NonReg */}
-                      {/* removed W/d TFSA */}
-                      {/* removed Forced LIF */}
-                      {/* removed Forced RRIF */}
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.tax, r.year)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.surplusInvestedToTfsa, r.year)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.surplusInvestedToNonReg, r.year)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.tfsa, r.year)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.nonRegistered, r.year)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.tax, r.year)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.afterTaxCashAvailable, r.year)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.surplusAfterTax, r.year)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(Math.max(r.debug.taxableIncomeShingo, r.debug.taxableIncomeSarah), r.year)}</td>
+                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.oasClawbackShingo + r.debug.oasClawbackSarah, r.year)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(endTotal, r.year)}</td>
                     </tr>
                   );

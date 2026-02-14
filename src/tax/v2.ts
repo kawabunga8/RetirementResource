@@ -1,5 +1,10 @@
 import { pickTaxTables, type Bracket } from "./tables";
 
+export function getOasClawbackThreshold(taxYear: number) {
+  return pickTaxTables(taxYear).federal.oasClawbackThreshold;
+}
+
+
 export type IncomeSources = {
   employment: number;
   pensionDb: number;
