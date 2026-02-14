@@ -1715,11 +1715,12 @@ export default function App() {
                   <Field label="TFSA room Shingo (as of 2026, $)">
                     <input
                       type="number"
-                      value={vars.tfsaRoomShingo}
+                      step={1}
+                      value={Math.round(vars.tfsaRoomShingo)}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
-                          tfsaRoomShingo: num(e.target.value),
+                          tfsaRoomShingo: Math.round(num(e.target.value)),
                         }))
                       }
                     />
@@ -1727,11 +1728,12 @@ export default function App() {
                   <Field label="TFSA room Sarah (as of 2026, $)">
                     <input
                       type="number"
-                      value={vars.tfsaRoomSarah}
+                      step={1}
+                      value={Math.round(vars.tfsaRoomSarah)}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
-                          tfsaRoomSarah: num(e.target.value),
+                          tfsaRoomSarah: Math.round(num(e.target.value)),
                         }))
                       }
                     />

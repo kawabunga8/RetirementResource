@@ -227,7 +227,7 @@ export const DEFAULT_VARIABLES: Variables = {
   cpiMultiplier: 0.7,
 
   // As-of baseline snapshot (Jan 2026)
-  tfsaRoomShingo: 102339.19,
+  tfsaRoomShingo: 102339,
   tfsaRoomSarah: 109000,
   rrspRoomShingo: 120125,
   rrspRoomSarah: 63252,
