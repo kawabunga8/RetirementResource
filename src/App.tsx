@@ -10,6 +10,7 @@ import {
   type LifMode,
 } from "./planDefaults";
 import { TFSA_ANNUAL_LIMIT_BY_YEAR } from "./data/publicRules";
+import { computeHouseholdTax } from "./tax/v2";
 
 function Field({
   label,
@@ -446,64 +447,7 @@ function estimateTaxBCCanada(income: number) {
   return estimateFederalTaxCanada(income) + estimateBCTax(income);
 }
 
-function taxCreditsEstimate(params: {
-  taxYear: number;
-  age: number;
-  eligiblePensionIncome: number;
-  useBpa: boolean;
-  useAgeAmount: boolean;
-  usePensionCredit: boolean;
-}) {
-  // Very simplified non-refundable credit modeling.
-  // Credits reduce tax by (credit amount * lowest rate).
-  // These constants are approximate and meant for planning sensitivity.
-
-  const FED_LOWEST = 0.15;
-  const BC_LOWEST = 0.0506;
-
-  // Approx BPA (federal). Using a rough modern value.
-  const FED_BPA = 15705;
-  // Approx BC BPA.
-  const BC_BPA = 12580;
-
-  // Approx age amount (federal/BC) maximums.
-  // Phase-outs are ignored in v1; toggle indicates "assume fully eligible".
-  const FED_AGE_AMOUNT = 9028;
-  const BC_AGE_AMOUNT = 5450;
-
-  // Pension amount credit: first ~$2,000 of eligible pension income.
-  const PENSION_CREDIT_BASE = 2000;
-
-  const credits = {
-    fedCreditAmt: 0,
-    bcCreditAmt: 0,
-  };
-
-  if (params.useBpa) {
-    credits.fedCreditAmt += FED_BPA;
-    credits.bcCreditAmt += BC_BPA;
-  }
-
-  if (params.useAgeAmount && params.age >= 65) {
-    credits.fedCreditAmt += FED_AGE_AMOUNT;
-    credits.bcCreditAmt += BC_AGE_AMOUNT;
-  }
-
-  if (params.usePensionCredit && params.eligiblePensionIncome > 0) {
-    const eligible = Math.min(PENSION_CREDIT_BASE, params.eligiblePensionIncome);
-    credits.fedCreditAmt += eligible;
-    credits.bcCreditAmt += eligible;
-  }
-
-  const fedCreditValue = credits.fedCreditAmt * FED_LOWEST;
-  const bcCreditValue = credits.bcCreditAmt * BC_LOWEST;
-
-  return {
-    fedCreditValue,
-    bcCreditValue,
-    totalCreditValue: fedCreditValue + bcCreditValue,
-  };
-}
+// (v1 taxCreditsEstimate removed; v2 engine is in src/tax/v2.ts)
 
 function estimateTaxSavingsFromDeduction(params: {
   income: number;
@@ -627,8 +571,8 @@ export default function App() {
       fhsaLifetimeCap: vars.fhsa.lifetimeCap,
       fhsaContributedToDateShingo: vars.fhsa.contributedShingo,
       fhsaContributedToDateSarah: vars.fhsa.contributedSarah,
-      incomeShingo: vars.tax.shingoIncome,
-      incomeSarah: vars.tax.sarahIncome,
+      incomeShingo: vars.tax.workingIncomeShingo,
+      incomeSarah: vars.tax.workingIncomeSarah,
       enableRefundToTfsa: vars.tax.enableRefundToTfsa,
     });
 
@@ -841,7 +785,7 @@ export default function App() {
       // 4) Optional: attempt to avoid OAS clawback by reducing RRSP/RRIF withdrawals
       // (shifting them to TFSA/non-registered where possible).
       if (vars.withdrawals.avoidOasClawback && (ageShingo >= vars.oasStartAge || ageSarah >= vars.oasStartAge)) {
-        const OAS_CLAWBACK_THRESHOLD = 90000;
+        const OAS_CLAWBACK_THRESHOLD = 91000; // planning approximation
 
         const yearsIntoRetirement = i;
         const pensionShingo = indexAmount(DEFAULT_ANCHORS.pensionShingo, yearsIntoRetirement);
@@ -851,19 +795,19 @@ export default function App() {
         const oasShingo = ageShingo >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasShingoAnnual, yearsIntoRetirement) : 0;
         const oasSarah = ageSarah >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasSarahAnnual, yearsIntoRetirement) : 0;
 
-        // Rough taxable income (before split assumption).
-        const shingoTaxableRaw = pensionShingo + cppShingo + oasShingo + withdrawals.lira + withdrawals.rrsp * 0.5 + withdrawals.fhsa * 0.5 + withdrawals.nonRegistered * 0.5;
-        const sarahTaxableRaw = pensionSarah + cppSarah + oasSarah + withdrawals.rrsp * 0.5 + withdrawals.fhsa * 0.5 + withdrawals.nonRegistered * 0.5;
+        // Rough taxable income (before pension-splitting optimization). We treat RRSP/RRIF as split 50/50.
+        const shingoTaxableRaw = pensionShingo + cppShingo + oasShingo + withdrawals.lira + withdrawals.rrsp * 0.5;
+        const sarahTaxableRaw = pensionSarah + cppSarah + oasSarah + withdrawals.rrsp * 0.5;
         const householdTaxable = shingoTaxableRaw + sarahTaxableRaw;
 
-        const shingoTaxable = vars.tax.splitIncomeInRetirement ? householdTaxable / 2 : shingoTaxableRaw;
-        const sarahTaxable = vars.tax.splitIncomeInRetirement ? householdTaxable / 2 : sarahTaxableRaw;
+        const assumeSplit50 = vars.tax.enablePensionSplitting;
+        const shingoTaxable = assumeSplit50 ? householdTaxable / 2 : shingoTaxableRaw;
+        const sarahTaxable = assumeSplit50 ? householdTaxable / 2 : sarahTaxableRaw;
 
         const excessShingo = ageShingo >= vars.oasStartAge ? Math.max(0, shingoTaxable - OAS_CLAWBACK_THRESHOLD) : 0;
         const excessSarah = ageSarah >= vars.oasStartAge ? Math.max(0, sarahTaxable - OAS_CLAWBACK_THRESHOLD) : 0;
 
-        // Under 50/50 split, reducing household taxable by $1 reduces each person's taxable by $0.50.
-        const neededHouseholdReduction = vars.tax.splitIncomeInRetirement
+        const neededHouseholdReduction = assumeSplit50
           ? 2 * Math.max(excessShingo, excessSarah)
           : Math.max(excessShingo, excessSarah);
 
@@ -907,49 +851,58 @@ export default function App() {
       const estimateHouseholdTaxForYear = () => {
         const yearsIntoRetirement = i;
 
-        const shingoTaxableRaw =
-          indexAmount(DEFAULT_ANCHORS.pensionShingo, yearsIntoRetirement) +
-          (ageShingo >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppShingoAnnual, yearsIntoRetirement) : 0) +
-          (ageShingo >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasShingoAnnual, yearsIntoRetirement) : 0) +
-          withdrawals.lira +
-          withdrawals.rrsp * 0.5 +
-          withdrawals.fhsa * 0.5 +
-          withdrawals.nonRegistered * 0.5;
+        const pensionShingo = indexAmount(DEFAULT_ANCHORS.pensionShingo, yearsIntoRetirement);
+        const pensionSarah = indexAmount(DEFAULT_ANCHORS.pensionSarah, yearsIntoRetirement);
+        const cppShingo = ageShingo >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppShingoAnnual, yearsIntoRetirement) : 0;
+        const cppSarah = ageSarah >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppSarahAnnual, yearsIntoRetirement) : 0;
+        const oasShingo = ageShingo >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasShingoAnnual, yearsIntoRetirement) : 0;
+        const oasSarah = ageSarah >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasSarahAnnual, yearsIntoRetirement) : 0;
 
-        const sarahTaxableRaw =
-          indexAmount(DEFAULT_ANCHORS.pensionSarah, yearsIntoRetirement) +
-          (ageSarah >= vars.cppStartAge ? indexAmount(vars.withdrawals.cppSarahAnnual, yearsIntoRetirement) : 0) +
-          (ageSarah >= vars.oasStartAge ? indexAmount(vars.withdrawals.oasSarahAnnual, yearsIntoRetirement) : 0) +
-          withdrawals.rrsp * 0.5 +
-          withdrawals.fhsa * 0.5 +
-          withdrawals.nonRegistered * 0.5;
-
-        // Planning assumption: pool and split retirement taxable income 50/50.
-        const householdTaxable = shingoTaxableRaw + sarahTaxableRaw;
-        taxableIncomeShingo = vars.tax.splitIncomeInRetirement ? householdTaxable / 2 : shingoTaxableRaw;
-        taxableIncomeSarah = vars.tax.splitIncomeInRetirement ? householdTaxable / 2 : sarahTaxableRaw;
-
-        const creditsShingo = taxCreditsEstimate({
+        const taxRes = computeHouseholdTax({
           taxYear: year,
-          age: ageShingo,
-          eligiblePensionIncome: vars.tax.eligiblePensionIncomeShingo,
-          useBpa: vars.tax.useBpa,
-          useAgeAmount: vars.tax.useAgeAmount,
-          usePensionCredit: vars.tax.usePensionCredit,
+          spouseA: {
+            name: "Shingo",
+            age: ageShingo,
+            incomes: {
+              employment: 0,
+              pensionDb: pensionShingo,
+              rrspWithdrawal: 0,
+              rrifWithdrawal: withdrawals.rrsp * 0.5,
+              lifWithdrawal: withdrawals.lira,
+              cpp: cppShingo,
+              oas: oasShingo,
+              tfsaWithdrawal: withdrawals.tfsa * 0.5,
+            },
+          },
+          spouseB: {
+            name: "Sarah",
+            age: ageSarah,
+            incomes: {
+              employment: 0,
+              pensionDb: pensionSarah,
+              rrspWithdrawal: 0,
+              rrifWithdrawal: withdrawals.rrsp * 0.5,
+              lifWithdrawal: 0,
+              cpp: cppSarah,
+              oas: oasSarah,
+              tfsaWithdrawal: withdrawals.tfsa * 0.5,
+            },
+          },
+          credits: {
+            useBpa: vars.tax.useBpa,
+            useAgeAmount: vars.tax.useAgeAmount,
+            usePensionCredit: vars.tax.usePensionCredit,
+          },
+          pensionSplitting: {
+            enabled: vars.tax.enablePensionSplitting,
+            optimize: true,
+            step: 500,
+          },
         });
 
-        const creditsSarah = taxCreditsEstimate({
-          taxYear: year,
-          age: ageSarah,
-          eligiblePensionIncome: vars.tax.eligiblePensionIncomeSarah,
-          useBpa: vars.tax.useBpa,
-          useAgeAmount: vars.tax.useAgeAmount,
-          usePensionCredit: vars.tax.usePensionCredit,
-        });
-
-        const taxShingo = Math.max(0, estimateTaxBCCanada(taxableIncomeShingo) - creditsShingo.totalCreditValue);
-        const taxSarah = Math.max(0, estimateTaxBCCanada(taxableIncomeSarah) - creditsSarah.totalCreditValue);
-        return taxShingo + taxSarah;
+        taxableIncomeShingo = taxRes.spouseA.taxableIncome;
+        taxableIncomeSarah = taxRes.spouseB.taxableIncome;
+        return taxRes.household.totalTax;
       };
 
       // Iteratively withdraw enough to pay tax, since taxes depend on withdrawals.
@@ -2002,42 +1955,64 @@ export default function App() {
 
         {page === "tax" && (
         <section id="tax" className="card">
-          <h2>Tax estimate (BC + federal)</h2>
+          <h2>Tax estimate (BC + federal) — v2</h2>
           <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-            Now includes simple toggles for common non-refundable credits. This is still a planning estimator
-            (not filing-accurate).
+            Planning estimator. Computes tax per person (federal + BC), applies selected non-refundable credits,
+            optionally optimizes pension-income splitting, and estimates OAS clawback.
           </p>
 
           {(() => {
             const shingoAge = vars.tax.taxYear - DEFAULT_ANCHORS.shingoBirthYear;
             const sarahAge = vars.tax.taxYear - DEFAULT_ANCHORS.sarahBirthYear;
 
-            const creditsShingo = taxCreditsEstimate({
+            const res = computeHouseholdTax({
               taxYear: vars.tax.taxYear,
-              age: shingoAge,
-              eligiblePensionIncome: vars.tax.eligiblePensionIncomeShingo,
-              useBpa: vars.tax.useBpa,
-              useAgeAmount: vars.tax.useAgeAmount,
-              usePensionCredit: vars.tax.usePensionCredit,
+              spouseA: {
+                name: "Shingo",
+                age: shingoAge,
+                incomes: {
+                  employment: vars.tax.shingoEmployment,
+                  pensionDb: vars.tax.shingoPensionDb,
+                  rrspWithdrawal: vars.tax.shingoRrsp,
+                  rrifWithdrawal: vars.tax.shingoRrif,
+                  lifWithdrawal: vars.tax.shingoLif,
+                  cpp: vars.tax.shingoCpp,
+                  oas: vars.tax.shingoOas,
+                  tfsaWithdrawal: vars.tax.shingoTfsa,
+                },
+              },
+              spouseB: {
+                name: "Sarah",
+                age: sarahAge,
+                incomes: {
+                  employment: vars.tax.sarahEmployment,
+                  pensionDb: vars.tax.sarahPensionDb,
+                  rrspWithdrawal: vars.tax.sarahRrsp,
+                  rrifWithdrawal: vars.tax.sarahRrif,
+                  lifWithdrawal: vars.tax.sarahLif,
+                  cpp: vars.tax.sarahCpp,
+                  oas: vars.tax.sarahOas,
+                  tfsaWithdrawal: vars.tax.sarahTfsa,
+                },
+              },
+              credits: {
+                useBpa: vars.tax.useBpa,
+                useAgeAmount: vars.tax.useAgeAmount,
+                usePensionCredit: vars.tax.usePensionCredit,
+              },
+              pensionSplitting: {
+                enabled: vars.tax.enablePensionSplitting,
+                optimize: true,
+                step: 250,
+              },
             });
 
-            const creditsSarah = taxCreditsEstimate({
-              taxYear: vars.tax.taxYear,
-              age: sarahAge,
-              eligiblePensionIncome: vars.tax.eligiblePensionIncomeSarah,
-              useBpa: vars.tax.useBpa,
-              useAgeAmount: vars.tax.useAgeAmount,
-              usePensionCredit: vars.tax.usePensionCredit,
-            });
-
-            const grossTaxShingo = estimateTaxBCCanada(vars.tax.shingoIncome);
-            const grossTaxSarah = estimateTaxBCCanada(vars.tax.sarahIncome);
-
-            const taxShingo = Math.max(0, grossTaxShingo - creditsShingo.totalCreditValue);
-            const taxSarah = Math.max(0, grossTaxSarah - creditsSarah.totalCreditValue);
-
-            const netShingo = vars.tax.shingoIncome - taxShingo;
-            const netSarah = vars.tax.sarahIncome - taxSarah;
+            const showLine = (label: string, value: number) => (
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <span style={{ opacity: 0.85 }}>{label}</span>
+                <strong>${moneyY(value, vars.tax.taxYear)}</strong>
+              </div>
+            );
 
             return (
               <>
@@ -2056,73 +2031,14 @@ export default function App() {
                     />
                   </Field>
 
-                  <Field label="Refund → TFSA">
+                  <Field label="Pension splitting?">
                     <select
                       className="yesNoSelect"
-                      value={vars.tax.enableRefundToTfsa ? "yes" : "no"}
+                      value={vars.tax.enablePensionSplitting ? "yes" : "no"}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
-                          tax: {
-                            ...v.tax,
-                            enableRefundToTfsa: e.target.value === "yes",
-                          },
-                        }))
-                      }
-                    >
-                      <option value="yes">Yes</option>
-                      <option value="no">No</option>
-                    </select>
-                  </Field>
-
-                  <Field label={`Shingo age in ${vars.tax.taxYear}`}>
-                    <input className="ageInput" type="number" value={shingoAge} disabled />
-                  </Field>
-                  <Field label={`Sarah age in ${vars.tax.taxYear}`}>
-                    <input className="ageInput" type="number" value={sarahAge} disabled />
-                  </Field>
-                </div>
-
-                <h3 style={{ marginTop: 14 }}>Income</h3>
-                <div className="selectRow">
-                  <Field label="Shingo income ($/yr)">
-                    <input
-                      className="moneyInputLg"
-                      type="number"
-                      value={vars.tax.shingoIncome}
-                      onChange={(e) =>
-                        setVars((v) => ({
-                          ...v,
-                          tax: { ...v.tax, shingoIncome: num(e.target.value) },
-                        }))
-                      }
-                    />
-                  </Field>
-                  <Field label="Sarah income ($/yr)">
-                    <input
-                      className="moneyInputLg"
-                      type="number"
-                      value={vars.tax.sarahIncome}
-                      onChange={(e) =>
-                        setVars((v) => ({
-                          ...v,
-                          tax: { ...v.tax, sarahIncome: num(e.target.value) },
-                        }))
-                      }
-                    />
-                  </Field>
-                </div>
-
-                <h3 style={{ marginTop: 14 }}>Credits (toggles)</h3>
-                <div className="selectRow">
-                  <Field label="Income split?">
-                    <select
-                      className="yesNoSelect"
-                      value={vars.tax.splitIncomeInRetirement ? "yes" : "no"}
-                      onChange={(e) =>
-                        setVars((v) => ({
-                          ...v,
-                          tax: { ...v.tax, splitIncomeInRetirement: e.target.value === "yes" },
+                          tax: { ...v.tax, enablePensionSplitting: e.target.value === "yes" },
                         }))
                       }
                     >
@@ -2180,57 +2096,172 @@ export default function App() {
                   </Field>
                 </div>
 
-                <h3 style={{ marginTop: 14 }}>Eligible pension income (for pension credit)</h3>
-                <div className="selectRow">
-                  <Field label="Shingo eligible pension ($/yr)">
-                    <input
-                      className="moneyInputLg"
-                      type="number"
-                      value={vars.tax.eligiblePensionIncomeShingo}
-                      onChange={(e) =>
-                        setVars((v) => ({
-                          ...v,
-                          tax: {
-                            ...v.tax,
-                            eligiblePensionIncomeShingo: num(e.target.value),
-                          },
-                        }))
-                      }
-                    />
-                  </Field>
-                  <Field label="Sarah eligible pension ($/yr)">
-                    <input
-                      className="moneyInputLg"
-                      type="number"
-                      value={vars.tax.eligiblePensionIncomeSarah}
-                      onChange={(e) =>
-                        setVars((v) => ({
-                          ...v,
-                          tax: {
-                            ...v.tax,
-                            eligiblePensionIncomeSarah: num(e.target.value),
-                          },
-                        }))
-                      }
-                    />
-                  </Field>
+                <h3 style={{ marginTop: 14 }}>Income inputs (by source)</h3>
+                <div className="grid">
+                  <div>
+                    <h4 style={{ margin: "6px 0" }}>Shingo</h4>
+                    <div className="tightGrid">
+                      <Field label={`Age (${shingoAge})`}>
+                        <input className="ageInput" type="number" value={shingoAge} disabled />
+                      </Field>
+                      <Field label="DB pension ($/yr)">
+                        <input type="number" value={vars.tax.shingoPensionDb} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, shingoPensionDb:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="CPP ($/yr)">
+                        <input type="number" value={vars.tax.shingoCpp} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, shingoCpp:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="OAS ($/yr)">
+                        <input type="number" value={vars.tax.shingoOas} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, shingoOas:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="RRIF ($/yr)">
+                        <input type="number" value={vars.tax.shingoRrif} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, shingoRrif:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="LIF ($/yr)">
+                        <input type="number" value={vars.tax.shingoLif} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, shingoLif:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="RRSP w/d ($/yr)">
+                        <input type="number" value={vars.tax.shingoRrsp} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, shingoRrsp:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="TFSA w/d ($/yr)">
+                        <input type="number" value={vars.tax.shingoTfsa} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, shingoTfsa:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="Other taxable ($/yr)">
+                        <input type="number" value={vars.tax.shingoEmployment} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, shingoEmployment:num(e.target.value)}}))} />
+                      </Field>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 style={{ margin: "6px 0" }}>Sarah</h4>
+                    <div className="tightGrid">
+                      <Field label={`Age (${sarahAge})`}>
+                        <input className="ageInput" type="number" value={sarahAge} disabled />
+                      </Field>
+                      <Field label="DB pension ($/yr)">
+                        <input type="number" value={vars.tax.sarahPensionDb} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, sarahPensionDb:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="CPP ($/yr)">
+                        <input type="number" value={vars.tax.sarahCpp} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, sarahCpp:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="OAS ($/yr)">
+                        <input type="number" value={vars.tax.sarahOas} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, sarahOas:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="RRIF ($/yr)">
+                        <input type="number" value={vars.tax.sarahRrif} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, sarahRrif:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="LIF ($/yr)">
+                        <input type="number" value={vars.tax.sarahLif} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, sarahLif:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="RRSP w/d ($/yr)">
+                        <input type="number" value={vars.tax.sarahRrsp} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, sarahRrsp:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="TFSA w/d ($/yr)">
+                        <input type="number" value={vars.tax.sarahTfsa} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, sarahTfsa:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="Other taxable ($/yr)">
+                        <input type="number" value={vars.tax.sarahEmployment} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, sarahEmployment:num(e.target.value)}}))} />
+                      </Field>
+                    </div>
+                  </div>
                 </div>
 
-                <h3 style={{ marginTop: 14 }}>Results (estimated)</h3>
-                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                  Retirement schedule tax uses: <strong>{vars.tax.splitIncomeInRetirement ? "assumed income-splitting (50/50)" : "no splitting"}</strong>
+                <h3 style={{ marginTop: 14 }}>Results</h3>
+                <div className="grid">
+                  <div className="card" style={{ padding: 12 }}>
+                    <h4 style={{ margin: "0 0 8px 0" }}>Shingo</h4>
+                    {showLine("Taxable income", res.spouseA.taxableIncome)}
+                    {showLine("Fed tax (pre-credits)", res.spouseA.federalTaxBeforeCredits)}
+                    {showLine("BC tax (pre-credits)", res.spouseA.bcTaxBeforeCredits)}
+                    {showLine("Credits applied", res.spouseA.credits.total)}
+                    {showLine("OAS clawback", res.spouseA.oasClawback)}
+                    {showLine("Total tax", res.spouseA.totalTax)}
+                    {showLine("After-tax", res.spouseA.afterTaxIncome)}
+                  </div>
+                  <div className="card" style={{ padding: 12 }}>
+                    <h4 style={{ margin: "0 0 8px 0" }}>Sarah</h4>
+                    {showLine("Taxable income", res.spouseB.taxableIncome)}
+                    {showLine("Fed tax (pre-credits)", res.spouseB.federalTaxBeforeCredits)}
+                    {showLine("BC tax (pre-credits)", res.spouseB.bcTaxBeforeCredits)}
+                    {showLine("Credits applied", res.spouseB.credits.total)}
+                    {showLine("OAS clawback", res.spouseB.oasClawback)}
+                    {showLine("Total tax", res.spouseB.totalTax)}
+                    {showLine("After-tax", res.spouseB.afterTaxIncome)}
+                  </div>
                 </div>
-                <ul style={{ marginTop: 10 }}>
-                  <li>
-                    Shingo tax est.: <strong>${moneyY(taxShingo, vars.tax.taxYear)}</strong> | After-tax: <strong>${moneyY(netShingo, vars.tax.taxYear)}</strong>
-                  </li>
-                  <li>
-                    Sarah tax est.: <strong>${moneyY(taxSarah, vars.tax.taxYear)}</strong> | After-tax: <strong>${moneyY(netSarah, vars.tax.taxYear)}</strong>
-                  </li>
-                  <li>
-                    Household tax est.: <strong>${moneyY(taxShingo + taxSarah, vars.tax.taxYear)}</strong> | Household after-tax: <strong>${moneyY(netShingo + netSarah, vars.tax.taxYear)}</strong>
-                  </li>
-                </ul>
+
+                <div className="card" style={{ padding: 12, marginTop: 12 }}>
+                  <h4 style={{ margin: "0 0 8px 0" }}>Household</h4>
+                  {showLine("Household taxable income", res.household.taxableIncome)}
+                  {showLine("Household OAS clawback", res.household.oasClawback)}
+                  {showLine("Household total tax", res.household.totalTax)}
+                  {showLine("Household after-tax", res.household.afterTaxIncome)}
+                  {vars.tax.enablePensionSplitting ? (
+                    <div style={{ fontSize: 12, opacity: 0.8, marginTop: 6 }}>
+                      Splitting chosen: <strong>${moneyY(res.debug.splitting.chosenSplitAmount, vars.tax.taxYear)}</strong>
+                      {res.debug.splitting.from && res.debug.splitting.to ? (
+                        <span> ({res.debug.splitting.from} → {res.debug.splitting.to})</span>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+
+                <details style={{ marginTop: 12 }}>
+                  <summary style={{ cursor: "pointer" }}>Debug</summary>
+                  <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, background: "#f8fafc", border: "1px solid #e5e7eb", padding: 10, borderRadius: 10, marginTop: 8 }}>
+                    {JSON.stringify(res.debug, null, 2)}
+                  </pre>
+                </details>
+
+                <details style={{ marginTop: 12 }}>
+                  <summary style={{ cursor: "pointer" }}>Working-year refund model (separate)</summary>
+                  <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
+                    This refund estimate is only used in the accumulation model (working years) for RRSP/FHSA deductions.
+                    Retirement years do not include withholding/refunds.
+                  </div>
+                  <div className="selectRow" style={{ marginTop: 8 }}>
+                    <Field label="Refund → TFSA">
+                      <select
+                        className="yesNoSelect"
+                        value={vars.tax.enableRefundToTfsa ? "yes" : "no"}
+                        onChange={(e) =>
+                          setVars((v) => ({
+                            ...v,
+                            tax: { ...v.tax, enableRefundToTfsa: e.target.value === "yes" },
+                          }))
+                        }
+                      >
+                        <option value="yes">Yes</option>
+                        <option value="no">No</option>
+                      </select>
+                    </Field>
+                    <Field label="Working income Shingo ($/yr)">
+                      <input
+                        className="moneyInputLg"
+                        type="number"
+                        value={vars.tax.workingIncomeShingo}
+                        onChange={(e) =>
+                          setVars((v) => ({
+                            ...v,
+                            tax: { ...v.tax, workingIncomeShingo: num(e.target.value) },
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label="Working income Sarah ($/yr)">
+                      <input
+                        className="moneyInputLg"
+                        type="number"
+                        value={vars.tax.workingIncomeSarah}
+                        onChange={(e) =>
+                          setVars((v) => ({
+                            ...v,
+                            tax: { ...v.tax, workingIncomeSarah: num(e.target.value) },
+                          }))
+                        }
+                      />
+                    </Field>
+                  </div>
+                </details>
               </>
             );
           })()}

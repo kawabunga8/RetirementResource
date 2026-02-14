@@ -118,26 +118,40 @@ export type TaxInputs = {
   // Tax year for credits/age-related features
   taxYear: number;
 
-  // If true, assume retirement taxable income is pooled and split evenly between spouses
-  // for tax/clawback estimation (planning approximation).
-  splitIncomeInRetirement: boolean;
-
-  // Income inputs (taxable income approximation)
-  shingoIncome: number;
-  sarahIncome: number;
-
-  // Credits toggles (auto defaults based on age)
+  // UI toggles
   useBpa: boolean;
   useAgeAmount: boolean;
   usePensionCredit: boolean;
+  enablePensionSplitting: boolean;
 
-  // Eligible pension income used for the pension amount credit
-  eligiblePensionIncomeShingo: number;
-  eligiblePensionIncomeSarah: number;
+  // Explicit income inputs by source (planning estimator)
+  shingoEmployment: number;
+  sarahEmployment: number;
 
-  // Refund modeling (v1)
-  // If enabled, we estimate annual tax savings from RRSP+FHSA contributions
-  // and deposit the refund into TFSA once per year.
+  shingoPensionDb: number;
+  sarahPensionDb: number;
+
+  shingoRrif: number;
+  sarahRrif: number;
+
+  shingoLif: number;
+  sarahLif: number;
+
+  shingoRrsp: number;
+  sarahRrsp: number;
+
+  shingoCpp: number;
+  sarahCpp: number;
+
+  shingoOas: number;
+  sarahOas: number;
+
+  shingoTfsa: number;
+  sarahTfsa: number;
+
+  // Refund modeling (working years only)
+  workingIncomeShingo: number;
+  workingIncomeSarah: number;
   enableRefundToTfsa: boolean;
 };
 
@@ -296,18 +310,39 @@ export const DEFAULT_VARIABLES: Variables = {
 
   tax: {
     taxYear: 2036,
-    splitIncomeInRetirement: true,
-    shingoIncome: 100000,
-    sarahIncome: 100000,
 
     useBpa: true,
     useAgeAmount: true,
     usePensionCredit: true,
+    enablePensionSplitting: true,
 
-    // Default: treat pensions as eligible for the pension amount credit (adjust if needed)
-    eligiblePensionIncomeShingo: 29000,
-    eligiblePensionIncomeSarah: 35000,
+    shingoEmployment: 0,
+    sarahEmployment: 0,
 
+    shingoPensionDb: 29000,
+    sarahPensionDb: 35000,
+
+    shingoRrif: 0,
+    sarahRrif: 0,
+
+    shingoLif: 0,
+    sarahLif: 0,
+
+    shingoRrsp: 0,
+    sarahRrsp: 0,
+
+    shingoCpp: 0,
+    sarahCpp: 0,
+
+    shingoOas: 0,
+    sarahOas: 0,
+
+    shingoTfsa: 0,
+    sarahTfsa: 0,
+
+    // Working-year refund modeling inputs
+    workingIncomeShingo: 100000,
+    workingIncomeSarah: 100000,
     enableRefundToTfsa: true,
   },
 
