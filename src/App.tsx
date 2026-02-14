@@ -3071,7 +3071,7 @@ export default function App() {
           </div>
 
           <h3 style={{ marginTop: 14 }}>Schedule</h3>
-          <label style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-start", textAlign: "left", fontSize: 12, opacity: 0.85, marginTop: 6 }}>
+          <label style={{ display: "inline-flex", gap: 8, alignItems: "center", justifyContent: "flex-start", textAlign: "left", fontSize: 12, opacity: 0.85, marginTop: 6, whiteSpace: "nowrap" }}>
             <input
               type="checkbox"
               checked={showFullSchedule}
