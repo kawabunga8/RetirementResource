@@ -463,9 +463,13 @@ function estimateTaxSavingsFromDeduction(params: {
 
 export default function App() {
   const [vars, setVars] = useState<Variables>(DEFAULT_VARIABLES);
-  const [page, setPage] = useState<"overview" | "current" | "tax" | "withdrawals">("overview");
+  const [page, setPage] = useState<"overview" | "current" | "tax" | "taxBrackets" | "withdrawals">("overview");
   const [showFullSchedule, setShowFullSchedule] = useState(false);
   const [wideLayout, setWideLayout] = useState(false);
+
+  const [bracketsPerson, setBracketsPerson] = useState<"Shingo" | "Sarah">("Shingo");
+  const [bracketsUseTestIncome, setBracketsUseTestIncome] = useState(false);
+  const [bracketsTestIncome, setBracketsTestIncome] = useState(0);
 
   const adjustDollars = (amountNominal: number, year: number) => {
     if (vars.dollarsMode !== "real") return amountNominal;
@@ -1128,6 +1132,14 @@ export default function App() {
           <button
             type="button"
             className="linkBtn"
+            onClick={() => setPage("taxBrackets")}
+            aria-current={page === "taxBrackets"}
+          >
+            Tax Brackets
+          </button>
+          <button
+            type="button"
+            className="linkBtn"
             onClick={() => setPage("withdrawals")}
             aria-current={page === "withdrawals"}
           >
@@ -1165,7 +1177,8 @@ export default function App() {
           <div style={{ fontSize: 12, opacity: 0.75 }}>
             {page === "overview" ? "Edit assumptions + see balances at retirement" : null}
             {page === "current" ? "Live snapshot: contributions and totals as of this month" : null}
-            {page === "tax" ? "Rough BC+federal tax estimate with simple credits" : null}
+            {page === "tax" ? "BC+federal tax estimate (v2)" : null}
+            {page === "taxBrackets" ? "Visualize where income lands in the 2024 brackets" : null}
             {page === "withdrawals" ? "Drawdown order, caps, and the schedule" : null}
           </div>
         </div>
@@ -2263,6 +2276,221 @@ export default function App() {
                       />
                     </Field>
                   </div>
+                </details>
+              </>
+            );
+          })()}
+        </section>
+        )}
+
+        {page === "taxBrackets" && (
+        <section id="taxBrackets" className="card">
+          <h2>Tax brackets (2024)</h2>
+          {(() => {
+            // 2024 brackets per prompt (planning visualization)
+            const FED = [
+              { upTo: 55867, rate: 0.15 },
+              { upTo: 111733, rate: 0.205 },
+              { upTo: 173205, rate: 0.26 },
+              { upTo: 246752, rate: 0.29 },
+              { upTo: Infinity, rate: 0.33 },
+            ];
+            const BC = [
+              { upTo: 47937, rate: 0.0506 },
+              { upTo: 95875, rate: 0.077 },
+              { upTo: 110076, rate: 0.105 },
+              { upTo: 133664, rate: 0.1229 },
+              { upTo: 181232, rate: 0.147 },
+              { upTo: 252752, rate: 0.168 },
+              { upTo: Infinity, rate: 0.205 },
+            ];
+
+            // state managed at App() level
+
+            const shingoAge = vars.tax.taxYear - DEFAULT_ANCHORS.shingoBirthYear;
+            const sarahAge = vars.tax.taxYear - DEFAULT_ANCHORS.sarahBirthYear;
+
+            const res = computeHouseholdTax({
+              taxYear: vars.tax.taxYear,
+              spouseA: {
+                name: "Shingo",
+                age: shingoAge,
+                incomes: {
+                  employment: vars.tax.shingoEmployment,
+                  pensionDb: vars.tax.shingoPensionDb,
+                  rrspWithdrawal: vars.tax.shingoRrsp,
+                  rrifWithdrawal: vars.tax.shingoRrif,
+                  lifWithdrawal: vars.tax.shingoLif,
+                  cpp: vars.tax.shingoCpp,
+                  oas: vars.tax.shingoOas,
+                  tfsaWithdrawal: vars.tax.shingoTfsa,
+                },
+              },
+              spouseB: {
+                name: "Sarah",
+                age: sarahAge,
+                incomes: {
+                  employment: vars.tax.sarahEmployment,
+                  pensionDb: vars.tax.sarahPensionDb,
+                  rrspWithdrawal: vars.tax.sarahRrsp,
+                  rrifWithdrawal: vars.tax.sarahRrif,
+                  lifWithdrawal: vars.tax.sarahLif,
+                  cpp: vars.tax.sarahCpp,
+                  oas: vars.tax.sarahOas,
+                  tfsaWithdrawal: vars.tax.sarahTfsa,
+                },
+              },
+              credits: {
+                useBpa: vars.tax.useBpa,
+                useAgeAmount: vars.tax.useAgeAmount,
+                usePensionCredit: vars.tax.usePensionCredit,
+              },
+              pensionSplitting: {
+                enabled: vars.tax.enablePensionSplitting,
+                optimize: true,
+                step: 250,
+              },
+            });
+
+            const personRes = bracketsPerson === "Shingo" ? res.spouseA : res.spouseB;
+            const income = bracketsUseTestIncome ? bracketsTestIncome : personRes.taxableIncome;
+
+            const findBracket = (income: number, brackets: Array<{ upTo: number; rate: number }>) => {
+              const x = Math.max(0, income);
+              let prev = 0;
+              for (let i = 0; i < brackets.length; i++) {
+                const b = brackets[i];
+                if (x <= b.upTo) {
+                  return {
+                    index: i,
+                    rate: b.rate,
+                    from: prev,
+                    to: b.upTo,
+                    nextTo: brackets[i + 1]?.upTo ?? Infinity,
+                  };
+                }
+                prev = b.upTo;
+              }
+              const last = brackets[brackets.length - 1];
+              return { index: brackets.length - 1, rate: last.rate, from: prev, to: Infinity, nextTo: Infinity };
+            };
+
+            const fedB = findBracket(income, FED);
+            const bcB = findBracket(income, BC);
+            const marginal = fedB.rate + bcB.rate;
+            const effective = income > 0 ? personRes.totalTax / income : 0;
+            const roomToNextFed = Number.isFinite(fedB.to) ? Math.max(0, fedB.to - income) : Infinity;
+            const roomToNextBc = Number.isFinite(bcB.to) ? Math.max(0, bcB.to - income) : Infinity;
+            const roomToNext = Math.min(roomToNextFed, roomToNextBc);
+
+            const renderBar = (title: string, brackets: Array<{ upTo: number; rate: number }>, activeIdx: number, palette: string[]) => {
+              const finiteMax = Math.max(...brackets.filter((b) => Number.isFinite(b.upTo)).map((b) => b.upTo));
+              const max = finiteMax;
+              let prev = 0;
+              return (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>{title}</div>
+                  <div style={{ display: "flex", width: "100%", border: "1px solid #e5e7eb", borderRadius: 10, overflow: "hidden", height: 28 }}>
+                    {brackets.map((b, i) => {
+                      const to = Number.isFinite(b.upTo) ? b.upTo : max;
+                      const w = ((to - prev) / max) * 100;
+                      const from = prev;
+                      prev = Number.isFinite(b.upTo) ? b.upTo : prev;
+                      const bg = palette[i % palette.length];
+                      return (
+                        <div
+                          key={`${title}-${i}`}
+                          title={`${moneyY(from, 2024)} – ${Number.isFinite(b.upTo) ? moneyY(b.upTo, 2024) : "∞"} @ ${(b.rate * 100).toFixed(2)}%`}
+                          style={{
+                            width: `${Math.max(2, w)}%`,
+                            background: bg,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 11,
+                            color: "#0f172a",
+                            fontWeight: i === activeIdx ? 700 : 500,
+                            outline: i === activeIdx ? "2px solid #0f172a" : "none",
+                            outlineOffset: -2,
+                          }}
+                        >
+                          {(b.rate * 100).toFixed(1)}%
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            };
+
+            return (
+              <>
+                <div className="selectRow">
+                  <Field label="Person">
+                    <select
+                      className="yesNoSelect"
+                      value={bracketsPerson}
+                      onChange={(e) => setBracketsPerson(e.target.value as any)}
+                    >
+                      <option value="Shingo">Shingo</option>
+                      <option value="Sarah">Sarah</option>
+                    </select>
+                  </Field>
+
+                  <Field label="Use test income?">
+                    <select
+                      className="yesNoSelect"
+                      value={bracketsUseTestIncome ? "yes" : "no"}
+                      onChange={(e) => {
+                        const on = e.target.value === "yes";
+                        setBracketsUseTestIncome(on);
+                        if (on && bracketsTestIncome <= 0) setBracketsTestIncome(Math.round(income));
+                      }}
+                    >
+                      <option value="no">No</option>
+                      <option value="yes">Yes</option>
+                    </select>
+                  </Field>
+
+                  {bracketsUseTestIncome ? (
+                    <Field label={`Test income (${moneyY(bracketsTestIncome, vars.tax.taxYear)})`}>
+                      <input
+                        type="range"
+                        min={0}
+                        max={260000}
+                        step={500}
+                        value={bracketsTestIncome}
+                        onChange={(e) => setBracketsTestIncome(num(e.target.value))}
+                      />
+                    </Field>
+                  ) : null}
+
+                  <div style={{ fontSize: 12, opacity: 0.75, alignSelf: "end" }}>
+                    Income shown: <strong>${moneyY(income, vars.tax.taxYear)}</strong>
+                  </div>
+                </div>
+
+                {renderBar("Federal", FED, fedB.index, ["#bae6fd", "#93c5fd", "#a7f3d0", "#fde68a", "#fecaca"])}
+                {renderBar("BC", BC, bcB.index, ["#ddd6fe", "#c4b5fd", "#a5b4fc", "#fbcfe8", "#bbf7d0", "#fed7aa", "#bae6fd"])}
+
+                <h3 style={{ marginTop: 14 }}>Key metrics</h3>
+                <ul style={{ marginTop: 8 }}>
+                  <li>
+                    Marginal rate: <strong>{(marginal * 100).toFixed(2)}%</strong> (Fed {(fedB.rate * 100).toFixed(2)}% + BC {(bcB.rate * 100).toFixed(2)}%)
+                  </li>
+                  <li>
+                    Effective rate: <strong>{(effective * 100).toFixed(2)}%</strong>
+                  </li>
+                  <li>
+                    Room to next bracket: <strong>{roomToNext === Infinity ? "—" : moneyY(roomToNext, vars.tax.taxYear)}</strong>
+                  </li>
+                </ul>
+
+                <details style={{ marginTop: 12 }}>
+                  <summary style={{ cursor: "pointer" }}>Debug (from tax v2)</summary>
+                  <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, background: "#f8fafc", border: "1px solid #e5e7eb", padding: 10, borderRadius: 10, marginTop: 8 }}>
+                    {JSON.stringify(res.debug, null, 2)}
+                  </pre>
                 </details>
               </>
             );
