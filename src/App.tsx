@@ -1166,7 +1166,7 @@ export default function App() {
           {/* wide-screen layout toggle removed */}
 
           <div style={{ fontSize: 12, opacity: 0.75 }}>
-            {page === "overview" ? "Edit assumptions + see balances at retirement" : null}
+            {/* overview hint removed */}
             {page === "current" ? "Live snapshot: contributions and totals as of this month" : null}
             {page === "tax" ? "BC+federal tax estimate (v2)" : null}
             {page === "taxBrackets" ? "Visualize where income lands in the 2024 brackets" : null}
