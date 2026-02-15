@@ -293,9 +293,10 @@ export function buildWithdrawalSchedule(params: {
       phase === "Go-Go" ? vars.spending.goGo : phase === "Slow-Go" ? vars.spending.slowGo : vars.spending.noGo;
 
     const yearsFromBaseline = year - DEFAULT_ANCHORS.baselineYear;
+    // Spending targets are defined as REAL (today dollars). Convert using FULL inflation (not partial CPI).
     const targetAfterTaxNominal = nominalFromRealBase({
       amountReal: targetAfterTaxReal,
-      annualIndexRate: indexRate,
+      annualIndexRate: vars.expectedInflation,
       yearsFromBaseline,
     });
 
