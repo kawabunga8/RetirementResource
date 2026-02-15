@@ -435,11 +435,13 @@ export function buildWithdrawalSchedule(params: {
       const rrspCeilingCap = vars.tax.enablePensionSplitting ? 2 * Math.min(headroomShingo, headroomSarah) : 2 * Math.min(headroomShingo, headroomSarah);
 
       if (rrspCeilingCap <= 0) {
-        rrspMandatory = 0;
-        ceilingBinding = rrspMandatoryRaw > 0;
+        // Still respect the RRIF minimum (if applicable), even if it triggers clawback.
+        rrspMandatory = rrifMinRequired;
+        ceilingBinding = rrspMandatoryRaw > rrspMandatory;
       } else if (rrspMandatory > rrspCeilingCap) {
-        rrspMandatory = rrspCeilingCap;
-        ceilingBinding = true;
+        // Cap to ceiling, but never below RRIF minimum.
+        rrspMandatory = Math.max(rrifMinRequired, rrspCeilingCap);
+        ceilingBinding = rrspMandatoryRaw > rrspMandatory;
       }
     }
 
