@@ -354,16 +354,24 @@ export function buildWithdrawalSchedule(params: {
     });
 
     // Mandatory RRSP/RRIF withdrawal is capped by the taxable-income ceiling when avoid-clawback is enabled.
-    // If the ceiling binds, we defer the remainder (glidepath may not fully deplete by target age).
+    // NOTE: in the depletion year we force full depletion regardless of ceilings.
     const inOasYearsForCeiling = ageShingo >= vars.oasStartAge || ageSarah >= vars.oasStartAge;
     const applyCeiling = vars.withdrawals.avoidOasClawback && inOasYearsForCeiling;
 
     let ceilingBinding = false;
 
-    const rrspMandatoryRaw = Math.max(rrifMinRequired, rrifGlideTarget);
+    // Mandatory RRSP/RRIF withdrawal:
+    // - glidepath/minimum in most years
+    // - HARD force full depletion in the depletion year
+    const isDepletionYear = ageShingo >= vars.withdrawals.rrifDepleteByAge;
+
+    const rrspMandatoryRaw = isDepletionYear
+      ? balances.rrsp
+      : Math.max(rrifMinRequired, rrifGlideTarget);
+
     let rrspMandatory = rrspMandatoryRaw;
 
-    if (applyCeiling && Number.isFinite(taxableIncomeCeiling) && rrspMandatory > 0) {
+    if (!isDepletionYear && applyCeiling && Number.isFinite(taxableIncomeCeiling) && rrspMandatory > 0) {
       // Estimate current taxable income BEFORE adding any RRSP/RRIF withdrawal.
       // (Uses v2 tax engine + splitting optimizer; planning approximation.)
       const pensionShingo0 = nominalFromRealBase({
@@ -449,7 +457,9 @@ export function buildWithdrawalSchedule(params: {
     }
 
     if (rrspMandatory > 0 && balances.rrsp > 0) {
-      const r = withdrawFrom(rrspMandatory, balances.rrsp, vars.withdrawals.caps.rrsp);
+      // In depletion year, force full depletion regardless of caps.
+      const cap = isDepletionYear ? 0 : vars.withdrawals.caps.rrsp;
+      const r = withdrawFrom(rrspMandatory, balances.rrsp, cap);
       withdrawals.rrsp += r.withdrawn;
       balances.rrsp = r.newBalance;
     }
