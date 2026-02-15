@@ -580,8 +580,14 @@ export function buildWithdrawalSchedule(params: {
       const grossUpTaxable = 1 / Math.max(0.5, 1 - Math.min(0.45, Math.max(0, avgTaxRate)));
 
       // Try to satisfy shortfall using the configured order.
+      // Requirement: cover any remaining spending gap using RRIF/RRSP first.
       // We do a single pass each iteration with a mild gross-up.
       let needGross = shortfall;
+
+      const orderForGap = [
+        "rrsp" as const,
+        ...vars.withdrawals.order.filter((o) => o !== "rrsp"),
+      ];
 
       // If ceiling is binding, prefer non-taxable sources.
       const avoidTaxableNow = applyCeiling && headroomHousehold < 1000;
@@ -592,7 +598,7 @@ export function buildWithdrawalSchedule(params: {
 
       const remaining = applyWithdrawalOrder({
         need: needForOrder,
-        order: vars.withdrawals.order,
+        order: orderForGap,
         allowTfsa: vars.withdrawals.allowTfsa,
         balances,
         withdrawals,
