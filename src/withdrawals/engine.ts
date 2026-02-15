@@ -73,10 +73,7 @@ function clampToZero(n: number) {
   return n < 0 ? 0 : n;
 }
 
-function clamp01(n: number) {
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, Math.min(1, n));
-}
+// clamp01 removed (no longer needed)
 
 function withdrawFrom(amount: number, balance: number, cap: number) {
   if (amount <= 0) return { withdrawn: 0, remainingNeed: 0, newBalance: balance };
@@ -148,25 +145,7 @@ function nominalFromRealBase(params: {
   return params.amountReal * Math.pow(1 + params.annualIndexRate, Math.max(0, params.yearsFromBaseline));
 }
 
-function rrifGlideAmount(params: {
-  balance: number;
-  age: number;
-  depleteByAge: number;
-  frontLoad: number;
-}) {
-  if (params.balance <= 0) return 0;
-  if (params.age > params.depleteByAge) return 0;
-
-  const yearsLeft = Math.max(1, params.depleteByAge - params.age + 1);
-
-  const f = clamp01(params.frontLoad);
-  const ratio = 1 + 4 * f; // 1..5 (higher = more front-loaded)
-
-  const sumWeights = ratio === 1 ? yearsLeft : (Math.pow(ratio, yearsLeft) - 1) / (ratio - 1);
-  const w0 = Math.pow(ratio, yearsLeft - 1);
-  const requiredThisYear = params.balance * (w0 / sumWeights);
-  return requiredThisYear;
-}
+// (rrifGlideAmount removed: RRIF glidepath is now handled as a global, two-pass overlay)
 
 function sumWithdrawals(w: WithdrawalSources) {
   return w.fhsa + w.rrsp + w.lira + w.nonRegistered + w.tfsa;
@@ -268,434 +247,486 @@ export function buildWithdrawalSchedule(params: {
 
   const yearsInPlan = Math.max(0, vars.phaseAges.endAge - Math.min(retireAgeShingo, retireAgeSarah) + 1);
 
-  const rows: WithdrawalScheduleRow[] = [];
+  type ExtraPlan = Record<number, number>; // year -> extra RRIF/RRSP withdrawal (nominal dollars)
 
-  let balances: RetirementBalances = { ...params.retirementBalances };
-  let tfsaRoom = Math.max(0, vars.withdrawals.tfsaRoomAtRetirement);
+  const simulate = (extraPlan: ExtraPlan): WithdrawalScheduleRow[] => {
+    const rows: WithdrawalScheduleRow[] = [];
 
-  for (let i = 0; i < yearsInPlan; i++) {
-    const year = params.retirementYear + i;
+    let balances: RetirementBalances = { ...params.retirementBalances };
+    let tfsaRoom = Math.max(0, vars.withdrawals.tfsaRoomAtRetirement);
 
-    // TFSA room creation during retirement (household)
-    tfsaRoom += Math.max(0, vars.withdrawals.tfsaNewRoomPerYear);
+    for (let i = 0; i < yearsInPlan; i++) {
+      const year = params.retirementYear + i;
 
-    const ageShingo = retireAgeShingo + i;
-    const ageSarah = retireAgeSarah + i;
+      // TFSA room creation during retirement (household)
+      tfsaRoom += Math.max(0, vars.withdrawals.tfsaNewRoomPerYear);
 
-    const phase: "Go-Go" | "Slow-Go" | "No-Go" =
-      ageShingo <= vars.phaseAges.goGoEndAge
-        ? "Go-Go"
-        : ageShingo <= vars.phaseAges.slowGoEndAge
-          ? "Slow-Go"
-          : "No-Go";
+      const ageShingo = retireAgeShingo + i;
+      const ageSarah = retireAgeSarah + i;
 
-    const targetAfterTaxReal =
-      phase === "Go-Go" ? vars.spending.goGo : phase === "Slow-Go" ? vars.spending.slowGo : vars.spending.noGo;
+      const phase: "Go-Go" | "Slow-Go" | "No-Go" =
+        ageShingo <= vars.phaseAges.goGoEndAge
+          ? "Go-Go"
+          : ageShingo <= vars.phaseAges.slowGoEndAge
+            ? "Slow-Go"
+            : "No-Go";
 
-    const yearsFromBaseline = year - DEFAULT_ANCHORS.baselineYear;
-    // Spending targets are defined as REAL (today dollars). Convert using FULL inflation (not partial CPI).
-    const targetAfterTaxNominal = nominalFromRealBase({
-      amountReal: targetAfterTaxReal,
-      annualIndexRate: vars.expectedInflation,
-      yearsFromBaseline,
-    });
+      const targetAfterTaxReal =
+        phase === "Go-Go" ? vars.spending.goGo : phase === "Slow-Go" ? vars.spending.slowGo : vars.spending.noGo;
 
-    const guaranteedIncome = nominalFromRealBase({
-      amountReal: pensionAnnualReal,
-      annualIndexRate: indexRate,
-      yearsFromBaseline,
-    });
-
-    const benefitsIncomeReal =
-      (ageShingo >= vars.cppStartAge ? vars.withdrawals.cppShingoAnnual : 0) +
-      (ageSarah >= vars.cppStartAge ? vars.withdrawals.cppSarahAnnual : 0) +
-      (ageShingo >= vars.oasStartAge ? vars.withdrawals.oasShingoAnnual : 0) +
-      (ageSarah >= vars.oasStartAge ? vars.withdrawals.oasSarahAnnual : 0);
-
-    const benefitsIncome = nominalFromRealBase({
-      amountReal: benefitsIncomeReal,
-      annualIndexRate: indexRate,
-      yearsFromBaseline,
-    });
-
-    const withdrawals: WithdrawalSources = {
-      fhsa: 0,
-      rrsp: 0,
-      lira: 0,
-      nonRegistered: 0,
-      tfsa: 0,
-    };
-
-    // Mandatory: LIF minimum (if we force LIF in retirement).
-    const { minF: lifMinF } = lifMinMaxFactors(ageShingo);
-    const lifMinRequired = vars.withdrawals.forceLifFromRetirement ? balances.lira * lifMinF : 0;
-    const lifMaxAllowed = balances.lira * lifMaxFactor(ageShingo, vars.withdrawals.lifMode);
-
-    if (lifMinRequired > 0 && balances.lira > 0) {
-      const r = withdrawFrom(lifMinRequired, balances.lira, lifMaxAllowed);
-      withdrawals.lira += r.withdrawn;
-      balances.lira = r.newBalance;
-    }
-
-    // Guardrail: OAS clawback ceiling (used to cap taxable drawdowns when enabled)
-    const oasClawbackThreshold = getOasClawbackThreshold(year);
-    const taxableIncomeCeiling = vars.withdrawals.avoidOasClawback ? Math.max(0, oasClawbackThreshold - 1000) : Infinity;
-
-    // RRIF min starts at 71; otherwise 0. We treat household RRSP as RRIF-like for min-factor purposes.
-    const rrifMinRequired =
-      ageShingo >= 71
-        ? balances.rrsp * rrifMinFactor(ageShingo) * Math.max(0, vars.withdrawals.rrifMinMultiplier)
-        : 0;
-    const rrifGlideTarget = rrifGlideAmount({
-      balance: balances.rrsp,
-      age: ageShingo,
-      depleteByAge: vars.withdrawals.rrifDepleteByAge,
-      frontLoad: vars.withdrawals.rrifFrontLoad,
-    });
-
-    // Mandatory RRSP/RRIF withdrawal is capped by the taxable-income ceiling when avoid-clawback is enabled.
-    // NOTE: in the depletion year we force full depletion regardless of ceilings.
-    const inOasYearsForCeiling = ageShingo >= vars.oasStartAge || ageSarah >= vars.oasStartAge;
-    const applyCeiling = vars.withdrawals.avoidOasClawback && inOasYearsForCeiling;
-
-    let ceilingBinding = false;
-
-    // Mandatory RRSP/RRIF withdrawal:
-    // - glidepath/minimum in most years
-    // - HARD force full depletion in the depletion year
-    const isDepletionYear = ageShingo >= vars.withdrawals.rrifDepleteByAge;
-
-    const rrspMandatoryRaw = isDepletionYear
-      ? balances.rrsp
-      : Math.max(rrifMinRequired, rrifGlideTarget);
-
-    let rrspMandatory = rrspMandatoryRaw;
-
-    if (!isDepletionYear && applyCeiling && Number.isFinite(taxableIncomeCeiling) && rrspMandatory > 0) {
-      // Estimate current taxable income BEFORE adding any RRSP/RRIF withdrawal.
-      // (Uses v2 tax engine + splitting optimizer; planning approximation.)
-      const pensionShingo0 = nominalFromRealBase({
-        amountReal: DEFAULT_ANCHORS.pensionShingo,
-        annualIndexRate: indexRate,
+      const yearsFromBaseline = year - DEFAULT_ANCHORS.baselineYear;
+      // Spending targets are defined as REAL (today dollars). Convert using FULL inflation (not partial CPI).
+      const targetAfterTaxNominal = nominalFromRealBase({
+        amountReal: targetAfterTaxReal,
+        annualIndexRate: vars.expectedInflation,
         yearsFromBaseline,
       });
-      const pensionSarah0 = nominalFromRealBase({
-        amountReal: DEFAULT_ANCHORS.pensionSarah,
+
+      const guaranteedIncome = nominalFromRealBase({
+        amountReal: pensionAnnualReal,
         annualIndexRate: indexRate,
         yearsFromBaseline,
       });
 
-      const cppShingo0 = ageShingo >= vars.cppStartAge
-        ? nominalFromRealBase({ amountReal: vars.withdrawals.cppShingoAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-        : 0;
-      const cppSarah0 = ageSarah >= vars.cppStartAge
-        ? nominalFromRealBase({ amountReal: vars.withdrawals.cppSarahAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-        : 0;
-      const oasShingo0 = ageShingo >= vars.oasStartAge
-        ? nominalFromRealBase({ amountReal: vars.withdrawals.oasShingoAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-        : 0;
-      const oasSarah0 = ageSarah >= vars.oasStartAge
-        ? nominalFromRealBase({ amountReal: vars.withdrawals.oasSarahAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-        : 0;
+      const benefitsIncomeReal =
+        (ageShingo >= vars.cppStartAge ? vars.withdrawals.cppShingoAnnual : 0) +
+        (ageSarah >= vars.cppStartAge ? vars.withdrawals.cppSarahAnnual : 0) +
+        (ageShingo >= vars.oasStartAge ? vars.withdrawals.oasShingoAnnual : 0) +
+        (ageSarah >= vars.oasStartAge ? vars.withdrawals.oasSarahAnnual : 0);
 
-      const baseTax = computeHouseholdTax({
-        taxYear: year,
-        spouseA: {
-          name: "Shingo",
-          age: ageShingo,
-          incomes: {
-            employment: 0,
-            pensionDb: pensionShingo0,
-            rrspWithdrawal: 0,
-            rrifWithdrawal: 0,
-            lifWithdrawal: withdrawals.lira,
-            cpp: cppShingo0,
-            oas: oasShingo0,
-            tfsaWithdrawal: 0,
-          },
-        },
-        spouseB: {
-          name: "Sarah",
-          age: ageSarah,
-          incomes: {
-            employment: 0,
-            pensionDb: pensionSarah0,
-            rrspWithdrawal: 0,
-            rrifWithdrawal: 0,
-            lifWithdrawal: 0,
-            cpp: cppSarah0,
-            oas: oasSarah0,
-            tfsaWithdrawal: 0,
-          },
-        },
-        credits: {
-          useBpa: vars.tax.useBpa,
-          useAgeAmount: vars.tax.useAgeAmount,
-          usePensionCredit: vars.tax.usePensionCredit,
-        },
-        pensionSplitting: {
-          enabled: vars.tax.enablePensionSplitting,
-          optimize: true,
-          step: 500,
-        },
+      const benefitsIncome = nominalFromRealBase({
+        amountReal: benefitsIncomeReal,
+        annualIndexRate: indexRate,
+        yearsFromBaseline,
       });
 
-      const headroomShingo = Math.max(0, taxableIncomeCeiling - baseTax.spouseA.taxableIncome);
-      const headroomSarah = Math.max(0, taxableIncomeCeiling - baseTax.spouseB.taxableIncome);
-      // RRSP/RRIF treated as split 50/50 in this model.
-      const rrspCeilingCap = vars.tax.enablePensionSplitting ? 2 * Math.min(headroomShingo, headroomSarah) : 2 * Math.min(headroomShingo, headroomSarah);
+      const withdrawals: WithdrawalSources = {
+        fhsa: 0,
+        rrsp: 0,
+        lira: 0,
+        nonRegistered: 0,
+        tfsa: 0,
+      };
 
-      if (rrspCeilingCap <= 0) {
-        // Still respect the RRIF minimum (if applicable), even if it triggers clawback.
-        rrspMandatory = rrifMinRequired;
-        ceilingBinding = rrspMandatoryRaw > rrspMandatory;
-      } else if (rrspMandatory > rrspCeilingCap) {
-        // Cap to ceiling, but never below RRIF minimum.
-        rrspMandatory = Math.max(rrifMinRequired, rrspCeilingCap);
-        ceilingBinding = rrspMandatoryRaw > rrspMandatory;
+      const startBalances: RetirementBalances = { ...balances };
+
+      // Mandatory: LIF minimum (if we force LIF in retirement).
+      const { minF: lifMinF } = lifMinMaxFactors(ageShingo);
+      const lifMinRequired = vars.withdrawals.forceLifFromRetirement ? balances.lira * lifMinF : 0;
+      const lifMaxAllowed = balances.lira * lifMaxFactor(ageShingo, vars.withdrawals.lifMode);
+
+      if (lifMinRequired > 0 && balances.lira > 0) {
+        const r = withdrawFrom(lifMinRequired, balances.lira, lifMaxAllowed);
+        withdrawals.lira += r.withdrawn;
+        balances.lira = r.newBalance;
       }
-    }
 
-    if (rrspMandatory > 0 && balances.rrsp > 0) {
-      // In depletion year, force full depletion regardless of caps.
-      const cap = isDepletionYear ? 0 : vars.withdrawals.caps.rrsp;
-      const r = withdrawFrom(rrspMandatory, balances.rrsp, cap);
-      withdrawals.rrsp += r.withdrawn;
-      balances.rrsp = r.newBalance;
-    }
+      const extraThisYear = Math.max(0, extraPlan[year] ?? 0);
 
-    // --- Iterative solver: top up withdrawals to hit AFTER-TAX spending target.
+      // Guardrail: OAS clawback ceiling (used to cap taxable drawdowns when enabled)
+      const oasClawbackThreshold = getOasClawbackThreshold(year);
+      const taxableIncomeCeiling = vars.withdrawals.avoidOasClawback ? Math.max(0, oasClawbackThreshold - 1000) : Infinity;
 
-    let taxableIncomeShingo = 0;
-    let taxableIncomeSarah = 0;
-    let oasClawbackShingo = 0;
-    let oasClawbackSarah = 0;
-    let tax = 0;
-    let afterTaxCashAvailable = 0;
+      // RRIF min starts at 71; otherwise 0. We treat household RRSP as RRIF-like for min-factor purposes.
+      const rrifMinRequired =
+        ageShingo >= 71
+          ? balances.rrsp * rrifMinFactor(ageShingo) * Math.max(0, vars.withdrawals.rrifMinMultiplier)
+          : 0;
 
-    const computeTax = () => {
-      const pensionShingo = nominalFromRealBase({
-        amountReal: DEFAULT_ANCHORS.pensionShingo,
-        annualIndexRate: indexRate,
-        yearsFromBaseline,
-      });
-      const pensionSarah = nominalFromRealBase({
-        amountReal: DEFAULT_ANCHORS.pensionSarah,
-        annualIndexRate: indexRate,
-        yearsFromBaseline,
-      });
+      // Mandatory RRSP/RRIF withdrawal is capped by the taxable-income ceiling when avoid-clawback is enabled.
+      // NOTE: in the depletion year we force full depletion regardless of ceilings.
+      const inOasYearsForCeiling = ageShingo >= vars.oasStartAge || ageSarah >= vars.oasStartAge;
+      const applyCeiling = vars.withdrawals.avoidOasClawback && inOasYearsForCeiling;
 
-      const cppShingo = ageShingo >= vars.cppStartAge
-        ? nominalFromRealBase({ amountReal: vars.withdrawals.cppShingoAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-        : 0;
-      const cppSarah = ageSarah >= vars.cppStartAge
-        ? nominalFromRealBase({ amountReal: vars.withdrawals.cppSarahAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-        : 0;
-      const oasShingo = ageShingo >= vars.oasStartAge
-        ? nominalFromRealBase({ amountReal: vars.withdrawals.oasShingoAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-        : 0;
-      const oasSarah = ageSarah >= vars.oasStartAge
-        ? nominalFromRealBase({ amountReal: vars.withdrawals.oasSarahAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-        : 0;
+      let ceilingBinding = false;
 
-      const res = computeHouseholdTax({
-        taxYear: year,
-        spouseA: {
-          name: "Shingo",
-          age: ageShingo,
-          incomes: {
-            employment: 0,
-            pensionDb: pensionShingo,
-            rrspWithdrawal: withdrawals.fhsa * 0.5, // FHSA treated as RRSP-like taxable
-            rrifWithdrawal: withdrawals.rrsp * 0.5,
-            lifWithdrawal: withdrawals.lira,
-            cpp: cppShingo,
-            oas: oasShingo,
-            tfsaWithdrawal: withdrawals.tfsa * 0.5,
+      // Mandatory RRSP/RRIF withdrawal:
+      // - RRIF minimum in most years
+      // - HARD force full depletion in the depletion year
+      const isDepletionYear = ageShingo >= vars.withdrawals.rrifDepleteByAge;
+
+      const rrspMandatoryRaw = isDepletionYear ? balances.rrsp : rrifMinRequired;
+      let rrspMandatory = rrspMandatoryRaw;
+
+      if (!isDepletionYear && applyCeiling && Number.isFinite(taxableIncomeCeiling) && rrspMandatory > 0) {
+        // Estimate current taxable income BEFORE adding any RRSP/RRIF withdrawal.
+        // (Uses v2 tax engine + splitting optimizer; planning approximation.)
+        const pensionShingo0 = nominalFromRealBase({
+          amountReal: DEFAULT_ANCHORS.pensionShingo,
+          annualIndexRate: indexRate,
+          yearsFromBaseline,
+        });
+        const pensionSarah0 = nominalFromRealBase({
+          amountReal: DEFAULT_ANCHORS.pensionSarah,
+          annualIndexRate: indexRate,
+          yearsFromBaseline,
+        });
+
+        const cppShingo0 = ageShingo >= vars.cppStartAge
+          ? nominalFromRealBase({ amountReal: vars.withdrawals.cppShingoAnnual, annualIndexRate: indexRate, yearsFromBaseline })
+          : 0;
+        const cppSarah0 = ageSarah >= vars.cppStartAge
+          ? nominalFromRealBase({ amountReal: vars.withdrawals.cppSarahAnnual, annualIndexRate: indexRate, yearsFromBaseline })
+          : 0;
+        const oasShingo0 = ageShingo >= vars.oasStartAge
+          ? nominalFromRealBase({ amountReal: vars.withdrawals.oasShingoAnnual, annualIndexRate: indexRate, yearsFromBaseline })
+          : 0;
+        const oasSarah0 = ageSarah >= vars.oasStartAge
+          ? nominalFromRealBase({ amountReal: vars.withdrawals.oasSarahAnnual, annualIndexRate: indexRate, yearsFromBaseline })
+          : 0;
+
+        const baseTax = computeHouseholdTax({
+          taxYear: year,
+          spouseA: {
+            name: "Shingo",
+            age: ageShingo,
+            incomes: {
+              employment: 0,
+              pensionDb: pensionShingo0,
+              rrspWithdrawal: 0,
+              rrifWithdrawal: 0,
+              lifWithdrawal: withdrawals.lira,
+              cpp: cppShingo0,
+              oas: oasShingo0,
+              tfsaWithdrawal: 0,
+            },
           },
-        },
-        spouseB: {
-          name: "Sarah",
-          age: ageSarah,
-          incomes: {
-            employment: 0,
-            pensionDb: pensionSarah,
-            rrspWithdrawal: withdrawals.fhsa * 0.5,
-            rrifWithdrawal: withdrawals.rrsp * 0.5,
-            lifWithdrawal: 0,
-            cpp: cppSarah,
-            oas: oasSarah,
-            tfsaWithdrawal: withdrawals.tfsa * 0.5,
+          spouseB: {
+            name: "Sarah",
+            age: ageSarah,
+            incomes: {
+              employment: 0,
+              pensionDb: pensionSarah0,
+              rrspWithdrawal: 0,
+              rrifWithdrawal: 0,
+              lifWithdrawal: 0,
+              cpp: cppSarah0,
+              oas: oasSarah0,
+              tfsaWithdrawal: 0,
+            },
           },
-        },
-        credits: {
-          useBpa: vars.tax.useBpa,
-          useAgeAmount: vars.tax.useAgeAmount,
-          usePensionCredit: vars.tax.usePensionCredit,
-        },
-        pensionSplitting: {
-          enabled: vars.tax.enablePensionSplitting,
-          optimize: true,
-          step: 500,
-        },
-      });
+          credits: {
+            useBpa: vars.tax.useBpa,
+            useAgeAmount: vars.tax.useAgeAmount,
+            usePensionCredit: vars.tax.usePensionCredit,
+          },
+          pensionSplitting: {
+            enabled: vars.tax.enablePensionSplitting,
+            optimize: true,
+            step: 500,
+          },
+        });
 
-      taxableIncomeShingo = res.spouseA.taxableIncome;
-      taxableIncomeSarah = res.spouseB.taxableIncome;
-      oasClawbackShingo = res.spouseA.oasClawback;
-      oasClawbackSarah = res.spouseB.oasClawback;
-      tax = res.household.totalTax;
+        const headroomShingo = Math.max(0, taxableIncomeCeiling - baseTax.spouseA.taxableIncome);
+        const headroomSarah = Math.max(0, taxableIncomeCeiling - baseTax.spouseB.taxableIncome);
+        // RRSP/RRIF treated as split 50/50 in this model.
+        const rrspCeilingCap = 2 * Math.min(headroomShingo, headroomSarah);
 
-      const cashIn = guaranteedIncome + benefitsIncome + sumWithdrawals(withdrawals);
-      afterTaxCashAvailable = cashIn - tax;
+        if (rrspCeilingCap <= 0) {
+          // Still respect the RRIF minimum (if applicable), even if it triggers clawback.
+          rrspMandatory = rrifMinRequired;
+          ceilingBinding = rrspMandatoryRaw > rrspMandatory;
+        } else if (rrspMandatory > rrspCeilingCap) {
+          // Cap to ceiling, but never below RRIF minimum.
+          rrspMandatory = Math.max(rrifMinRequired, rrspCeilingCap);
+          ceilingBinding = rrspMandatoryRaw > rrspMandatory;
+        }
+      }
 
-      return res;
-    };
+      if (rrspMandatory > 0 && balances.rrsp > 0) {
+        // In depletion year, force full depletion regardless of caps.
+        const cap = isDepletionYear ? 0 : Math.max(0, vars.withdrawals.caps.rrsp - withdrawals.rrsp);
+        const r = withdrawFrom(rrspMandatory, balances.rrsp, cap);
+        withdrawals.rrsp += r.withdrawn;
+        balances.rrsp = r.newBalance;
+      }
 
-    // seed
-    let lastTaxRes = computeTax();
+      // --- Iterative solver: top up withdrawals to hit AFTER-TAX spending target.
+      // TFSA and non-registered are NEVER used to cover spending gaps in this model.
 
-    const maxIter = 12;
-    let iterations = 0;
+      let taxableIncomeShingo = 0;
+      let taxableIncomeSarah = 0;
+      let oasClawbackShingo = 0;
+      let oasClawbackSarah = 0;
+      let tax = 0;
+      let afterTaxCashAvailable = 0;
 
-    for (let iter = 0; iter < maxIter; iter++) {
-      iterations = iter + 1;
-      lastTaxRes = computeTax();
+      const computeTax = () => {
+        const pensionShingo = nominalFromRealBase({
+          amountReal: DEFAULT_ANCHORS.pensionShingo,
+          annualIndexRate: indexRate,
+          yearsFromBaseline,
+        });
+        const pensionSarah = nominalFromRealBase({
+          amountReal: DEFAULT_ANCHORS.pensionSarah,
+          annualIndexRate: indexRate,
+          yearsFromBaseline,
+        });
 
-      const shortfall = clampToZero(targetAfterTaxNominal - afterTaxCashAvailable);
-      if (shortfall <= 1) break;
+        const cppShingo = ageShingo >= vars.cppStartAge
+          ? nominalFromRealBase({ amountReal: vars.withdrawals.cppShingoAnnual, annualIndexRate: indexRate, yearsFromBaseline })
+          : 0;
+        const cppSarah = ageSarah >= vars.cppStartAge
+          ? nominalFromRealBase({ amountReal: vars.withdrawals.cppSarahAnnual, annualIndexRate: indexRate, yearsFromBaseline })
+          : 0;
+        const oasShingo = ageShingo >= vars.oasStartAge
+          ? nominalFromRealBase({ amountReal: vars.withdrawals.oasShingoAnnual, annualIndexRate: indexRate, yearsFromBaseline })
+          : 0;
+        const oasSarah = ageSarah >= vars.oasStartAge
+          ? nominalFromRealBase({ amountReal: vars.withdrawals.oasSarahAnnual, annualIndexRate: indexRate, yearsFromBaseline })
+          : 0;
 
-      // Determine taxable headroom (approx) for guardrails.
-      const inOasYears = ageShingo >= vars.oasStartAge || ageSarah >= vars.oasStartAge;
-      const applyCeiling = vars.withdrawals.avoidOasClawback && inOasYears;
+        const res = computeHouseholdTax({
+          taxYear: year,
+          spouseA: {
+            name: "Shingo",
+            age: ageShingo,
+            incomes: {
+              employment: 0,
+              pensionDb: pensionShingo,
+              rrspWithdrawal: withdrawals.fhsa * 0.5, // FHSA treated as RRSP-like taxable
+              rrifWithdrawal: withdrawals.rrsp * 0.5,
+              lifWithdrawal: withdrawals.lira,
+              cpp: cppShingo,
+              oas: oasShingo,
+              tfsaWithdrawal: 0,
+            },
+          },
+          spouseB: {
+            name: "Sarah",
+            age: ageSarah,
+            incomes: {
+              employment: 0,
+              pensionDb: pensionSarah,
+              rrspWithdrawal: withdrawals.fhsa * 0.5,
+              rrifWithdrawal: withdrawals.rrsp * 0.5,
+              lifWithdrawal: 0,
+              cpp: cppSarah,
+              oas: oasSarah,
+              tfsaWithdrawal: 0,
+            },
+          },
+          credits: {
+            useBpa: vars.tax.useBpa,
+            useAgeAmount: vars.tax.useAgeAmount,
+            usePensionCredit: vars.tax.usePensionCredit,
+          },
+          pensionSplitting: {
+            enabled: vars.tax.enablePensionSplitting,
+            optimize: true,
+            step: 500,
+          },
+        });
 
-      const headroomShingo = applyCeiling ? Math.max(0, taxableIncomeCeiling - taxableIncomeShingo) : Infinity;
-      const headroomSarah = applyCeiling ? Math.max(0, taxableIncomeCeiling - taxableIncomeSarah) : Infinity;
+        taxableIncomeShingo = res.spouseA.taxableIncome;
+        taxableIncomeSarah = res.spouseB.taxableIncome;
+        oasClawbackShingo = res.spouseA.oasClawback;
+        oasClawbackSarah = res.spouseB.oasClawback;
+        tax = res.household.totalTax;
 
-      const headroomHousehold = applyCeiling
-        ? (vars.tax.enablePensionSplitting ? 2 * Math.min(headroomShingo, headroomSarah) : Math.min(headroomShingo, headroomSarah) * 2)
-        : Infinity;
+        const cashIn = guaranteedIncome + benefitsIncome + sumWithdrawals(withdrawals);
+        afterTaxCashAvailable = cashIn - tax;
 
-      const avgTaxRate = lastTaxRes.household.taxableIncome > 0 ? lastTaxRes.household.totalTax / lastTaxRes.household.taxableIncome : 0;
-      const grossUpTaxable = 1 / Math.max(0.5, 1 - Math.min(0.45, Math.max(0, avgTaxRate)));
+        return res;
+      };
 
-      // Try to satisfy shortfall using the configured order.
-      // Requirement: cover any remaining spending gap using RRIF/RRSP first.
-      // We do a single pass each iteration with a mild gross-up.
-      let needGross = shortfall;
+      // seed
+      let lastTaxRes = computeTax();
 
-      const orderForGap = [
-        "rrsp" as const,
-        ...vars.withdrawals.order.filter((o) => o !== "rrsp"),
-      ];
+      const maxIter = 12;
+      let iterations = 0;
 
-      // If ceiling is binding, prefer non-taxable sources.
-      const avoidTaxableNow = applyCeiling && headroomHousehold < 1000;
-      if (avoidTaxableNow) ceilingBinding = true;
+      for (let iter = 0; iter < maxIter; iter++) {
+        iterations = iter + 1;
+        lastTaxRes = computeTax();
 
-      // First attempt: fill with potentially taxable sources but respecting headroom.
-      const needForOrder = avoidTaxableNow ? needGross : needGross * grossUpTaxable;
+        const shortfall = clampToZero(targetAfterTaxNominal - afterTaxCashAvailable);
+        if (shortfall <= 1) break;
 
-      const remaining = applyWithdrawalOrder({
-        need: needForOrder,
-        order: orderForGap,
-        allowTfsa: vars.withdrawals.allowTfsa,
-        balances,
-        withdrawals,
-        caps: vars.withdrawals.caps,
-        ageShingo,
-        lifMode: vars.withdrawals.lifMode,
-        taxableHeadroom: {
-          shingo: headroomShingo,
-          sarah: headroomSarah,
-          household: headroomHousehold,
-        },
-        avoidTaxable: avoidTaxableNow,
-      });
+        // Determine taxable headroom (approx) for guardrails.
+        const inOasYears = ageShingo >= vars.oasStartAge || ageSarah >= vars.oasStartAge;
+        const applyCeiling2 = vars.withdrawals.avoidOasClawback && inOasYears;
 
-      // If we still have remaining need and we were respecting the ceiling, force non-taxable sources.
-      if (remaining > 1 && !avoidTaxableNow) {
-        const remaining2 = applyWithdrawalOrder({
-          need: remaining,
-          order: ["tfsa", "nonRegistered"],
-          allowTfsa: vars.withdrawals.allowTfsa,
+        const headroomShingo = applyCeiling2 ? Math.max(0, taxableIncomeCeiling - taxableIncomeShingo) : Infinity;
+        const headroomSarah = applyCeiling2 ? Math.max(0, taxableIncomeCeiling - taxableIncomeSarah) : Infinity;
+
+        const headroomHousehold = applyCeiling2
+          ? (vars.tax.enablePensionSplitting ? 2 * Math.min(headroomShingo, headroomSarah) : Math.min(headroomShingo, headroomSarah) * 2)
+          : Infinity;
+
+        const avgTaxRate = lastTaxRes.household.taxableIncome > 0 ? lastTaxRes.household.totalTax / lastTaxRes.household.taxableIncome : 0;
+        const grossUpTaxable = 1 / Math.max(0.5, 1 - Math.min(0.45, Math.max(0, avgTaxRate)));
+
+        // Requirement: cover any remaining spending gap using RRIF/RRSP first.
+        const orderForGap = [
+          "rrsp" as const,
+          ...vars.withdrawals.order.filter((o) => o !== "rrsp" && o !== "tfsa" && o !== "nonRegistered"),
+        ];
+
+        // If ceiling is binding, prefer non-taxable sources (but we have none in this model), so just mark it.
+        const avoidTaxableNow = applyCeiling2 && headroomHousehold < 1000;
+        if (avoidTaxableNow) ceilingBinding = true;
+
+        const needForOrder = shortfall * grossUpTaxable;
+
+        const remaining = applyWithdrawalOrder({
+          need: needForOrder,
+          order: orderForGap,
+          allowTfsa: false,
           balances,
           withdrawals,
           caps: vars.withdrawals.caps,
           ageShingo,
           lifMode: vars.withdrawals.lifMode,
           taxableHeadroom: {
-            shingo: Infinity,
-            sarah: Infinity,
-            household: Infinity,
+            shingo: headroomShingo,
+            sarah: headroomSarah,
+            household: headroomHousehold,
           },
           avoidTaxable: false,
         });
 
-        if (remaining2 > 1) {
+        if (remaining > 1) {
           // infeasible: out of cash
           break;
         }
       }
+
+      // final tax compute (spending-gap solution)
+      computeTax();
+
+      // Extra RRIF overlay (global plan): withdraw additional RRIF AFTER the spending gap is covered,
+      // and invest the resulting after-tax surplus (TFSA first, then NonReg).
+      if (extraThisYear > 0 && balances.rrsp > 0) {
+        const remainingCap = Math.max(0, vars.withdrawals.caps.rrsp - withdrawals.rrsp);
+        if (remainingCap > 0) {
+          const r = withdrawFrom(extraThisYear, balances.rrsp, remainingCap);
+          withdrawals.rrsp += r.withdrawn;
+          balances.rrsp = r.newBalance;
+          computeTax();
+        }
+      }
+
+      const surplusAfterTax = clampToZero(afterTaxCashAvailable - targetAfterTaxNominal);
+      const shortfallAfterTax = clampToZero(targetAfterTaxNominal - afterTaxCashAvailable);
+
+      // Surplus routing (after-tax definition)
+      const toTfsa = Math.min(surplusAfterTax, tfsaRoom);
+      const toNonReg = surplusAfterTax - toTfsa;
+      balances.tfsa += toTfsa;
+      balances.nonRegistered += toNonReg;
+      tfsaRoom -= toTfsa;
+
+      // Apply growth at year-end
+      balances = {
+        fhsa: balances.fhsa * (1 + vars.expectedNominalReturn),
+        rrsp: balances.rrsp * (1 + vars.expectedNominalReturn),
+        tfsa: balances.tfsa * (1 + vars.expectedNominalReturn),
+        lira: balances.lira * (1 + vars.expectedNominalReturn),
+        nonRegistered: balances.nonRegistered * (1 + vars.expectedNominalReturn),
+      };
+
+      rows.push({
+        year,
+        ageShingo,
+        ageSarah,
+        phase,
+        targetAfterTaxSpending: targetAfterTaxNominal,
+        guaranteedIncome,
+        benefitsIncome,
+        withdrawals: { ...withdrawals },
+        surplusInvestedToTfsa: toTfsa,
+        surplusInvestedToNonReg: toNonReg,
+        endBalances: { ...balances },
+        debug: {
+          targetAfterTaxNominal,
+          targetAfterTaxReal,
+          taxableIncomeShingo,
+          taxableIncomeSarah,
+          tax,
+          oasClawbackShingo,
+          oasClawbackSarah,
+          oasClawbackThreshold,
+          taxableIncomeCeiling,
+          ceilingBinding,
+          lifMinRequired,
+          lifMaxAllowed,
+          lifMode: vars.withdrawals.lifMode,
+          rrifMinRequired,
+          rrifGlideTarget: 0,
+          iterations,
+          afterTaxCashAvailable,
+          surplusAfterTax,
+          shortfallAfterTax,
+          startBalances,
+          extraRrifPlanned: extraThisYear,
+        } as any,
+      });
     }
 
-    // final tax compute
-    computeTax();
+    return rows;
+  };
 
-    const surplusAfterTax = clampToZero(afterTaxCashAvailable - targetAfterTaxNominal);
-    const shortfallAfterTax = clampToZero(targetAfterTaxNominal - afterTaxCashAvailable);
+  // Pass 1: cover spending gaps (RRIF-first), with hard depletion-year withdrawal.
+  const pass1 = simulate({});
 
-    // Surplus routing (after-tax definition)
-    const toTfsa = Math.min(surplusAfterTax, tfsaRoom);
-    const toNonReg = surplusAfterTax - toTfsa;
-    balances.tfsa += toTfsa;
-    balances.nonRegistered += toNonReg;
-    tfsaRoom -= toTfsa;
+  // Compute the "forced" RRIF amount that would otherwise be withdrawn in the depletion year,
+  // then distribute it across prior years using the aggressiveness (front-load) setting.
+  const depletionRow = pass1.find((r) => r.ageShingo >= vars.withdrawals.rrifDepleteByAge);
+  if (!depletionRow) return pass1;
 
-    // Apply growth at year-end
-    balances = {
-      fhsa: balances.fhsa * (1 + vars.expectedNominalReturn),
-      rrsp: balances.rrsp * (1 + vars.expectedNominalReturn),
-      tfsa: balances.tfsa * (1 + vars.expectedNominalReturn),
-      lira: balances.lira * (1 + vars.expectedNominalReturn),
-      nonRegistered: balances.nonRegistered * (1 + vars.expectedNominalReturn),
-    };
+  const depletionYear = depletionRow.year;
+  const startRrspAtDepletion = (depletionRow as any).debug?.startBalances?.rrsp ?? 0;
 
-    rows.push({
-      year,
-      ageShingo,
-      ageSarah,
-      phase,
-      targetAfterTaxSpending: targetAfterTaxNominal,
-      guaranteedIncome,
-      benefitsIncome,
-      withdrawals: { ...withdrawals },
-      surplusInvestedToTfsa: toTfsa,
-      surplusInvestedToNonReg: toNonReg,
-      endBalances: { ...balances },
-      debug: {
-        targetAfterTaxNominal,
-        targetAfterTaxReal,
-        taxableIncomeShingo,
-        taxableIncomeSarah,
-        tax,
-        oasClawbackShingo,
-        oasClawbackSarah,
-        oasClawbackThreshold,
-        taxableIncomeCeiling,
-        ceilingBinding,
-        lifMinRequired,
-        lifMaxAllowed,
-        lifMode: vars.withdrawals.lifMode,
-        rrifMinRequired,
-        rrifGlideTarget,
-        iterations,
-        afterTaxCashAvailable,
-        surplusAfterTax,
-        shortfallAfterTax,
-      },
-    });
+  const extraPlan: ExtraPlan = {};
+
+  const years = pass1
+    .filter((r) => r.year < depletionYear)
+    .map((r) => r.year);
+
+  if (startRrspAtDepletion > 1 && years.length > 0) {
+    const alpha = Math.max(0, Math.min(1, vars.withdrawals.rrifFrontLoad)) * 0.35;
+    const weights = years.map((_, idx) => Math.exp(-alpha * idx));
+    const wSum = weights.reduce((a, b) => a + b, 0);
+
+    for (let idx = 0; idx < years.length; idx++) {
+      const y = years[idx];
+      const w = weights[idx] / wSum;
+
+      // The "remainder" is valued at the depletion-year start. Convert that to an equivalent withdrawal in year y.
+      const factor = Math.pow(1 + vars.expectedNominalReturn, Math.max(0, depletionYear - y));
+      const desiredAtDepletionValue = startRrspAtDepletion * w;
+      const withdrawInYearY = desiredAtDepletionValue / Math.max(1, factor);
+
+      extraPlan[y] = withdrawInYearY;
+    }
   }
 
-  return rows;
+  // Pass 2: re-simulate with extra RRIF overlay (surplus invested to TFSA then NonReg).
+  // If the extra overlay causes future spending shortfalls (because the RRSP is needed later), scale it back.
+  let best = simulate({});
+  let scale = 1;
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const scaledPlan: ExtraPlan = {};
+    for (const [k, v] of Object.entries(extraPlan)) scaledPlan[Number(k)] = v * scale;
+
+    const cand = simulate(scaledPlan);
+
+    const maxShortfall = Math.max(
+      ...cand.map((r) => (r as any).debug?.shortfallAfterTax ?? 0),
+      0,
+    );
+
+    best = cand;
+
+    if (maxShortfall <= 1.01) {
+      break;
+    }
+
+    scale *= 0.7;
+    if (scale < 0.01) break;
+  }
+
+  return best;
 }
