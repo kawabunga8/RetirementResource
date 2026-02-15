@@ -699,7 +699,8 @@ export function buildWithdrawalSchedule(params: {
     // at the start of the depletion year.
 
     const f = Math.max(0, Math.min(1, vars.withdrawals.rrifFrontLoad));
-    const ratio = 1 + 4 * f; // 1..5 (higher = more front-loaded)
+    // Keep front-load gentle. f=0 => even. f=1 => modest front-load.
+    const ratio = 1 + 1.0 * f; // 1..2
 
     // weights indexed by year order (0 = earliest). For front-load, give earlier years larger weights.
     const rawWeights = years.map((_, idx) => (ratio === 1 ? 1 : Math.pow(ratio, years.length - 1 - idx)));

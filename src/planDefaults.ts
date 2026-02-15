@@ -285,7 +285,7 @@ export const DEFAULT_VARIABLES: Variables = {
     // Default: don’t draw FHSA first (it can be rolled into RRSP)
     order: ["rrsp", "lira", "nonRegistered", "tfsa", "fhsa"],
     avoidOasClawback: true,
-    rrifFrontLoad: 0.6,
+    rrifFrontLoad: 0,
     rrifMinMultiplier: 1,
     rollFhsaIntoRrspAtRetirement: true,
 
