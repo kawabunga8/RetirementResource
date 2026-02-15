@@ -262,8 +262,17 @@ export function buildWithdrawalSchedule(params: {
     for (let i = 0; i < yearsInPlan; i++) {
       const year = params.retirementYear + i;
 
-      // Force FHSA rollover after 15 years from Shingo's FHSA start (planning rule).
-      // If user already rolled FHSA at retirement, balances.fhsa will already be 0.
+      // FHSA rollover rules:
+      // - If toggle is ON: roll FHSA into RRSP at retirement year.
+      // - If toggle is OFF: keep FHSA separate, but force rollover after 15 years from Shingo FHSA start.
+      if (vars.withdrawals.rollFhsaIntoRrspAtRetirement && year === params.retirementYear && balances.fhsa > 0) {
+        balances = {
+          ...balances,
+          rrsp: balances.rrsp + balances.fhsa,
+          fhsa: 0,
+        };
+      }
+
       if (!vars.withdrawals.rollFhsaIntoRrspAtRetirement && year >= FHSA_SHINGO_FORCE_ROLL_YEAR && balances.fhsa > 0) {
         balances = {
           ...balances,

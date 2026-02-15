@@ -496,14 +496,8 @@ export default function App() {
       nonRegistered: nonRegisteredAtRetirement,
     };
 
-    // Optional: roll FHSA into RRSP at retirement (common if not used for a home purchase).
-    if (vars.withdrawals.rollFhsaIntoRrspAtRetirement) {
-      retirementBalances = {
-        ...retirementBalances,
-        rrsp: retirementBalances.rrsp + retirementBalances.fhsa,
-        fhsa: 0,
-      };
-    }
+    // Note: FHSA rollover behavior is handled in the withdrawal engine.
+    // We keep FHSA separate here so the overview + accumulation outputs always show FHSA explicitly.
 
     const totalNominalAtRetirement =
       retirementBalances.fhsa +
