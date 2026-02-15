@@ -228,7 +228,7 @@ export const DEFAULT_ANCHORS: Anchors = {
 
 export const DEFAULT_VARIABLES: Variables = {
   dollarsMode: "nominal",
-  cpiMultiplier: 0.7,
+  cpiMultiplier: 1,
 
   // As-of baseline snapshot (Jan 2026)
   tfsaRoomShingo: 102339,
