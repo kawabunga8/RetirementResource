@@ -81,3 +81,40 @@ export function pickTaxTables(taxYear: number): TaxYearTables {
   const eligible = sorted.filter((t) => t.year <= taxYear);
   return (eligible.length ? eligible[eligible.length - 1] : sorted[0])!;
 }
+
+function indexThreshold(threshold: number, fromYear: number, toYear: number, annualInflation: number) {
+  if (!Number.isFinite(threshold) || threshold === Infinity) return threshold;
+  const years = Math.max(0, toYear - fromYear);
+  const growth = Math.pow(1 + Math.max(0, annualInflation), years);
+  return threshold * growth;
+}
+
+/**
+ * Return brackets for any year.
+ *
+ * If we don't have exact tables for taxYear, we inflate the nearest base-year thresholds using annualInflation.
+ * Rates are assumed constant (planning approximation).
+ */
+export function getBracketTableForYear(params: {
+  taxYear: number;
+  annualInflation: number;
+}) {
+  const base = pickTaxTables(params.taxYear);
+
+  const inflate = (brackets: Bracket[]) =>
+    brackets.map((b) => ({
+      upTo: indexThreshold(b.upTo, base.year, params.taxYear, params.annualInflation),
+      rate: b.rate,
+    }));
+
+  return {
+    baseYear: base.year,
+    taxYear: params.taxYear,
+    federal: {
+      brackets: inflate(base.federal.brackets),
+    },
+    bc: {
+      brackets: inflate(base.bc.brackets),
+    },
+  };
+}
