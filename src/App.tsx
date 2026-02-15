@@ -409,6 +409,8 @@ export default function App() {
   const [vars, setVars] = useState<Variables>(DEFAULT_VARIABLES);
   const [page, setPage] = useState<"overview" | "current" | "tax" | "taxBrackets" | "withdrawals">("overview");
   const [showFullSchedule, setShowFullSchedule] = useState(false);
+  const [suggestedRrifDepleteByAge, setSuggestedRrifDepleteByAge] = useState<number | null>(null);
+  const [suggestedRrifInfo, setSuggestedRrifInfo] = useState<string>("");
 
   const [bracketsPerson, setBracketsPerson] = useState<"Shingo" | "Sarah">("Shingo");
   const [bracketsUseTestIncome, setBracketsUseTestIncome] = useState(false);
@@ -2473,20 +2475,93 @@ return {
             </Field>
 
             <Field label="Target RRIF depletion age">
-              <input
-                className="ageInput"
-                type="number"
-                value={vars.withdrawals.rrifDepleteByAge}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    withdrawals: {
-                      ...v.withdrawals,
-                      rrifDepleteByAge: num(e.target.value),
-                    },
-                  }))
-                }
-              />
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <input
+                  className="ageInput"
+                  type="number"
+                  value={vars.withdrawals.rrifDepleteByAge}
+                  onChange={(e) =>
+                    setVars((v) => ({
+                      ...v,
+                      withdrawals: {
+                        ...v.withdrawals,
+                        rrifDepleteByAge: num(e.target.value),
+                      },
+                    }))
+                  }
+                />
+
+                <button
+                  className="btnSmall"
+                  type="button"
+                  onClick={() => {
+                    // Age-based search; objective: minimize total OAS clawback, tie-breaker: minimize total tax.
+                    const minAge = Math.max(71, Math.min(95, Math.floor(vars.withdrawals.rrifDepleteByAge - 10)));
+                    const maxAge = Math.max(minAge, Math.min(95, Math.floor(vars.withdrawals.rrifDepleteByAge + 10)));
+
+                    let bestAge = vars.withdrawals.rrifDepleteByAge;
+                    let bestClaw = Number.POSITIVE_INFINITY;
+                    let bestTax = Number.POSITIVE_INFINITY;
+
+                    for (let age = minAge; age <= maxAge; age++) {
+                      const testVars: Variables = {
+                        ...vars,
+                        withdrawals: {
+                          ...vars.withdrawals,
+                          rrifDepleteByAge: age,
+                        },
+                      };
+
+                      const sched = buildWithdrawalSchedule({
+                        vars: testVars,
+                        retirementYear: testVars.retirementYear,
+                        retirementBalances: model.retirementBalances,
+                      });
+
+                      const totalClaw = sched.reduce((sum, r) => sum + (r.debug.oasClawbackShingo + r.debug.oasClawbackSarah), 0);
+                      const totalTax = sched.reduce((sum, r) => sum + r.debug.tax, 0);
+
+                      if (
+                        totalClaw < bestClaw - 1e-6 ||
+                        (Math.abs(totalClaw - bestClaw) <= 1e-6 && totalTax < bestTax - 1e-6)
+                      ) {
+                        bestAge = age;
+                        bestClaw = totalClaw;
+                        bestTax = totalTax;
+                      }
+                    }
+
+                    setSuggestedRrifDepleteByAge(bestAge);
+                    setSuggestedRrifInfo(
+                      `Suggest ${bestAge} (total clawback $${money(bestClaw)}, total tax $${money(bestTax)}; search ${minAge}–${maxAge}).`
+                    );
+                  }}
+                >
+                  Suggest
+                </button>
+
+                {suggestedRrifDepleteByAge != null && suggestedRrifDepleteByAge !== vars.withdrawals.rrifDepleteByAge ? (
+                  <button
+                    className="btnSmall"
+                    type="button"
+                    onClick={() =>
+                      setVars((v) => ({
+                        ...v,
+                        withdrawals: {
+                          ...v.withdrawals,
+                          rrifDepleteByAge: suggestedRrifDepleteByAge,
+                        },
+                      }))
+                    }
+                  >
+                    Apply
+                  </button>
+                ) : null}
+              </div>
+
+              {suggestedRrifInfo ? (
+                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>{suggestedRrifInfo}</div>
+              ) : null}
             </Field>
 
             <Field label="RRIF front-load (0–1)
