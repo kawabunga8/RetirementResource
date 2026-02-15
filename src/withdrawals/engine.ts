@@ -310,13 +310,21 @@ export function buildWithdrawalSchedule(params: {
 
       const startBalances: RetirementBalances = { ...balances };
 
-      // Mandatory: LIF minimum (if we force LIF in retirement).
+      // LIF withdrawal policy.
+      // When forceLifFromRetirement is enabled, we treat lifMode (min/mid/max) as the planned annual withdrawal factor.
+      // (This makes the min/mid/max selection actually change the LIF remaining balance over time.)
       const { minF: lifMinF } = lifMinMaxFactors(ageShingo);
       const lifMinRequired = vars.withdrawals.forceLifFromRetirement ? balances.lira * lifMinF : 0;
       const lifMaxAllowed = balances.lira * lifMaxFactor(ageShingo, vars.withdrawals.lifMode);
 
-      if (lifMinRequired > 0 && balances.lira > 0) {
-        const r = withdrawFrom(lifMinRequired, balances.lira, lifMaxAllowed);
+      const lifPlanned = vars.withdrawals.forceLifFromRetirement ? lifMaxAllowed : 0;
+
+      const lifTarget = Math.max(lifMinRequired, lifPlanned);
+
+      if (lifTarget > 0 && balances.lira > 0) {
+        // caps.lira = 0 means "no cap".
+        const cap = vars.withdrawals.caps.lira > 0 ? vars.withdrawals.caps.lira : 0;
+        const r = withdrawFrom(lifTarget, balances.lira, cap);
         withdrawals.lira += r.withdrawn;
         balances.lira = r.newBalance;
       }
