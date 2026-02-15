@@ -342,7 +342,10 @@ export function buildWithdrawalSchedule(params: {
     const taxableIncomeCeiling = vars.withdrawals.avoidOasClawback ? Math.max(0, oasClawbackThreshold - 1000) : Infinity;
 
     // RRIF min starts at 71; otherwise 0. We treat household RRSP as RRIF-like for min-factor purposes.
-    const rrifMinRequired = ageShingo >= 71 ? balances.rrsp * rrifMinFactor(ageShingo) : 0;
+    const rrifMinRequired =
+      ageShingo >= 71
+        ? balances.rrsp * rrifMinFactor(ageShingo) * Math.max(0, vars.withdrawals.rrifMinMultiplier)
+        : 0;
     const rrifGlideTarget = rrifGlideAmount({
       balance: balances.rrsp,
       age: ageShingo,

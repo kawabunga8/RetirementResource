@@ -75,6 +75,10 @@ export type WithdrawalPlan = {
   // 0 = even amortization, 1 = strongly front-loaded
   rrifFrontLoad: number;
 
+  // Multiplier applied to the RRIF minimum withdrawal rate table.
+  // 1 = CRA minimums, 0.5 = half-min (planning), 2 = double-min.
+  rrifMinMultiplier: number;
+
   // Retirement handling
   rollFhsaIntoRrspAtRetirement: boolean;
 
@@ -282,6 +286,7 @@ export const DEFAULT_VARIABLES: Variables = {
     order: ["rrsp", "lira", "nonRegistered", "tfsa", "fhsa"],
     avoidOasClawback: true,
     rrifFrontLoad: 0.6,
+    rrifMinMultiplier: 1,
     rollFhsaIntoRrspAtRetirement: true,
 
     // Default: projected household TFSA room at retirement.

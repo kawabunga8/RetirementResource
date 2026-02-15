@@ -2510,6 +2510,25 @@ return {
               />
             </Field>
 
+            <Field label="RRIF min rate multiplier">
+              <input
+                className="compactNumber"
+                type="number"
+                step="0.1"
+                min={0}
+                value={vars.withdrawals.rrifMinMultiplier}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: {
+                      ...v.withdrawals,
+                      rrifMinMultiplier: Math.max(0, num(e.target.value)),
+                    },
+                  }))
+                }
+              />
+            </Field>
+
             <Field label="Avoid OAS clawback\n(shift RRSP→TFSA/NonReg)">
               <select
                 className="yesNoSelect"
