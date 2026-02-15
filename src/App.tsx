@@ -429,55 +429,11 @@ export default function App() {
   const withdrawalTableRef = useRef<HTMLDivElement | null>(null);
   const accumulationTableRef = useRef<HTMLDivElement | null>(null);
 
-  const getScrollEl = (key: "withdrawal" | "accumulation") => {
-    const byId = document.getElementById(
-      key === "withdrawal" ? "withdrawalScheduleWrap" : "accumulationScheduleWrap"
-    ) as HTMLDivElement | null;
+  // getScrollEl removed (scroll navigation buttons removed)
 
-    if (byId) return byId;
+  // scrollTable removed (scroll navigation buttons removed)
 
-    return document.querySelector(
-      `[data-scrolltable="${key}"]`
-    ) as HTMLDivElement | null;
-  };
-
-  const scrollTable = (
-    ref: React.RefObject<HTMLDivElement | null>,
-    key: "withdrawal" | "accumulation",
-    action: "left" | "right" | "edge-left" | "edge-right"
-  ) => {
-    const el = ref.current ?? getScrollEl(key);
-    if (!el) return;
-
-    // iOS Safari: direct scrollLeft writes are most reliable.
-    if (action === "edge-left") {
-      el.scrollLeft = 0;
-      return;
-    }
-
-    if (action === "edge-right") {
-      el.scrollLeft = el.scrollWidth;
-      return;
-    }
-
-    const dx = Math.max(200, Math.floor(el.clientWidth * 0.9));
-    el.scrollLeft += action === "left" ? -dx : dx;
-  };
-
-  const makeScrollHandlers = (
-    ref: React.RefObject<HTMLDivElement | null>,
-    key: "withdrawal" | "accumulation",
-    action: "left" | "right" | "edge-left" | "edge-right"
-  ) => {
-    const fn = () => scrollTable(ref, key, action);
-    return {
-      onClick: fn,
-      onTouchEnd: (e: React.TouchEvent) => {
-        e.preventDefault();
-        fn();
-      },
-    };
-  };
+  // scroll navigation buttons removed
 
   // navigation uses page tabs now
 
@@ -911,23 +867,7 @@ return {
           </div>
 
           <h3 style={{ marginTop: 14 }}>Accumulation table (years leading up to retirement)</h3>
-          <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "8px 0", flexWrap: "wrap" }}>
-            <button type="button" className="linkBtn" {...makeScrollHandlers(accumulationTableRef, "accumulation", "edge-left")}>
-              ⏮
-            </button>
-            <button type="button" className="linkBtn" {...makeScrollHandlers(accumulationTableRef, "accumulation", "left")}>
-              ◀
-            </button>
-            <button type="button" className="linkBtn" {...makeScrollHandlers(accumulationTableRef, "accumulation", "right")}>
-              ▶
-            </button>
-            <button type="button" className="linkBtn" {...makeScrollHandlers(accumulationTableRef, "accumulation", "edge-right")}>
-              ⏭
-            </button>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>
-              Scroll table horizontally
-            </span>
-          </div>
+          {/* scroll navigation buttons removed */}
           <div
             id="accumulationScheduleWrap"
             className="scheduleWrap"
@@ -2929,23 +2869,7 @@ return {
               (year(s) potentially above threshold). Consider lowering registered withdrawals, improving splitting, or deferring OAS.
             </div>
           ) : null}
-          <div style={{ display: "flex", gap: 10, alignItems: "center", margin: "8px 0", flexWrap: "wrap" }}>
-            <button type="button" className="linkBtn" {...makeScrollHandlers(withdrawalTableRef, "withdrawal", "edge-left")}>
-              ⏮
-            </button>
-            <button type="button" className="linkBtn" {...makeScrollHandlers(withdrawalTableRef, "withdrawal", "left")}>
-              ◀
-            </button>
-            <button type="button" className="linkBtn" {...makeScrollHandlers(withdrawalTableRef, "withdrawal", "right")}>
-              ▶
-            </button>
-            <button type="button" className="linkBtn" {...makeScrollHandlers(withdrawalTableRef, "withdrawal", "edge-right")}>
-              ⏭
-            </button>
-            <span style={{ fontSize: 12, opacity: 0.7 }}>
-              Scroll table horizontally
-            </span>
-          </div>
+          {/* scroll navigation buttons removed */}
           <div
             id="withdrawalScheduleWrap"
             className="scheduleWrap"
