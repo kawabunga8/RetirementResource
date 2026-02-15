@@ -2870,86 +2870,118 @@ return {
             </div>
           ) : null}
           {/* scroll navigation buttons removed */}
-          <div
-            id="withdrawalScheduleWrap"
-            className="scheduleWrap"
-            ref={withdrawalTableRef}
-            data-scrolltable="withdrawal"
-          >
-            <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
-              <thead>
-                <tr>
-                  {[
-                    ["Year", ""],
-                    ["Age", "Shingo"],
-                    ["Age", "Sarah"],
-                    ["Phase", ""],
-                    ["Spend", "after-tax"],
-                    ["Pension", "$/yr"],
-                    ["CPP+OAS", "$/yr"],
-                    ["W/d", "RRSP"],
-                    ["W/d", "LIF"],
-                    // (removed W/d TFSA)
-                    // (removed W/d NonReg)
-                    ["Tax", "$/yr"],
-                    ["After-tax", "cash"],
-                    ["Surplus", "after-tax"],
-                    ["Taxable", "max"],
-                    ["OAS claw", "$/yr"],
-                    ["End bal", "$"],
-                  ].map(([top, bottom]) => {
-                    const key = `${top}-${bottom}`;
-                    return (
-                      <th
-                        key={key}
-                        style={{
-                          textAlign: "right",
-                          padding: "6px 8px",
-                          borderBottom: "1px solid #e5e7eb",
-                          whiteSpace: "nowrap",
-                          lineHeight: 1.1,
-                        }}
-                      >
-                        <div>{top}</div>
-                        {bottom ? <div style={{ fontSize: 11, opacity: 0.8 }}>{bottom}</div> : null}
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {(showFullSchedule ? model.schedule : model.schedule.slice(0, 12)).map((r) => {
-                  const endTotal =
-                    r.endBalances.fhsa +
-                    r.endBalances.rrsp +
-                    r.endBalances.lira +
-                    r.endBalances.tfsa +
-                    r.endBalances.nonRegistered;
-                  return (
-                    <tr key={r.year}>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.year}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.ageShingo}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.ageSarah}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.phase}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.targetAfterTaxSpending, r.year)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.guaranteedIncome, r.year)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.benefitsIncome, r.year)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.rrsp, r.year)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.lira, r.year)}</td>
-                      {/* removed W/d TFSA */}
-                      {/* removed W/d NonReg */}
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.tax, r.year)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.afterTaxCashAvailable, r.year)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.surplusAfterTax, r.year)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(Math.max(r.debug.taxableIncomeShingo, r.debug.taxableIncomeSarah), r.year)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.oasClawbackShingo + r.debug.oasClawbackSarah, r.year)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(endTotal, r.year)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          {(() => {
+            const visibleRows = showFullSchedule ? model.schedule : model.schedule.slice(0, 12);
+            const last = visibleRows[visibleRows.length - 1];
+
+            const endTotal = last
+              ? last.endBalances.fhsa +
+                last.endBalances.rrsp +
+                last.endBalances.lira +
+                last.endBalances.tfsa +
+                last.endBalances.nonRegistered
+              : 0;
+
+            return (
+              <>
+                <div
+                  id="withdrawalScheduleWrap"
+                  className="scheduleWrap"
+                  ref={withdrawalTableRef}
+                  data-scrolltable="withdrawal"
+                >
+                  <table style={{ borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr>
+                        {[
+                          ["Year", ""],
+                          ["Age", "Shingo"],
+                          ["Age", "Sarah"],
+                          ["Phase", ""],
+                          ["Spend", "after-tax"],
+                          ["Pension", "$/yr"],
+                          ["CPP+OAS", "$/yr"],
+                          ["W/d", "RRSP"],
+                          ["W/d", "LIF"],
+                          // (removed W/d TFSA)
+                          // (removed W/d NonReg)
+                          ["Tax", "$/yr"],
+                          ["After-tax", "cash"],
+                          ["Surplus", "after-tax"],
+                          ["Taxable", "max"],
+                          ["OAS claw", "$/yr"],
+                          ["End bal", "$"],
+                        ].map(([top, bottom]) => {
+                          const key = `${top}-${bottom}`;
+                          return (
+                            <th
+                              key={key}
+                              style={{
+                                textAlign: "right",
+                                padding: "6px 8px",
+                                borderBottom: "1px solid #e5e7eb",
+                                whiteSpace: "nowrap",
+                                lineHeight: 1.1,
+                              }}
+                            >
+                              <div>{top}</div>
+                              {bottom ? <div style={{ fontSize: 11, opacity: 0.8 }}>{bottom}</div> : null}
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleRows.map((r) => {
+                        const endTotal =
+                          r.endBalances.fhsa +
+                          r.endBalances.rrsp +
+                          r.endBalances.lira +
+                          r.endBalances.tfsa +
+                          r.endBalances.nonRegistered;
+                        return (
+                          <tr key={r.year}>
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.year}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.ageShingo}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.ageSarah}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.phase}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.targetAfterTaxSpending, r.year)}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.guaranteedIncome, r.year)}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.benefitsIncome, r.year)}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.rrsp, r.year)}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.lira, r.year)}</td>
+                            {/* removed W/d TFSA */}
+                            {/* removed W/d NonReg */}
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.tax, r.year)}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.afterTaxCashAvailable, r.year)}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.surplusAfterTax, r.year)}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(Math.max(r.debug.taxableIncomeShingo, r.debug.taxableIncomeSarah), r.year)}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.oasClawbackShingo + r.debug.oasClawbackSarah, r.year)}</td>
+                            <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(endTotal, r.year)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {last ? (
+                  <div style={{ marginTop: 10, padding: 10, border: "1px solid #e5e7eb", background: "#f8fafc", borderRadius: 10, fontSize: 12 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                      Remaining balances after {last.year} (last visible row)
+                    </div>
+                    <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                      <div>RRSP: <strong>${moneyY(last.endBalances.rrsp, last.year)}</strong></div>
+                      <div>LIF: <strong>${moneyY(last.endBalances.lira, last.year)}</strong></div>
+                      <div>TFSA: <strong>${moneyY(last.endBalances.tfsa, last.year)}</strong></div>
+                      <div>NonReg: <strong>${moneyY(last.endBalances.nonRegistered, last.year)}</strong></div>
+                      <div>Total: <strong>${moneyY(endTotal, last.year)}</strong></div>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            );
+          })()}
         </section>
         )}
       </div>
