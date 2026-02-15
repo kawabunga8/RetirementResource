@@ -1126,8 +1126,34 @@ return {
                       );
                     });
                   })()}
-                  <text x={padL} y={padT + 10} fontSize={12} fill="#64748b" textAnchor="start">{money(yMax)}</text>
-                  <text x={padL} y={H - padB - 6} fontSize={12} fill="#64748b" textAnchor="start">{money(0)}</text>
+                  {/* y-axis tick labels */}
+                  {(() => {
+                    const ticks = 5;
+                    const vals: number[] = [];
+                    for (let i = 0; i < ticks; i++) {
+                      vals.push((yMax * (ticks - 1 - i)) / (ticks - 1));
+                    }
+
+                    return vals.map((v, i) => {
+                      const y = yScale(v);
+                      const isTop = i === 0;
+                      const isBottom = i === vals.length - 1;
+                      return (
+                        <g key={`y-${i}`}>
+                          <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#f1f5f9" />
+                          <text
+                            x={padL}
+                            y={isTop ? y + 10 : isBottom ? y - 6 : y + 4}
+                            fontSize={12}
+                            fill="#64748b"
+                            textAnchor="start"
+                          >
+                            {money(v)}
+                          </text>
+                        </g>
+                      );
+                    });
+                  })()}
                 </svg>
 
                 <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, marginTop: 8 }}>
