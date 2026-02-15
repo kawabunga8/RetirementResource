@@ -232,6 +232,10 @@ function applyWithdrawalOrder(params: {
   return need;
 }
 
+const FHSA_SHINGO_START_YEAR = 2024;
+const FHSA_MAX_YEARS = 15;
+const FHSA_SHINGO_FORCE_ROLL_YEAR = FHSA_SHINGO_START_YEAR + FHSA_MAX_YEARS; // 2039
+
 export function buildWithdrawalSchedule(params: {
   vars: Variables;
   retirementYear: number;
@@ -257,6 +261,16 @@ export function buildWithdrawalSchedule(params: {
 
     for (let i = 0; i < yearsInPlan; i++) {
       const year = params.retirementYear + i;
+
+      // Force FHSA rollover after 15 years from Shingo's FHSA start (planning rule).
+      // If user already rolled FHSA at retirement, balances.fhsa will already be 0.
+      if (!vars.withdrawals.rollFhsaIntoRrspAtRetirement && year >= FHSA_SHINGO_FORCE_ROLL_YEAR && balances.fhsa > 0) {
+        balances = {
+          ...balances,
+          rrsp: balances.rrsp + balances.fhsa,
+          fhsa: 0,
+        };
+      }
 
       // TFSA room creation during retirement (household)
       tfsaRoom += Math.max(0, vars.withdrawals.tfsaNewRoomPerYear);

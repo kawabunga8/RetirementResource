@@ -2423,7 +2423,10 @@ return {
 
           <h3 style={{ marginTop: 14 }}>Retirement account handling</h3>
           <div className="selectRow">
-            <Field label="Roll FHSA into RRSP\n(at retirement)">
+            <Field label="FHSA → RRSP handling">
+              <div style={{ fontSize: 12, opacity: 0.75, marginTop: 0, marginBottom: 6 }}>
+                If “Yes”, FHSA is rolled into RRSP at retirement. If “No”, FHSA is kept separate but forced to roll into RRSP after 15 years (Shingo FHSA start year 2024).
+              </div>
               <select
                 className="yesNoSelect"
                 value={vars.withdrawals.rollFhsaIntoRrspAtRetirement ? "yes" : "no"}
