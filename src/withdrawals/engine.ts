@@ -435,7 +435,12 @@ export function buildWithdrawalSchedule(params: {
 
       if (rrspMandatory > 0 && balances.rrsp > 0) {
         // In depletion year, force full depletion regardless of caps.
-        const cap = isDepletionYear ? 0 : Math.max(0, vars.withdrawals.caps.rrsp - withdrawals.rrsp);
+        // caps.rrsp = 0 means "no cap".
+        const cap = isDepletionYear
+          ? 0
+          : (vars.withdrawals.caps.rrsp > 0
+              ? Math.max(0, vars.withdrawals.caps.rrsp - withdrawals.rrsp)
+              : 0);
         const r = withdrawFrom(rrspMandatory, balances.rrsp, cap);
         withdrawals.rrsp += r.withdrawn;
         balances.rrsp = r.newBalance;
@@ -598,13 +603,15 @@ export function buildWithdrawalSchedule(params: {
       // Extra RRIF overlay (global plan): withdraw additional RRIF AFTER the spending gap is covered,
       // and invest the resulting after-tax surplus (TFSA first, then NonReg).
       if (extraThisYear > 0 && balances.rrsp > 0) {
-        const remainingCap = Math.max(0, vars.withdrawals.caps.rrsp - withdrawals.rrsp);
-        if (remainingCap > 0) {
-          const r = withdrawFrom(extraThisYear, balances.rrsp, remainingCap);
-          withdrawals.rrsp += r.withdrawn;
-          balances.rrsp = r.newBalance;
-          computeTax();
-        }
+        // caps.rrsp = 0 means "no cap".
+        const cap = vars.withdrawals.caps.rrsp > 0
+          ? Math.max(0, vars.withdrawals.caps.rrsp - withdrawals.rrsp)
+          : 0;
+
+        const r = withdrawFrom(extraThisYear, balances.rrsp, cap);
+        withdrawals.rrsp += r.withdrawn;
+        balances.rrsp = r.newBalance;
+        computeTax();
       }
 
       const surplusAfterTax = clampToZero(afterTaxCashAvailable - targetAfterTaxNominal);
