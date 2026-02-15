@@ -681,17 +681,17 @@ export function buildWithdrawalSchedule(params: {
   const extraPlan: ExtraPlan = {};
 
   const years = pass1
-    .filter((r) => r.year < depletionYear)
+    // Start RRIF overlay immediately at retirement year (through the year before depletion year)
+    .filter((r) => r.year >= params.retirementYear && r.year < depletionYear)
     .map((r) => r.year);
 
   if (startRrspAtDepletion > 1 && years.length > 0) {
     const alpha = Math.max(0, Math.min(1, vars.withdrawals.rrifFrontLoad)) * 0.35;
-    const weights = years.map((_, idx) => Math.exp(-alpha * idx));
+    const weights = years.map((y) => Math.exp(-alpha * (y - params.retirementYear)));
     const wSum = weights.reduce((a, b) => a + b, 0);
 
-    for (let idx = 0; idx < years.length; idx++) {
-      const y = years[idx];
-      const w = weights[idx] / wSum;
+    for (const y of years) {
+      const w = Math.max(0, Math.exp(-alpha * (y - params.retirementYear))) / wSum;
 
       // The "remainder" is valued at the depletion-year start. Convert that to an equivalent withdrawal in year y.
       const factor = Math.pow(1 + vars.expectedNominalReturn, Math.max(0, depletionYear - y));
@@ -703,30 +703,6 @@ export function buildWithdrawalSchedule(params: {
   }
 
   // Pass 2: re-simulate with extra RRIF overlay (surplus invested to TFSA then NonReg).
-  // If the extra overlay causes future spending shortfalls (because the RRSP is needed later), scale it back.
-  let best = simulate({});
-  let scale = 1;
-
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const scaledPlan: ExtraPlan = {};
-    for (const [k, v] of Object.entries(extraPlan)) scaledPlan[Number(k)] = v * scale;
-
-    const cand = simulate(scaledPlan);
-
-    const maxShortfall = Math.max(
-      ...cand.map((r) => (r as any).debug?.shortfallAfterTax ?? 0),
-      0,
-    );
-
-    best = cand;
-
-    if (maxShortfall <= 1.01) {
-      break;
-    }
-
-    scale *= 0.7;
-    if (scale < 0.01) break;
-  }
-
-  return best;
+  // Note: We do NOT allow TFSA/NonReg withdrawals to cover spending gaps; they only accumulate.
+  return simulate(extraPlan);
 }
