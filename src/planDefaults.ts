@@ -176,6 +176,10 @@ export type Variables = {
   rrspRoomShingo: number;
   rrspRoomSarah: number;
 
+  // Working-year assumptions (for new RRSP room creation)
+  earnedIncomeShingo: number; // $/yr
+  earnedIncomeSarah: number; // $/yr
+
   // Target year you stop working / begin retirement plan
   retirementYear: number;
 
@@ -231,6 +235,9 @@ export const DEFAULT_VARIABLES: Variables = {
   tfsaRoomSarah: 109000,
   rrspRoomShingo: 120125,
   rrspRoomSarah: 63252,
+
+  earnedIncomeShingo: 100000,
+  earnedIncomeSarah: 100000,
 
   retirementYear: DEFAULT_ANCHORS.targetRetirementYear,
   shingoRetireAge: 67,

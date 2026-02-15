@@ -120,6 +120,9 @@ function buildAccumulationSchedule(params: {
   tfsaRoomSarah: number;
   rrspRoomShingo: number;
   rrspRoomSarah: number;
+  // working income assumptions for new RRSP room
+  earnedIncomeShingo: number;
+  earnedIncomeSarah: number;
   // contributions
   monthlyFhsaShingo: number;
   monthlyFhsaSarah: number;
@@ -184,6 +187,14 @@ function buildAccumulationSchedule(params: {
         const add = TFSA_ANNUAL_LIMIT_BY_YEAR[String(year) as keyof typeof TFSA_ANNUAL_LIMIT_BY_YEAR] ?? 0;
         tfsaRoomS += add;
         tfsaRoomSa += add;
+      }
+
+      // RRSP room increases each year based on earned income (planning approximation).
+      // We treat the provided rrspRoom* as a starting snapshot, then add new room each Jan 1.
+      if (year > params.baselineYear) {
+        const RRSP_RATE = 0.18;
+        rrspRoomS += Math.max(0, params.earnedIncomeShingo) * RRSP_RATE;
+        rrspRoomSa += Math.max(0, params.earnedIncomeSarah) * RRSP_RATE;
       }
     }
 
@@ -493,6 +504,8 @@ export default function App() {
       tfsaRoomSarah: vars.tfsaRoomSarah,
       rrspRoomShingo: vars.rrspRoomShingo,
       rrspRoomSarah: vars.rrspRoomSarah,
+      earnedIncomeShingo: vars.earnedIncomeShingo,
+      earnedIncomeSarah: vars.earnedIncomeSarah,
       monthlyFhsaShingo: vars.monthly.fhsaShingo,
       monthlyFhsaSarah: vars.monthly.fhsaSarah,
       monthlyRrspShingo: vars.monthly.rrspShingo,
@@ -1288,6 +1301,35 @@ return {
                         setVars((v) => ({
                           ...v,
                           rrspRoomSarah: num(e.target.value),
+                        }))
+                      }
+                    />
+                  </Field>
+
+                  <Field label="Earned income Shingo ($/yr)
+(for new RRSP room)">
+                    <input
+                      className="moneyInputLg"
+                      type="number"
+                      value={vars.earnedIncomeShingo}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          earnedIncomeShingo: num(e.target.value),
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Earned income Sarah ($/yr)
+(for new RRSP room)">
+                    <input
+                      className="moneyInputLg"
+                      type="number"
+                      value={vars.earnedIncomeSarah}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          earnedIncomeSarah: num(e.target.value),
                         }))
                       }
                     />
