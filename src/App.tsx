@@ -2792,8 +2792,8 @@ return {
                     ["CPP+OAS", "$/yr"],
                     ["W/d", "RRSP"],
                     ["W/d", "LIF"],
-                    ["W/d", "TFSA"],
-                    ["W/d", "NonReg"],
+                    // (removed W/d TFSA)
+                    // (removed W/d NonReg)
                     ["Tax", "$/yr"],
                     ["After-tax", "cash"],
                     ["Surplus", "after-tax"],
@@ -2839,8 +2839,8 @@ return {
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.benefitsIncome, r.year)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.rrsp, r.year)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.lira, r.year)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.tfsa, r.year)}</td>
-                      <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.nonRegistered, r.year)}</td>
+                      {/* removed W/d TFSA */}
+                      {/* removed W/d NonReg */}
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.tax, r.year)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.afterTaxCashAvailable, r.year)}</td>
                       <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.debug.surplusAfterTax, r.year)}</td>
