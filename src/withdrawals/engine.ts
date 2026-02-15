@@ -123,14 +123,64 @@ export function rrifMinFactor(age: number) {
   return table[age] ?? 0;
 }
 
+const BC_LIF_MAX_PCT_BY_AGE: Record<number, number> = {
+  50: 0.0627,
+  51: 0.0631,
+  52: 0.0635,
+  53: 0.064,
+  54: 0.0645,
+  55: 0.0651,
+  56: 0.0657,
+  57: 0.0663,
+  58: 0.067,
+  59: 0.0677,
+  60: 0.0685,
+  61: 0.0694,
+  62: 0.0704,
+  63: 0.0714,
+  64: 0.0726,
+  65: 0.0738,
+  66: 0.0752,
+  67: 0.0767,
+  68: 0.0783,
+  69: 0.0802,
+  70: 0.0822,
+  71: 0.0845,
+  72: 0.0871,
+  73: 0.09,
+  74: 0.0934,
+  75: 0.0971,
+  76: 0.1015,
+  77: 0.1066,
+  78: 0.1125,
+  79: 0.1196,
+  80: 0.1282,
+  81: 0.1387,
+  82: 0.1519,
+  83: 0.169,
+  84: 0.1919,
+  85: 0.224,
+  86: 0.2723,
+  87: 0.3529,
+  88: 0.5146,
+};
+
+function bcLifMaxPct(age: number) {
+  if (age >= 89) return 1;
+  if (age < 50) return BC_LIF_MAX_PCT_BY_AGE[50]!;
+  return BC_LIF_MAX_PCT_BY_AGE[age] ?? BC_LIF_MAX_PCT_BY_AGE[50]!;
+}
+
 function lifMinMaxFactors(age: number) {
-  // Planning approximation (BC): min modeled as RRIF min, max ≈ 2x min (capped at 20%).
+  // BC LIF planning model:
+  // - Minimum: use CRA RRIF minimum factors (common approximation for minimum).
+  // - Maximum: BC LIF maximum percentage table (BCFSA).
   const minF = rrifMinFactor(age);
-  const maxF = Math.min(0.2, minF * 2);
+  const maxF = bcLifMaxPct(age);
   return { minF, maxF };
 }
 
-function lifMaxFactor(age: number, mode: LifMode) {
+function lifTargetFactor(age: number, mode: LifMode) {
   const { minF, maxF } = lifMinMaxFactors(age);
   if (mode === "min") return minF;
   if (mode === "max") return maxF;
@@ -201,7 +251,7 @@ function applyWithdrawalOrder(params: {
     }
 
     if (src === "lira") {
-      const lifMax = params.balances.lira * lifMaxFactor(params.ageShingo, params.lifMode);
+      const lifMax = params.balances.lira * lifTargetFactor(params.ageShingo, params.lifMode);
       const explicitCap = params.caps.lira;
       const capCandidate = explicitCap > 0 ? Math.min(explicitCap, lifMax) : lifMax;
       const capByCeiling = params.taxableHeadroom.shingo;
@@ -338,11 +388,18 @@ export function buildWithdrawalSchedule(params: {
       // (This makes the min/mid/max selection actually change the LIF remaining balance over time.)
       const { minF: lifMinF } = lifMinMaxFactors(ageShingo);
       const lifMinRequired = vars.withdrawals.forceLifFromRetirement ? balances.lira * lifMinF : 0;
-      const lifMaxAllowed = balances.lira * lifMaxFactor(ageShingo, vars.withdrawals.lifMode);
+      // BC LIF maximum annual withdrawal is the greater of:
+      // - the preceding year's investment return in the LIF (planning approx: prior balance * expectedNominalReturn)
+      // - beginning-of-year balance × BC max percentage table
+      const prevYearInvestmentReturn = i === 0 ? 0 : startBalances.lira * Math.max(0, vars.expectedNominalReturn);
+      const lifMaxAllowed = Math.max(prevYearInvestmentReturn, balances.lira * bcLifMaxPct(ageShingo));
 
-      const lifPlanned = vars.withdrawals.forceLifFromRetirement ? lifMaxAllowed : 0;
+      const lifPlanned = vars.withdrawals.forceLifFromRetirement
+        ? balances.lira * lifTargetFactor(ageShingo, vars.withdrawals.lifMode)
+        : 0;
 
-      const lifTarget = Math.max(lifMinRequired, lifPlanned);
+      // Always respect minimums, and never exceed the BC maximum.
+      const lifTarget = Math.min(lifMaxAllowed, Math.max(lifMinRequired, lifPlanned));
 
       if (lifTarget > 0 && balances.lira > 0) {
         // caps.lira = 0 means "no cap".
