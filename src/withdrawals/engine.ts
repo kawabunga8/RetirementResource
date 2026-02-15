@@ -693,19 +693,57 @@ export function buildWithdrawalSchedule(params: {
     .map((r) => r.year);
 
   if (startRrspAtDepletion > 1 && years.length > 0) {
-    const alpha = Math.max(0, Math.min(1, vars.withdrawals.rrifFrontLoad)) * 0.35;
-    const weights = years.map((y) => Math.exp(-alpha * (y - params.retirementYear)));
-    const wSum = weights.reduce((a, b) => a + b, 0);
+    // Goal: after covering spending gaps (Pass 1), distribute the remaining RRSP more-or-less evenly
+    // across the retirement years up to (but not including) the depletion year.
+    // We solve for a level (or gently front-loaded) overlay that drives the RRSP balance to ~0
+    // at the start of the depletion year.
 
-    for (const y of years) {
-      const w = Math.max(0, Math.exp(-alpha * (y - params.retirementYear))) / wSum;
+    const f = Math.max(0, Math.min(1, vars.withdrawals.rrifFrontLoad));
+    const ratio = 1 + 4 * f; // 1..5 (higher = more front-loaded)
 
-      // The "remainder" is valued at the depletion-year start. Convert that to an equivalent withdrawal in year y.
-      const factor = Math.pow(1 + vars.expectedNominalReturn, Math.max(0, depletionYear - y));
-      const desiredAtDepletionValue = startRrspAtDepletion * w;
-      const withdrawInYearY = desiredAtDepletionValue / Math.max(1, factor);
+    // weights indexed by year order (0 = earliest). For front-load, give earlier years larger weights.
+    const rawWeights = years.map((_, idx) => (ratio === 1 ? 1 : Math.pow(ratio, years.length - 1 - idx)));
+    const avgW = rawWeights.reduce((a, b) => a + b, 0) / rawWeights.length;
+    const weights = rawWeights.map((w) => (avgW > 0 ? w / avgW : 1)); // normalize: average weight = 1
 
-      extraPlan[y] = withdrawInYearY;
+    // Baseline RRSP withdrawals (gap-filling + minimums) from Pass 1.
+    const baseByYear = new Map<number, number>();
+    for (const r of pass1) {
+      if (r.year >= params.retirementYear && r.year < depletionYear) {
+        baseByYear.set(r.year, Math.max(0, r.withdrawals.rrsp));
+      }
+    }
+
+    const r = Math.max(0, vars.expectedNominalReturn);
+    const B0 = Math.max(0, params.retirementBalances.rrsp);
+
+    const simulateEndBalance = (A: number) => {
+      let bal = B0;
+      for (let i = 0; i < years.length; i++) {
+        const y = years[i];
+        const base = baseByYear.get(y) ?? 0;
+        const overlay = Math.max(0, A * weights[i]);
+        const w = Math.min(bal, base + overlay);
+        bal = (bal - w) * (1 + r);
+      }
+      return bal;
+    };
+
+    // Binary-search the scale A so that the balance at start of depletion year is ~0.
+    let lo = 0;
+    let hi = Math.max(1, B0); // a safe upper bound; if too small we'll expand
+    while (simulateEndBalance(hi) > 1 && hi < B0 * 10) hi *= 1.5;
+
+    for (let iter = 0; iter < 40; iter++) {
+      const mid = (lo + hi) / 2;
+      const end = simulateEndBalance(mid);
+      if (end > 1) lo = mid;
+      else hi = mid;
+    }
+
+    const A = hi;
+    for (let i = 0; i < years.length; i++) {
+      extraPlan[years[i]] = Math.max(0, A * weights[i]);
     }
   }
 
