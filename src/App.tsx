@@ -1595,173 +1595,73 @@ return {
               <>
                 <div className="selectRow">
                   <Field label="Tax year">
-                    {(() => {
-                      const scheduleYears = model.schedule.map((r) => r.year);
-                      const firstYear = Math.min(DEFAULT_ANCHORS.baselineYear, ...scheduleYears);
-                      const lastYear = Math.max(DEFAULT_ANCHORS.baselineYear, ...scheduleYears);
-                      const years: number[] = [];
-                      for (let y = firstYear; y <= lastYear; y++) years.push(y);
+                    <input
+                      className="ageInput"
+                      type="number"
+                      value={vars.tax.taxYear}
+                      onChange={(e) => {
+                        const year = num(e.target.value);
+                        setVars((v) => {
+                          const yearsFromBaseline = year - DEFAULT_ANCHORS.baselineYear;
+                          const indexRate = v.expectedInflation * v.cpiMultiplier;
 
-                      return (
-                        <>
-                          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                            <select
-                              className="ageInput"
-                              value={vars.tax.taxYear}
-                              onChange={(e) => {
-                                const year = num(e.target.value);
-                                // Reuse the same handler by faking a change event for the input logic below.
-                                const evt = { target: { value: String(year) } } as any;
-                                (evt as any).target.value = String(year);
-                                // @ts-ignore
-                                const handler = (val: string) => val;
-                                handler(evt.target.value);
-                                // call shared logic
-                                const yearStr = String(year);
-                                const fake = { target: { value: yearStr } } as any;
-                                // inline: copy/paste of the onChange logic below
-                                const yearN = num(fake.target.value);
-                                setVars((v) => {
-                                  const yearsFromBaseline = yearN - DEFAULT_ANCHORS.baselineYear;
-                                  const indexRate = v.expectedInflation * v.cpiMultiplier;
+                          const indexNominal = (amountReal: number) =>
+                            v.dollarsMode === "real"
+                              ? amountReal
+                              : amountReal * Math.pow(1 + indexRate, Math.max(0, yearsFromBaseline));
 
-                                  const indexNominal = (amountReal: number) =>
-                                    v.dollarsMode === "real"
-                                      ? amountReal
-                                      : amountReal * Math.pow(1 + indexRate, Math.max(0, yearsFromBaseline));
+                          const inRetirement = year >= v.retirementYear;
+                          const schedRow = inRetirement ? model.schedule.find((r) => r.year === year) : undefined;
 
-                                  const inRetirement = yearN >= v.retirementYear;
-                                  const schedRow = inRetirement ? model.schedule.find((r) => r.year === yearN) : undefined;
+                          const pensionShingo = indexNominal(DEFAULT_ANCHORS.pensionShingo);
+                          const pensionSarah = indexNominal(DEFAULT_ANCHORS.pensionSarah);
 
-                                  const pensionShingo = indexNominal(DEFAULT_ANCHORS.pensionShingo);
-                                  const pensionSarah = indexNominal(DEFAULT_ANCHORS.pensionSarah);
+                          const ageShingo = year - DEFAULT_ANCHORS.shingoBirthYear;
+                          const ageSarah = year - DEFAULT_ANCHORS.sarahBirthYear;
 
-                                  const ageShingo = yearN - DEFAULT_ANCHORS.shingoBirthYear;
-                                  const ageSarah = yearN - DEFAULT_ANCHORS.sarahBirthYear;
+                          const cppShingo = ageShingo >= v.cppStartAge ? indexNominal(v.withdrawals.cppShingoAnnual) : 0;
+                          const cppSarah = ageSarah >= v.cppStartAge ? indexNominal(v.withdrawals.cppSarahAnnual) : 0;
+                          const oasShingo = ageShingo >= v.oasStartAge ? indexNominal(v.withdrawals.oasShingoAnnual) : 0;
+                          const oasSarah = ageSarah >= v.oasStartAge ? indexNominal(v.withdrawals.oasSarahAnnual) : 0;
 
-                                  const cppShingo = ageShingo >= v.cppStartAge ? indexNominal(v.withdrawals.cppShingoAnnual) : 0;
-                                  const cppSarah = ageSarah >= v.cppStartAge ? indexNominal(v.withdrawals.cppSarahAnnual) : 0;
-                                  const oasShingo = ageShingo >= v.oasStartAge ? indexNominal(v.withdrawals.oasShingoAnnual) : 0;
-                                  const oasSarah = ageSarah >= v.oasStartAge ? indexNominal(v.withdrawals.oasSarahAnnual) : 0;
+                          const rrifHousehold = schedRow ? schedRow.withdrawals.rrsp : 0;
+                          const lifShingo = schedRow ? schedRow.withdrawals.lira : 0;
+                          const tfsaHousehold = schedRow ? schedRow.withdrawals.tfsa : 0;
 
-                                  const rrifHousehold = schedRow ? schedRow.withdrawals.rrsp : 0;
-                                  const lifShingo = schedRow ? schedRow.withdrawals.lira : 0;
-                                  const tfsaHousehold = schedRow ? schedRow.withdrawals.tfsa : 0;
+                          return {
+                            ...v,
+                            tax: {
+                              ...v.tax,
+                              taxYear: year,
 
-                                  return {
-                                    ...v,
-                                    tax: {
-                                      ...v.tax,
-                                      taxYear: yearN,
+                              shingoEmployment: inRetirement ? 0 : v.tax.workingIncomeShingo,
+                              sarahEmployment: inRetirement ? 0 : v.tax.workingIncomeSarah,
 
-                                      shingoEmployment: inRetirement ? 0 : v.tax.workingIncomeShingo,
-                                      sarahEmployment: inRetirement ? 0 : v.tax.workingIncomeSarah,
+                              shingoPensionDb: inRetirement ? pensionShingo : 0,
+                              sarahPensionDb: inRetirement ? pensionSarah : 0,
 
-                                      shingoPensionDb: inRetirement ? pensionShingo : 0,
-                                      sarahPensionDb: inRetirement ? pensionSarah : 0,
+                              shingoCpp: inRetirement ? cppShingo : 0,
+                              sarahCpp: inRetirement ? cppSarah : 0,
+                              shingoOas: inRetirement ? oasShingo : 0,
+                              sarahOas: inRetirement ? oasSarah : 0,
 
-                                      shingoCpp: inRetirement ? cppShingo : 0,
-                                      sarahCpp: inRetirement ? cppSarah : 0,
-                                      shingoOas: inRetirement ? oasShingo : 0,
-                                      sarahOas: inRetirement ? oasSarah : 0,
+                              shingoRrif: inRetirement ? rrifHousehold / 2 : 0,
+                              sarahRrif: inRetirement ? rrifHousehold / 2 : 0,
 
-                                      shingoRrif: inRetirement ? rrifHousehold / 2 : 0,
-                                      sarahRrif: inRetirement ? rrifHousehold / 2 : 0,
+                              shingoLif: inRetirement ? lifShingo : 0,
+                              sarahLif: 0,
 
-                                      shingoLif: inRetirement ? lifShingo : 0,
-                                      sarahLif: 0,
+                              shingoRrsp: 0,
+                              sarahRrsp: 0,
 
-                                      shingoRrsp: 0,
-                                      sarahRrsp: 0,
-
-                                      shingoTfsa: inRetirement ? tfsaHousehold / 2 : 0,
-                                      sarahTfsa: inRetirement ? tfsaHousehold / 2 : 0,
-                                    },
-                                  };
-                                });
-                              }}
-                            >
-                              {years.map((y) => (
-                                <option key={y} value={y}>
-                                  {y}
-                                </option>
-                              ))}
-                            </select>
-
-                            <input
-                              className="ageInput"
-                              type="number"
-                              value={vars.tax.taxYear}
-                              onChange={(e) => {
-                                const year = num(e.target.value);
-                                setVars((v) => {
-                                  const yearsFromBaseline = year - DEFAULT_ANCHORS.baselineYear;
-                                  const indexRate = v.expectedInflation * v.cpiMultiplier;
-
-                                  const indexNominal = (amountReal: number) =>
-                                    v.dollarsMode === "real"
-                                      ? amountReal
-                                      : amountReal * Math.pow(1 + indexRate, Math.max(0, yearsFromBaseline));
-
-                                  const inRetirement = year >= v.retirementYear;
-                                  const schedRow = inRetirement ? model.schedule.find((r) => r.year === year) : undefined;
-
-                                  const pensionShingo = indexNominal(DEFAULT_ANCHORS.pensionShingo);
-                                  const pensionSarah = indexNominal(DEFAULT_ANCHORS.pensionSarah);
-
-                                  const ageShingo = year - DEFAULT_ANCHORS.shingoBirthYear;
-                                  const ageSarah = year - DEFAULT_ANCHORS.sarahBirthYear;
-
-                                  const cppShingo = ageShingo >= v.cppStartAge ? indexNominal(v.withdrawals.cppShingoAnnual) : 0;
-                                  const cppSarah = ageSarah >= v.cppStartAge ? indexNominal(v.withdrawals.cppSarahAnnual) : 0;
-                                  const oasShingo = ageShingo >= v.oasStartAge ? indexNominal(v.withdrawals.oasShingoAnnual) : 0;
-                                  const oasSarah = ageSarah >= v.oasStartAge ? indexNominal(v.withdrawals.oasSarahAnnual) : 0;
-
-                                  const rrifHousehold = schedRow ? schedRow.withdrawals.rrsp : 0;
-                                  const lifShingo = schedRow ? schedRow.withdrawals.lira : 0;
-                                  const tfsaHousehold = schedRow ? schedRow.withdrawals.tfsa : 0;
-
-                                  return {
-                                    ...v,
-                                    tax: {
-                                      ...v.tax,
-                                      taxYear: year,
-
-                                      shingoEmployment: inRetirement ? 0 : v.tax.workingIncomeShingo,
-                                      sarahEmployment: inRetirement ? 0 : v.tax.workingIncomeSarah,
-
-                                      shingoPensionDb: inRetirement ? pensionShingo : 0,
-                                      sarahPensionDb: inRetirement ? pensionSarah : 0,
-
-                                      shingoCpp: inRetirement ? cppShingo : 0,
-                                      sarahCpp: inRetirement ? cppSarah : 0,
-                                      shingoOas: inRetirement ? oasShingo : 0,
-                                      sarahOas: inRetirement ? oasSarah : 0,
-
-                                      shingoRrif: inRetirement ? rrifHousehold / 2 : 0,
-                                      sarahRrif: inRetirement ? rrifHousehold / 2 : 0,
-
-                                      shingoLif: inRetirement ? lifShingo : 0,
-                                      sarahLif: 0,
-
-                                      shingoRrsp: 0,
-                                      sarahRrsp: 0,
-
-                                      shingoTfsa: inRetirement ? tfsaHousehold / 2 : 0,
-                                      sarahTfsa: inRetirement ? tfsaHousehold / 2 : 0,
-                                    },
-                                  };
-                                });
-                              }}
-                              style={{ maxWidth: 110 }}
-                            />
-                          </div>
-                          <div style={{ fontSize: 12, opacity: 0.65, marginTop: 4 }}>
-                            Pick from the plan years (dropdown) or type a custom year.
-                          </div>
-                        </>
-                      );
-                    })()}
+                              shingoTfsa: inRetirement ? tfsaHousehold / 2 : 0,
+                              sarahTfsa: inRetirement ? tfsaHousehold / 2 : 0,
+                            },
+                          };
+                        });
+                      }}
+                      style={{ maxWidth: 110 }}
+                    />
                   </Field>
 
                   <Field label="Pension splitting?">
@@ -2004,6 +1904,94 @@ return {
         {page === "taxBrackets" && (
         <section id="taxBrackets" className="card">
           <h2>Tax brackets ({vars.tax.taxYear})</h2>
+
+          <div className="selectRow" style={{ marginTop: 8 }}>
+            <Field label="Tax year">
+              {(() => {
+                const scheduleYears = model.schedule.map((r) => r.year);
+                const firstYear = Math.min(DEFAULT_ANCHORS.baselineYear, ...scheduleYears);
+                const lastYear = Math.max(DEFAULT_ANCHORS.baselineYear, ...scheduleYears);
+                const years: number[] = [];
+                for (let y = firstYear; y <= lastYear; y++) years.push(y);
+
+                const setYear = (year: number) => {
+                  setVars((v) => {
+                    const yearsFromBaseline = year - DEFAULT_ANCHORS.baselineYear;
+                    const indexRate = v.expectedInflation * v.cpiMultiplier;
+
+                    const indexNominal = (amountReal: number) =>
+                      v.dollarsMode === "real"
+                        ? amountReal
+                        : amountReal * Math.pow(1 + indexRate, Math.max(0, yearsFromBaseline));
+
+                    const inRetirement = year >= v.retirementYear;
+                    const schedRow = inRetirement ? model.schedule.find((r) => r.year === year) : undefined;
+
+                    const pensionShingo = indexNominal(DEFAULT_ANCHORS.pensionShingo);
+                    const pensionSarah = indexNominal(DEFAULT_ANCHORS.pensionSarah);
+
+                    const ageShingo = year - DEFAULT_ANCHORS.shingoBirthYear;
+                    const ageSarah = year - DEFAULT_ANCHORS.sarahBirthYear;
+
+                    const cppShingo = ageShingo >= v.cppStartAge ? indexNominal(v.withdrawals.cppShingoAnnual) : 0;
+                    const cppSarah = ageSarah >= v.cppStartAge ? indexNominal(v.withdrawals.cppSarahAnnual) : 0;
+                    const oasShingo = ageShingo >= v.oasStartAge ? indexNominal(v.withdrawals.oasShingoAnnual) : 0;
+                    const oasSarah = ageSarah >= v.oasStartAge ? indexNominal(v.withdrawals.oasSarahAnnual) : 0;
+
+                    const rrifHousehold = schedRow ? schedRow.withdrawals.rrsp : 0;
+                    const lifShingo = schedRow ? schedRow.withdrawals.lira : 0;
+                    const tfsaHousehold = schedRow ? schedRow.withdrawals.tfsa : 0;
+
+                    return {
+                      ...v,
+                      tax: {
+                        ...v.tax,
+                        taxYear: year,
+
+                        shingoEmployment: inRetirement ? 0 : v.tax.workingIncomeShingo,
+                        sarahEmployment: inRetirement ? 0 : v.tax.workingIncomeSarah,
+
+                        shingoPensionDb: inRetirement ? pensionShingo : 0,
+                        sarahPensionDb: inRetirement ? pensionSarah : 0,
+
+                        shingoCpp: inRetirement ? cppShingo : 0,
+                        sarahCpp: inRetirement ? cppSarah : 0,
+                        shingoOas: inRetirement ? oasShingo : 0,
+                        sarahOas: inRetirement ? oasSarah : 0,
+
+                        shingoRrif: inRetirement ? rrifHousehold / 2 : 0,
+                        sarahRrif: inRetirement ? rrifHousehold / 2 : 0,
+
+                        shingoLif: inRetirement ? lifShingo : 0,
+                        sarahLif: 0,
+
+                        shingoRrsp: 0,
+                        sarahRrsp: 0,
+
+                        shingoTfsa: inRetirement ? tfsaHousehold / 2 : 0,
+                        sarahTfsa: inRetirement ? tfsaHousehold / 2 : 0,
+                      },
+                    };
+                  });
+                };
+
+                return (
+                  <select
+                    className="ageInput"
+                    value={vars.tax.taxYear}
+                    onChange={(e) => setYear(num(e.target.value))}
+                  >
+                    {years.map((y) => (
+                      <option key={y} value={y}>
+                        {y}
+                      </option>
+                    ))}
+                  </select>
+                );
+              })()}
+            </Field>
+          </div>
+
           {(() => {
             const bt = getBracketTableForYear({
               taxYear: vars.tax.taxYear,
