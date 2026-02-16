@@ -1940,6 +1940,7 @@ return {
                     className="ageInput"
                     value={vars.tax.taxYear}
                     onChange={(e) => setYear(num(e.target.value))}
+                    style={{ minWidth: 120, width: 120 }}
                   >
                     {years.map((y) => (
                       <option key={y} value={y}>
