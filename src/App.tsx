@@ -2852,20 +2852,7 @@ return {
             which is typically ~2 years after Shingo given your birth years.
           </div>
 
-          {model.schedule.some((r) => r.debug.oasClawbackShingo > 0 || r.debug.oasClawbackSarah > 0) ? (
-            <div style={{ marginTop: 10, padding: 10, border: "1px solid #fecaca", background: "#fff1f2", borderRadius: 10, fontSize: 12 }}>
-              <strong>OAS clawback alert (rough):</strong>
-              {" "}
-              <span style={{ color: "#b91c1c", fontWeight: 700 }}>
-                {model.schedule
-                  .filter((r) => r.debug.oasClawbackShingo > 0 || r.debug.oasClawbackSarah > 0)
-                  .map((r) => r.year)
-                  .join(", ")}
-              </span>
-              {" "}
-              (year(s) potentially above threshold). Consider lowering registered withdrawals, improving splitting, or deferring OAS.
-            </div>
-          ) : null}
+          {/* OAS clawback warning removed */}
           {/* scroll navigation buttons removed */}
           {(() => {
             const visibleRows = showFullSchedule ? model.schedule : model.schedule.slice(0, 12);
