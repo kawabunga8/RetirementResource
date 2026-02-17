@@ -415,6 +415,7 @@ export default function App() {
   const [bracketsPerson, setBracketsPerson] = useState<"Shingo" | "Sarah">("Shingo");
   const [bracketsUseTestIncome, setBracketsUseTestIncome] = useState(false);
   const [bracketsTestIncome, setBracketsTestIncome] = useState(0);
+  const [currentSnapshotYear, setCurrentSnapshotYear] = useState(() => new Date().getFullYear());
 
   const adjustDollars = (amountNominal: number, year: number) => {
     if (vars.dollarsMode !== "real") return amountNominal;
@@ -1215,6 +1216,172 @@ return {
                 <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
                   As of <strong>{currentLabel}</strong> (simulated from baseline {DEFAULT_ANCHORS.baselineYear} using your current monthly contributions and return assumptions).
                 </p>
+
+                {(() => {
+                  const year = currentSnapshotYear;
+                  const y0 = DEFAULT_ANCHORS.baselineYear;
+                  const monthsToYear = Math.max(0, (year - y0) * 12);
+                  const r = vars.expectedNominalReturn / 12;
+
+                  // balances
+                  let fhsaS = vars.balances.fhsaShingo;
+                  let fhsaSa = vars.balances.fhsaSarah;
+                  let rrspS = vars.balances.rrspShingo;
+                  let rrspSa = vars.balances.rrspSarah;
+                  let tfsaS = vars.balances.tfsaShingo;
+                  let tfsaSa = vars.balances.tfsaSarah;
+                  let lira = vars.balances.liraShingo;
+                  let nonReg = vars.balances.nonRegistered;
+
+                  // rooms
+                  let tfsaRoomS = Math.max(0, vars.tfsaRoomShingo);
+                  let tfsaRoomSa = Math.max(0, vars.tfsaRoomSarah);
+                  let rrspRoomS = Math.max(0, vars.rrspRoomShingo);
+                  let rrspRoomSa = Math.max(0, vars.rrspRoomSarah);
+
+                  let roomFhsaS = Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedShingo);
+                  let roomFhsaSa = Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah);
+
+                  let fhsaAnnualUsedS = 0;
+                  let fhsaAnnualUsedSa = 0;
+
+                  for (let m = 0; m < monthsToYear; m++) {
+                    const yearIndex = Math.floor(m / 12);
+                    const thisYear = y0 + yearIndex;
+
+                    if (m % 12 === 0) {
+                      fhsaAnnualUsedS = 0;
+                      fhsaAnnualUsedSa = 0;
+
+                      if (thisYear > y0) {
+                        const addTfsa = TFSA_ANNUAL_LIMIT_BY_YEAR[String(thisYear) as keyof typeof TFSA_ANNUAL_LIMIT_BY_YEAR] ?? 0;
+                        tfsaRoomS += addTfsa;
+                        tfsaRoomSa += addTfsa;
+
+                        const RRSP_RATE = 0.18;
+                        rrspRoomS += Math.max(0, vars.earnedIncomeShingo) * RRSP_RATE;
+                        rrspRoomSa += Math.max(0, vars.earnedIncomeSarah) * RRSP_RATE;
+                      }
+                    }
+
+                    const tfsaEachPlanned = vars.monthly.tfsaTotal / 2;
+
+                    let rrspContribS = vars.monthly.rrspShingo;
+                    let rrspContribSa = vars.monthly.rrspSarah;
+
+                    // FHSA with caps; overflow -> RRSP
+                    let fhsaContribS = vars.monthly.fhsaShingo;
+                    fhsaContribS = Math.min(fhsaContribS, Math.max(0, vars.fhsa.annualLimit - fhsaAnnualUsedS));
+                    fhsaContribS = Math.min(fhsaContribS, roomFhsaS);
+                    const overflowS = vars.monthly.fhsaShingo - fhsaContribS;
+                    if (overflowS > 0) rrspContribS += overflowS;
+
+                    let fhsaContribSa = vars.monthly.fhsaSarah;
+                    fhsaContribSa = Math.min(fhsaContribSa, Math.max(0, vars.fhsa.annualLimit - fhsaAnnualUsedSa));
+                    fhsaContribSa = Math.min(fhsaContribSa, roomFhsaSa);
+                    const overflowSa = vars.monthly.fhsaSarah - fhsaContribSa;
+                    if (overflowSa > 0) rrspContribSa += overflowSa;
+
+                    // enforce RRSP room
+                    rrspContribS = Math.min(rrspContribS, rrspRoomS);
+                    rrspContribSa = Math.min(rrspContribSa, rrspRoomSa);
+
+                    fhsaS += fhsaContribS;
+                    fhsaSa += fhsaContribSa;
+                    rrspS += rrspContribS;
+                    rrspSa += rrspContribSa;
+
+                    rrspRoomS -= rrspContribS;
+                    rrspRoomSa -= rrspContribSa;
+
+                    // enforce TFSA room
+                    const tfsaSAllowed = Math.min(tfsaEachPlanned, tfsaRoomS);
+                    const tfsaSaAllowed = Math.min(tfsaEachPlanned, tfsaRoomSa);
+                    tfsaS += tfsaSAllowed;
+                    tfsaSa += tfsaSaAllowed;
+                    tfsaRoomS -= tfsaSAllowed;
+                    tfsaRoomSa -= tfsaSaAllowed;
+
+                    fhsaAnnualUsedS += fhsaContribS;
+                    fhsaAnnualUsedSa += fhsaContribSa;
+                    roomFhsaS -= fhsaContribS;
+                    roomFhsaSa -= fhsaContribSa;
+
+                    // growth
+                    fhsaS *= 1 + r;
+                    fhsaSa *= 1 + r;
+                    rrspS *= 1 + r;
+                    rrspSa *= 1 + r;
+                    tfsaS *= 1 + r;
+                    tfsaSa *= 1 + r;
+                    lira *= 1 + r;
+                    nonReg *= 1 + r;
+                  }
+
+                  // Add new room for the selected year (Jan 1 of that year)
+                  if (year > y0) {
+                    const addTfsa = TFSA_ANNUAL_LIMIT_BY_YEAR[String(year) as keyof typeof TFSA_ANNUAL_LIMIT_BY_YEAR] ?? 0;
+                    tfsaRoomS += addTfsa;
+                    tfsaRoomSa += addTfsa;
+
+                    const RRSP_RATE = 0.18;
+                    rrspRoomS += Math.max(0, vars.earnedIncomeShingo) * RRSP_RATE;
+                    rrspRoomSa += Math.max(0, vars.earnedIncomeSarah) * RRSP_RATE;
+                  }
+
+                  const totals = {
+                    fhsa: fhsaS + fhsaSa,
+                    rrsp: rrspS + rrspSa,
+                    tfsa: tfsaS + tfsaSa,
+                    lira,
+                    nonReg,
+                  };
+                  const grand = totals.fhsa + totals.rrsp + totals.tfsa + totals.lira + totals.nonReg;
+
+                  const years: number[] = [];
+                  for (let y = y0; y <= vars.retirementYear; y++) years.push(y);
+
+                  return (
+                    <div style={{ marginTop: 12, padding: 10, border: "1px solid #e5e7eb", background: "#f8fafc", borderRadius: 10 }}>
+                      <div className="selectRow" style={{ marginTop: 0 }}>
+                        <Field label="Snapshot year">
+                          <select
+                            className="ageInput"
+                            value={currentSnapshotYear}
+                            onChange={(e) => setCurrentSnapshotYear(num(e.target.value))}
+                          >
+                            {years.map((y) => (
+                              <option key={y} value={y}>
+                                {y}
+                              </option>
+                            ))}
+                          </select>
+                        </Field>
+                        <div style={{ fontSize: 12, opacity: 0.75, alignSelf: "end", paddingBottom: 2 }}>
+                          Balances + rooms shown as estimates at the start of {year} (includes new room added for {year}).
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 12, marginTop: 8 }}>
+                        <div>TFSA room S: <strong>${money(Math.round(tfsaRoomS))}</strong></div>
+                        <div>TFSA room Sa: <strong>${money(Math.round(tfsaRoomSa))}</strong></div>
+                        <div>RRSP room S: <strong>${money(Math.round(rrspRoomS))}</strong></div>
+                        <div>RRSP room Sa: <strong>${money(Math.round(rrspRoomSa))}</strong></div>
+                        <div>FHSA room S: <strong>${money(Math.round(roomFhsaS))}</strong></div>
+                        <div>FHSA room Sa: <strong>${money(Math.round(roomFhsaSa))}</strong></div>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 12, marginTop: 8 }}>
+                        <div>Bal FHSA: <strong>${moneyY(totals.fhsa, year)}</strong></div>
+                        <div>Bal RRSP: <strong>${moneyY(totals.rrsp, year)}</strong></div>
+                        <div>Bal TFSA: <strong>${moneyY(totals.tfsa, year)}</strong></div>
+                        <div>Bal LIRA: <strong>${moneyY(totals.lira, year)}</strong></div>
+                        <div>Bal NonReg: <strong>${moneyY(totals.nonReg, year)}</strong></div>
+                        <div>Total: <strong>${moneyY(grand, year)}</strong></div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <h3 style={{ marginTop: 14 }}>Contribution room (editable)</h3>
                 <div className="tightGrid">
