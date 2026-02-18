@@ -1349,6 +1349,7 @@ return {
                             className="ageInput"
                             value={currentSnapshotYear}
                             onChange={(e) => setCurrentSnapshotYear(num(e.target.value))}
+                            style={{ minWidth: 120, width: 120 }}
                           >
                             {years.map((y) => (
                               <option key={y} value={y}>
