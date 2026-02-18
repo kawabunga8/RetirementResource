@@ -250,7 +250,7 @@ export const DEFAULT_VARIABLES: Variables = {
   oasStartAge: 70,
 
   expectedNominalReturn: 0.07,
-  expectedInflation: 0.02,
+  expectedInflation: 0.03,
 
   // From your screenshot: monthly investments
   monthly: {
@@ -276,9 +276,9 @@ export const DEFAULT_VARIABLES: Variables = {
   },
 
   spending: {
-    goGo: 90000,
-    slowGo: 80000,
-    noGo: 70000,
+    goGo: 100000,
+    slowGo: 90000,
+    noGo: 75000,
   },
 
   withdrawals: {
