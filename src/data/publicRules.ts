@@ -19,8 +19,8 @@ const TFSA_ANNUAL_LIMIT_BY_YEAR_DEFAULT = {
   "2021": 6000,
   "2022": 18000,
   "2023": 6500,
-  "2024": 6000,
-  "2025": 7000,
+  "2024": 7000,
+  "2025": 6000,
   "2026": 7000,
 } as const;
 
@@ -29,7 +29,6 @@ export let TFSA_ANNUAL_LIMIT_BY_YEAR: Record<string, number> = { ...TFSA_ANNUAL_
 export function updateTfsaLimitsFromDb(limits: Record<string, number>) {
   TFSA_ANNUAL_LIMIT_BY_YEAR = limits;
 }
-
 
 export const FHSA_RULES = {
   annualLimitPerPerson: 8000,
