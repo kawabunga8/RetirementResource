@@ -87,43 +87,47 @@ function withdrawFrom(amount: number, balance: number, cap: number) {
   };
 }
 
+let RRIF_STATUTORY_FACTORS: Record<number, number> = {
+  71: 0.0528,
+  72: 0.054,
+  73: 0.0553,
+  74: 0.0567,
+  75: 0.0582,
+  76: 0.0598,
+  77: 0.0617,
+  78: 0.0636,
+  79: 0.0658,
+  80: 0.0682,
+  81: 0.0708,
+  82: 0.0738,
+  83: 0.0771,
+  84: 0.0808,
+  85: 0.0851,
+  86: 0.0899,
+  87: 0.0955,
+  88: 0.1021,
+  89: 0.1099,
+  90: 0.1192,
+  91: 0.1306,
+  92: 0.1449,
+  93: 0.1634,
+  94: 0.1879,
+  95: 0.2,
+};
+
+export function updateRrifFactorsFromDb(factors: Record<number, number>) {
+  // Only update the statutory range (71+); formula range (≤70) is derived.
+  RRIF_STATUTORY_FACTORS = { ...RRIF_STATUTORY_FACTORS, ...factors };
+}
+
 export function rrifMinFactor(age: number) {
   if (age <= 0) return 0;
   if (age <= 70) return 1 / (90 - age);
-
-  const table: Record<number, number> = {
-    71: 0.0528,
-    72: 0.054,
-    73: 0.0553,
-    74: 0.0567,
-    75: 0.0582,
-    76: 0.0598,
-    77: 0.0617,
-    78: 0.0636,
-    79: 0.0658,
-    80: 0.0682,
-    81: 0.0708,
-    82: 0.0738,
-    83: 0.0771,
-    84: 0.0808,
-    85: 0.0851,
-    86: 0.0899,
-    87: 0.0955,
-    88: 0.1021,
-    89: 0.1099,
-    90: 0.1192,
-    91: 0.1306,
-    92: 0.1449,
-    93: 0.1634,
-    94: 0.1879,
-    95: 0.2,
-  };
-
   if (age >= 95) return 0.2;
-  return table[age] ?? 0;
+  return RRIF_STATUTORY_FACTORS[age] ?? 0;
 }
 
-const BC_LIF_MAX_PCT_BY_AGE: Record<number, number> = {
+let BC_LIF_MAX_PCT_BY_AGE: Record<number, number> = {
   50: 0.0627,
   51: 0.0631,
   52: 0.0635,
@@ -164,6 +168,10 @@ const BC_LIF_MAX_PCT_BY_AGE: Record<number, number> = {
   87: 0.3529,
   88: 0.5146,
 };
+
+export function updateBcLifMaxFromDb(table: Record<number, number>) {
+  BC_LIF_MAX_PCT_BY_AGE = { ...BC_LIF_MAX_PCT_BY_AGE, ...table };
+}
 
 function bcLifMaxPct(age: number) {
   if (age >= 89) return 1;

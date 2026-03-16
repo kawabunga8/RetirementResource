@@ -204,6 +204,30 @@ input, select {
   background: #f8fafc;
 }
 
+.tabBtn {
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 7px 13px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  color: #64748b;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.tabBtn:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+.tabBtn[data-active="true"] {
+  background: linear-gradient(135deg, #fbbf24 0%, #f97316 60%, #dc2626 100%);
+  color: white;
+  font-weight: 600;
+}
+
 h2 {
   margin-top: 0;
 }

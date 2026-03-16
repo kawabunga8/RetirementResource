@@ -33,7 +33,7 @@ export type TaxYearTables = {
  * - Values below are approximate and meant for sensitivity planning, not filing.
  * - Structure is intentionally year-based so we can plug in exact year tables later.
  */
-export const TAX_TABLES: TaxYearTables[] = [
+export let TAX_TABLES: TaxYearTables[] = [
   {
     year: 2025,
     federal: {
@@ -74,6 +74,10 @@ export const TAX_TABLES: TaxYearTables[] = [
     },
   },
 ];
+
+export function updateTaxTablesFromDb(tables: TaxYearTables[]) {
+  TAX_TABLES = tables;
+}
 
 export function pickTaxTables(taxYear: number): TaxYearTables {
   // Use the latest table <= taxYear; otherwise fall back to earliest.

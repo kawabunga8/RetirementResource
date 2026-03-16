@@ -1,14 +1,19 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import {
   DEFAULT_ANCHORS,
   DEFAULT_VARIABLES,
+  type Anchors,
   type AccountBalances,
   type MonthlyContributions,
   type Variables,
   type WithdrawalOrder,
   type LifMode,
 } from "./planDefaults";
+import { loadPlan, savePlan, loadPublicRules } from "./lib/db";
+import { updateTfsaLimitsFromDb } from "./data/publicRules";
+import { updateTaxTablesFromDb } from "./tax/tables";
+import { updateRrifFactorsFromDb, updateBcLifMaxFromDb } from "./withdrawals/engine";
 import { TFSA_ANNUAL_LIMIT_BY_YEAR } from "./data/publicRules";
 import { computeHouseholdTax } from "./tax/v2";
 import { getBracketTableForYear } from "./tax/tables";
@@ -406,7 +411,46 @@ function estimateTaxSavingsFromDeduction(params: {
 }
 
 export default function App() {
+  const [anchors, setAnchors] = useState<Anchors>(DEFAULT_ANCHORS);
   const [vars, setVars] = useState<Variables>(DEFAULT_VARIABLES);
+  const [dbLoading, setDbLoading] = useState(true);
+  const planIdRef = useRef<string | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load plan and public rules from DB on mount
+  useEffect(() => {
+    Promise.all([loadPlan(), loadPublicRules()]).then(([plan, rules]) => {
+      if (plan) {
+        planIdRef.current = plan.planId;
+        setAnchors(plan.anchors);
+        setVars((v) => ({
+          ...v,
+          ...plan.varsOverrides,
+          withdrawals: { ...v.withdrawals, ...plan.varsOverrides.withdrawals },
+        }));
+      }
+      if (rules) {
+        updateTfsaLimitsFromDb(rules.tfsaLimitsByYear);
+        updateTaxTablesFromDb(rules.taxTables);
+        updateRrifFactorsFromDb(rules.rrifFactors);
+        updateBcLifMaxFromDb(rules.bcLifMax);
+      }
+      setDbLoading(false);
+    });
+  }, []);
+
+  // Auto-save to DB 1s after the last change
+  useEffect(() => {
+    if (dbLoading || !planIdRef.current) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      savePlan(planIdRef.current!, anchors, vars);
+    }, 1000);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [anchors, vars, dbLoading]);
+
   const [page, setPage] = useState<"overview" | "current" | "tax" | "taxBrackets" | "withdrawals">("overview");
   const [showFullSchedule, setShowFullSchedule] = useState(false);
   const [suggestedRrifDepleteByAge, setSuggestedRrifDepleteByAge] = useState<number | null>(null);
@@ -419,7 +463,7 @@ export default function App() {
 
   const adjustDollars = (amountNominal: number, year: number) => {
     if (vars.dollarsMode !== "real") return amountNominal;
-    const yearsFromBaseline = year - DEFAULT_ANCHORS.baselineYear;
+    const yearsFromBaseline = year - anchors.baselineYear;
     return toRealDollars(amountNominal, vars.expectedInflation, yearsFromBaseline);
   };
 
@@ -439,17 +483,17 @@ export default function App() {
   // navigation uses page tabs now
 
   const pensionAnnual =
-    DEFAULT_ANCHORS.pensionShingo + DEFAULT_ANCHORS.pensionSarah;
+    anchors.pensionShingo + anchors.pensionSarah;
 
   const baselineTotal = useMemo(() => sumBalances(vars.balances), [vars.balances]);
   const monthlyTotal = useMemo(() => sumMonthly(vars.monthly), [vars.monthly]);
 
   const model = useMemo(() => {
-    const yearsToRetirement = vars.retirementYear - DEFAULT_ANCHORS.baselineYear;
+    const yearsToRetirement = vars.retirementYear - anchors.baselineYear;
     const monthsToRetirement = Math.max(0, Math.round(yearsToRetirement * 12));
 
     const accumulationSchedule = buildAccumulationSchedule({
-      baselineYear: DEFAULT_ANCHORS.baselineYear,
+      baselineYear: anchors.baselineYear,
       retirementYear: vars.retirementYear,
       annualReturn: vars.expectedNominalReturn,
       fhsaShingo: vars.balances.fhsaShingo,
@@ -541,7 +585,104 @@ return {
     "tfsa",
   ];
 
+  if (dbLoading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontSize: 16, opacity: 0.6 }}>
+        Loading plan…
+      </div>
+    );
+  }
+
+  const timelineStart = anchors.baselineYear;
+  const timelineEnd = anchors.shingoBirthYear + vars.phaseAges.endAge;
+  const nowYear = new Date().getFullYear();
+  const tlPct = (y: number) =>
+    `${Math.max(0, Math.min(100, ((y - timelineStart) / (timelineEnd - timelineStart)) * 100)).toFixed(2)}%`;
+  const retirePct  = tlPct(anchors.targetRetirementYear);
+  const nowPct     = tlPct(nowYear);
+
   return (
+    <>
+    {/* ── Full-width gradient banner ── */}
+    <div style={{
+      background: "linear-gradient(135deg, #fbbf24 0%, #f97316 45%, #dc2626 100%)",
+      color: "white",
+    }}>
+      <div style={{ maxWidth: 1080, margin: "0 auto", padding: "36px 32px 32px" }}>
+        <h1 style={{ margin: 0, fontSize: 30, fontWeight: 700, letterSpacing: "-0.5px" }}>
+          Retirement Resource
+        </h1>
+        <p style={{ marginTop: 6, marginBottom: 32, opacity: 0.88, fontSize: 14, maxWidth: 520, lineHeight: 1.5 }}>
+          Canada / BC retirement planner — adjust levers while keeping anchors explicit.
+        </p>
+
+        {/* Timeline */}
+        <div style={{ position: "relative", paddingBottom: 36 }}>
+          {/* Track */}
+          <div style={{
+            height: 3,
+            background: "rgba(255,255,255,0.25)",
+            borderRadius: 99,
+            position: "relative",
+          }}>
+            {/* Filled portion: start → now */}
+            <div style={{
+              position: "absolute",
+              left: 0,
+              width: nowPct,
+              height: "100%",
+              background: "rgba(255,255,255,0.75)",
+              borderRadius: 99,
+            }} />
+
+            {/* Dot: Today */}
+            <div style={{ position: "absolute", left: nowPct, top: "50%", transform: "translate(-50%, -50%)" }}>
+              <div style={{
+                width: 14, height: 14,
+                borderRadius: "50%",
+                background: "white",
+                boxShadow: "0 0 0 3px rgba(255,255,255,0.4)",
+              }} />
+            </div>
+
+            {/* Dot: Retire */}
+            <div style={{ position: "absolute", left: retirePct, top: "50%", transform: "translate(-50%, -50%)" }}>
+              <div style={{
+                width: 10, height: 10,
+                borderRadius: "50%",
+                background: "rgba(255,255,255,0.6)",
+                border: "2px solid white",
+              }} />
+            </div>
+
+            {/* Dot: End */}
+            <div style={{ position: "absolute", left: "100%", top: "50%", transform: "translate(-50%, -50%)" }}>
+              <div style={{
+                width: 10, height: 10,
+                borderRadius: "50%",
+                background: "rgba(255,255,255,0.4)",
+                border: "2px solid rgba(255,255,255,0.7)",
+              }} />
+            </div>
+          </div>
+
+          {/* Labels */}
+          <div style={{ position: "absolute", left: nowPct, top: 14, transform: "translateX(-50%)", textAlign: "center", whiteSpace: "nowrap" }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{nowYear}</div>
+            <div style={{ fontSize: 11, opacity: 0.75 }}>Today</div>
+          </div>
+          <div style={{ position: "absolute", left: retirePct, top: 14, transform: "translateX(-50%)", textAlign: "center", whiteSpace: "nowrap" }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{anchors.targetRetirementYear}</div>
+            <div style={{ fontSize: 11, opacity: 0.75 }}>Retire</div>
+          </div>
+          <div style={{ position: "absolute", left: "100%", top: 14, transform: "translateX(-50%)", textAlign: "center", whiteSpace: "nowrap" }}>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{timelineEnd}</div>
+            <div style={{ fontSize: 11, opacity: 0.75 }}>Plan ends</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div
       className="app"
       style={{
@@ -551,35 +692,6 @@ return {
         padding: 24,
       }}
     >
-      <header style={{ marginBottom: 18 }}>
-        <h1 style={{ margin: 0 }}>RetirementResource</h1>
-        <p style={{ marginTop: 8, opacity: 0.85 }}>
-          A retirement planning calculator (Canada / BC). Adjust levers (timing,
-          contributions, return assumptions, spending phases) while keeping
-          anchors explicit.
-        </p>
-
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button
-            type="button"
-            onClick={() => setVars(DEFAULT_VARIABLES)}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid #cbd5e1",
-              background: "white",
-              cursor: "pointer",
-            }}
-            title="Reset all inputs back to the starting snapshot and default assumptions"
-          >
-            Reset to starting values
-          </button>
-          <div style={{ fontSize: 12, opacity: 0.75, alignSelf: "center" }}>
-            Tip: if you’re viewing on Vercel, hard refresh after deploy so the
-            newest defaults load.
-          </div>
-        </div>
-      </header>
 
       <nav
         className="card"
@@ -588,57 +700,35 @@ return {
           top: 12,
           zIndex: 10,
           display: "flex",
-          gap: 8,
-          flexWrap: "wrap",
+          gap: 0,
           alignItems: "center",
           justifyContent: "space-between",
+          padding: "6px 8px",
         }}
       >
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <strong style={{ marginRight: 8 }}>Pages:</strong>
-          <button
-            type="button"
-            className="linkBtn"
-            onClick={() => setPage("overview")}
-            aria-current={page === "overview"}
-          >
-            Overview
-          </button>
-          <button
-            type="button"
-            className="linkBtn"
-            onClick={() => setPage("current")}
-            aria-current={page === "current"}
-          >
-            Current
-          </button>
-          <button
-            type="button"
-            className="linkBtn"
-            onClick={() => setPage("tax")}
-            aria-current={page === "tax"}
-          >
-            Tax
-          </button>
-          <button
-            type="button"
-            className="linkBtn"
-            onClick={() => setPage("taxBrackets")}
-            aria-current={page === "taxBrackets"}
-          >
-            Tax Brackets
-          </button>
-          <button
-            type="button"
-            className="linkBtn"
-            onClick={() => setPage("withdrawals")}
-            aria-current={page === "withdrawals"}
-          >
-            Withdrawals
-          </button>
+        <div style={{ display: "flex", gap: 2, alignItems: "center", flexWrap: "wrap" }}>
+          {(
+            [
+              { id: "overview",     label: "Overview" },
+              { id: "current",      label: "Current" },
+              { id: "tax",          label: "Tax" },
+              { id: "taxBrackets",  label: "Tax Brackets" },
+              { id: "withdrawals",  label: "Withdrawals" },
+            ] as { id: typeof page; label: string }[]
+          ).map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              className="tabBtn"
+              onClick={() => setPage(id)}
+              data-active={page === id}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
           <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.85 }}>
             Dollars:
             <select
@@ -655,16 +745,14 @@ return {
               <option value="real">Today’s (real)</option>
             </select>
           </label>
-
-          {/* wide-screen layout toggle removed */}
-
-          <div style={{ fontSize: 12, opacity: 0.75 }}>
-            {/* overview hint removed */}
-            {page === "current" ? "Live snapshot: contributions and totals as of this month" : null}
-            {page === "tax" ? "BC+federal tax estimate (v2)" : null}
-            {page === "taxBrackets" ? "Visualize where income lands in the 2024 brackets" : null}
-            {page === "withdrawals" ? "Drawdown order, caps, and the schedule" : null}
-          </div>
+          <button
+            type="button"
+            onClick={() => { setAnchors(DEFAULT_ANCHORS); setVars(DEFAULT_VARIABLES); }}
+            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #cbd5e1", background: "white", cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}
+            title="Reset all inputs back to the starting snapshot and default assumptions"
+          >
+            Reset
+          </button>
         </div>
       </nav>
 
@@ -674,8 +762,8 @@ return {
         <section id="retirementTiming" className="card">
           <h2>Retirement timing</h2>
           {(() => {
-            const shingoAge = vars.retirementYear - DEFAULT_ANCHORS.shingoBirthYear;
-            const sarahAge = vars.retirementYear - DEFAULT_ANCHORS.sarahBirthYear;
+            const shingoAge = vars.retirementYear - anchors.shingoBirthYear;
+            const sarahAge = vars.retirementYear - anchors.sarahBirthYear;
             return (
               <>
                 <div className="selectRow">
@@ -689,8 +777,8 @@ return {
                         setVars((v) => ({
                           ...v,
                           retirementYear: year,
-                          shingoRetireAge: year - DEFAULT_ANCHORS.shingoBirthYear,
-                          sarahRetireAge: year - DEFAULT_ANCHORS.sarahBirthYear,
+                          shingoRetireAge: year - anchors.shingoBirthYear,
+                          sarahRetireAge: year - anchors.sarahBirthYear,
                           tax: { ...v.tax, taxYear: year },
                         }));
                       }}
@@ -822,16 +910,16 @@ return {
 
           <div style={{ marginTop: 10, fontSize: 13 }}>
             Remaining FHSA room (Shingo):{" "}
-            <strong>${moneyY(Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedShingo), DEFAULT_ANCHORS.baselineYear)}</strong>
+            <strong>${moneyY(Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedShingo), anchors.baselineYear)}</strong>
             {" "} | Remaining FHSA room (Sarah):{" "}
-            <strong>${moneyY(Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah), DEFAULT_ANCHORS.baselineYear)}</strong>
+            <strong>${moneyY(Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah), anchors.baselineYear)}</strong>
           </div>
         </section>
 
         <section id="retirement-balances" className="card">
           <h2>Starting balances at retirement (projected)</h2>
           <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-            This is calculated by simulating contributions month-by-month from {DEFAULT_ANCHORS.baselineYear} to {vars.retirementYear},
+            This is calculated by simulating contributions month-by-month from {anchors.baselineYear} to {vars.retirementYear},
             including FHSA annual/lifetime caps and redirecting any capped FHSA contribution into RRSP.
           </p>
           <ul>
@@ -1125,7 +1213,7 @@ return {
 
             const monthsElapsed = Math.max(
               0,
-              (nowYear - DEFAULT_ANCHORS.baselineYear) * 12 + nowMonth
+              (nowYear - anchors.baselineYear) * 12 + nowMonth
             );
 
             // Simulate month-by-month from baseline to the start of the current month.
@@ -1147,7 +1235,7 @@ return {
             let fhsaAnnualUsedSa = 0;
 
             for (let m = 0; m < monthsElapsed; m++) {
-              // const year = DEFAULT_ANCHORS.baselineYear + Math.floor(m / 12);
+              // const year = anchors.baselineYear + Math.floor(m / 12);
 
               if (m % 12 === 0) {
                 fhsaAnnualUsedS = 0;
@@ -1214,12 +1302,12 @@ return {
             return (
               <>
                 <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-                  As of <strong>{currentLabel}</strong> (simulated from baseline {DEFAULT_ANCHORS.baselineYear} using your current monthly contributions and return assumptions).
+                  As of <strong>{currentLabel}</strong> (simulated from baseline {anchors.baselineYear} using your current monthly contributions and return assumptions).
                 </p>
 
                 {(() => {
                   const year = currentSnapshotYear;
-                  const y0 = DEFAULT_ANCHORS.baselineYear;
+                  const y0 = anchors.baselineYear;
                   const monthsToYear = Math.max(0, (year - y0) * 12);
                   const r = vars.expectedNominalReturn / 12;
 
@@ -1667,8 +1755,8 @@ return {
           </p>
 
           {(() => {
-            const shingoAge = vars.tax.taxYear - DEFAULT_ANCHORS.shingoBirthYear;
-            const sarahAge = vars.tax.taxYear - DEFAULT_ANCHORS.sarahBirthYear;
+            const shingoAge = vars.tax.taxYear - anchors.shingoBirthYear;
+            const sarahAge = vars.tax.taxYear - anchors.sarahBirthYear;
 
             const res = computeHouseholdTax({
               taxYear: vars.tax.taxYear,
@@ -1730,7 +1818,7 @@ return {
                       onChange={(e) => {
                         const year = num(e.target.value);
                         setVars((v) => {
-                          const yearsFromBaseline = year - DEFAULT_ANCHORS.baselineYear;
+                          const yearsFromBaseline = year - anchors.baselineYear;
                           const indexRate = v.expectedInflation * v.cpiMultiplier;
 
                           const indexNominal = (amountReal: number) =>
@@ -1741,11 +1829,11 @@ return {
                           const inRetirement = year >= v.retirementYear;
                           const schedRow = inRetirement ? model.schedule.find((r) => r.year === year) : undefined;
 
-                          const pensionShingo = indexNominal(DEFAULT_ANCHORS.pensionShingo);
-                          const pensionSarah = indexNominal(DEFAULT_ANCHORS.pensionSarah);
+                          const pensionShingo = indexNominal(anchors.pensionShingo);
+                          const pensionSarah = indexNominal(anchors.pensionSarah);
 
-                          const ageShingo = year - DEFAULT_ANCHORS.shingoBirthYear;
-                          const ageSarah = year - DEFAULT_ANCHORS.sarahBirthYear;
+                          const ageShingo = year - anchors.shingoBirthYear;
+                          const ageSarah = year - anchors.sarahBirthYear;
 
                           const cppShingo = ageShingo >= v.cppStartAge ? indexNominal(v.withdrawals.cppShingoAnnual) : 0;
                           const cppSarah = ageSarah >= v.cppStartAge ? indexNominal(v.withdrawals.cppSarahAnnual) : 0;
@@ -2037,14 +2125,14 @@ return {
             <Field label="Tax year">
               {(() => {
                 const scheduleYears = model.schedule.map((r) => r.year);
-                const firstYear = Math.min(DEFAULT_ANCHORS.baselineYear, ...scheduleYears);
-                const lastYear = Math.max(DEFAULT_ANCHORS.baselineYear, ...scheduleYears);
+                const firstYear = Math.min(anchors.baselineYear, ...scheduleYears);
+                const lastYear = Math.max(anchors.baselineYear, ...scheduleYears);
                 const years: number[] = [];
                 for (let y = firstYear; y <= lastYear; y++) years.push(y);
 
                 const setYear = (year: number) => {
                   setVars((v) => {
-                    const yearsFromBaseline = year - DEFAULT_ANCHORS.baselineYear;
+                    const yearsFromBaseline = year - anchors.baselineYear;
                     const indexRate = v.expectedInflation * v.cpiMultiplier;
 
                     const indexNominal = (amountReal: number) =>
@@ -2055,11 +2143,11 @@ return {
                     const inRetirement = year >= v.retirementYear;
                     const schedRow = inRetirement ? model.schedule.find((r) => r.year === year) : undefined;
 
-                    const pensionShingo = indexNominal(DEFAULT_ANCHORS.pensionShingo);
-                    const pensionSarah = indexNominal(DEFAULT_ANCHORS.pensionSarah);
+                    const pensionShingo = indexNominal(anchors.pensionShingo);
+                    const pensionSarah = indexNominal(anchors.pensionSarah);
 
-                    const ageShingo = year - DEFAULT_ANCHORS.shingoBirthYear;
-                    const ageSarah = year - DEFAULT_ANCHORS.sarahBirthYear;
+                    const ageShingo = year - anchors.shingoBirthYear;
+                    const ageSarah = year - anchors.sarahBirthYear;
 
                     const cppShingo = ageShingo >= v.cppStartAge ? indexNominal(v.withdrawals.cppShingoAnnual) : 0;
                     const cppSarah = ageSarah >= v.cppStartAge ? indexNominal(v.withdrawals.cppSarahAnnual) : 0;
@@ -2136,8 +2224,8 @@ return {
 
             // state managed at App() level
 
-            const shingoAge = vars.tax.taxYear - DEFAULT_ANCHORS.shingoBirthYear;
-            const sarahAge = vars.tax.taxYear - DEFAULT_ANCHORS.sarahBirthYear;
+            const shingoAge = vars.tax.taxYear - anchors.shingoBirthYear;
+            const sarahAge = vars.tax.taxYear - anchors.sarahBirthYear;
 
             const res = computeHouseholdTax({
               taxYear: vars.tax.taxYear,
@@ -3145,5 +3233,6 @@ return {
         </div>
       </footer>
     </div>
+    </>
   );
 }

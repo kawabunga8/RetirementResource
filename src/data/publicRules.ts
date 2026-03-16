@@ -3,7 +3,7 @@
 
 export type TfsaLimitByYear = Record<string, number>;
 
-export const TFSA_ANNUAL_LIMIT_BY_YEAR = {
+const TFSA_ANNUAL_LIMIT_BY_YEAR_DEFAULT = {
   "2009": 5000,
   "2010": 5000,
   "2011": 5000,
@@ -23,6 +23,12 @@ export const TFSA_ANNUAL_LIMIT_BY_YEAR = {
   "2025": 7000,
   "2026": 7000,
 } as const;
+
+export let TFSA_ANNUAL_LIMIT_BY_YEAR: Record<string, number> = { ...TFSA_ANNUAL_LIMIT_BY_YEAR_DEFAULT };
+
+export function updateTfsaLimitsFromDb(limits: Record<string, number>) {
+  TFSA_ANNUAL_LIMIT_BY_YEAR = limits;
+}
 
 
 export const FHSA_RULES = {
