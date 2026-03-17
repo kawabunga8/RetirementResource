@@ -12,7 +12,7 @@ import {
 } from "./planDefaults";
 import { loadPlan, savePlan, loadPublicRules } from "./lib/db";
 import { updateTfsaLimitsFromDb } from "./data/publicRules";
-import { updateTaxTablesFromDb } from "./tax/tables";
+import { updateTaxTablesFromDb, pickTaxTables } from "./tax/tables";
 import { updateRrifFactorsFromDb, updateBcLifMaxFromDb } from "./withdrawals/engine";
 import { TFSA_ANNUAL_LIMIT_BY_YEAR } from "./data/publicRules";
 import { computeHouseholdTax } from "./tax/v2";
@@ -2295,7 +2295,29 @@ return {
             const fedB = findBracket(income, FED);
             const bcB = findBracket(income, BC);
             const marginal = fedB.rate + bcB.rate;
-            const effective = income > 0 ? personRes.totalTax / income : 0;
+
+            // Effective rate: when using test income, recompute tax on that income
+            // (personRes.totalTax is based on plan inputs, not the test income slider).
+            const effective = (() => {
+              if (income <= 0) return 0;
+              if (!bracketsUseTestIncome) return personRes.totalTax / income;
+              const inlinePT = (inc: number, brackets: typeof FED) => {
+                let tax = 0, prev = 0;
+                for (const b of brackets) {
+                  tax += Math.max(0, Math.min(inc, b.upTo) - prev) * b.rate;
+                  prev = b.upTo;
+                  if (inc <= b.upTo) break;
+                }
+                return tax;
+              };
+              const tables = pickTaxTables(vars.tax.taxYear);
+              const fedTax = inlinePT(income, FED);
+              const bcTax = inlinePT(income, BC);
+              const credits =
+                tables.federal.bpa * tables.federal.lowestRate +
+                tables.bc.bpa * tables.bc.lowestRate;
+              return Math.max(0, fedTax + bcTax - credits) / income;
+            })();
             const roomToNextFed = Number.isFinite(fedB.to) ? Math.max(0, fedB.to - income) : Infinity;
             const roomToNextBc = Number.isFinite(bcB.to) ? Math.max(0, bcB.to - income) : Infinity;
             const roomToNext = Math.min(roomToNextFed, roomToNextBc);

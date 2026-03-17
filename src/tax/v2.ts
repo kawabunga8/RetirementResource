@@ -190,12 +190,9 @@ function computeCredits(params: {
   }
 
   if (params.toggles.usePensionCredit && params.eligiblePensionIncome > 0) {
-    const base = Math.min(
-      tables.federal.pensionCreditBase,
-      Math.max(0, params.eligiblePensionIncome)
-    );
-    fed.pension = base * tables.federal.lowestRate;
-    bc.pension = base * tables.bc.lowestRate;
+    const eligibleAmt = Math.max(0, params.eligiblePensionIncome);
+    fed.pension = Math.min(tables.federal.pensionCreditBase, eligibleAmt) * tables.federal.lowestRate;
+    bc.pension = Math.min(tables.bc.pensionCreditBase, eligibleAmt) * tables.bc.lowestRate;
   }
 
   fed.total = fed.bpa + fed.age + fed.pension;

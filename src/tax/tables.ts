@@ -38,39 +38,42 @@ export let TAX_TABLES: TaxYearTables[] = [
     year: 2025,
     federal: {
       brackets: [
-        { upTo: 55867, rate: 0.15 },
-        { upTo: 111733, rate: 0.205 },
-        { upTo: 173205, rate: 0.26 },
-        { upTo: 246752, rate: 0.29 },
+        // Thresholds: exact 2025 CRA values.
+        // First-bracket rate: 14.5% (blended — 15% Jan–Jun, 14% Jul–Dec 2025).
+        // From 2026 onward the rate is permanently 14%; add a year:2026 entry when exact thresholds are confirmed.
+        { upTo: 57375, rate: 0.145 },
+        { upTo: 114750, rate: 0.205 },
+        { upTo: 177882, rate: 0.26 },
+        { upTo: 253414, rate: 0.29 },
         { upTo: Infinity, rate: 0.33 },
       ],
-      lowestRate: 0.15,
-      // Approx BPA / age amount. Replace with exact values as needed.
-      bpa: 15705,
+      lowestRate: 0.145,
+      bpa: 16129,
       ageAmountMax: 9028,
-      ageAmountThreshold: 45000,
+      ageAmountThreshold: 45522,
       ageAmountPhaseOutRate: 0.15,
       pensionCreditBase: 2000,
-      // Approx OAS recovery threshold and rate.
-      oasClawbackThreshold: 91000,
+      oasClawbackThreshold: 93454,
       oasClawbackRate: 0.15,
     },
     bc: {
       brackets: [
-        { upTo: 45654, rate: 0.0506 },
-        { upTo: 91310, rate: 0.077 },
-        { upTo: 104835, rate: 0.105 },
-        { upTo: 127299, rate: 0.1229 },
-        { upTo: 172602, rate: 0.147 },
-        { upTo: 240716, rate: 0.168 },
+        // Exact 2025 BC thresholds (indexed ~8% from 2024).
+        { upTo: 49279, rate: 0.0506 },
+        { upTo: 98560, rate: 0.077 },
+        { upTo: 113158, rate: 0.105 },
+        { upTo: 137407, rate: 0.1229 },
+        { upTo: 186306, rate: 0.147 },
+        { upTo: 259829, rate: 0.168 },
         { upTo: Infinity, rate: 0.205 },
       ],
       lowestRate: 0.0506,
-      bpa: 12580,
-      ageAmountMax: 5450,
-      ageAmountThreshold: 42500,
-      ageAmountPhaseOutRate: 0.034,
-      pensionCreditBase: 2000,
+      bpa: 12932,
+      ageAmountMax: 5799,
+      ageAmountThreshold: 43169,
+      // 15%: $5,799 phases out to zero at $81,829 ($43,169 + $5,799/0.15).
+      ageAmountPhaseOutRate: 0.15,
+      pensionCreditBase: 1000,
     },
   },
 ];
