@@ -535,7 +535,8 @@ export default function App() {
       fhsaContributedToDateSarah: vars.fhsa.contributedSarah,
       incomeShingo: vars.tax.workingIncomeShingo,
       incomeSarah: vars.tax.workingIncomeSarah,
-      enableRefundToTfsa: vars.tax.enableRefundToTfsa,
+      // Suppress refund projection if the TFSA balance already includes the deposit.
+      enableRefundToTfsa: vars.tax.enableRefundToTfsa && !vars.tfsaIncludesRefund,
       balancesAsOf: vars.balancesAsOf,
     });
 
@@ -1660,6 +1661,14 @@ return {
                       }
                     />
                   </Field>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, gridColumn: "1 / -1", cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={vars.tfsaIncludesRefund ?? false}
+                      onChange={(e) => setVars((v) => ({ ...v, tfsaIncludesRefund: e.target.checked }))}
+                    />
+                    TFSA amounts above already include the tax refund deposit — don't project additional refund→TFSA in the accumulation model
+                  </label>
                   <Field label="LIRA/LIF Shingo (starting, $)">
                     <input
                       type="number"

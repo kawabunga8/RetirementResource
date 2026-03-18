@@ -216,6 +216,10 @@ export type Variables = {
 
   // ISO date string (YYYY-MM-DD) recording when balances were last updated.
   balancesAsOf: string;
+
+  // True if the TFSA balances above already include the most recent tax refund deposit.
+  // When true, the accumulation model will not project additional refund→TFSA amounts.
+  tfsaIncludesRefund: boolean;
 };
 
 // From your notes: Jan 2026 snapshot
@@ -362,6 +366,7 @@ export const DEFAULT_VARIABLES: Variables = {
   },
 
   balancesAsOf: "2026-01-01",
+  tfsaIncludesRefund: true,
 
   balances: {
     fhsaShingo: 18521.09,
