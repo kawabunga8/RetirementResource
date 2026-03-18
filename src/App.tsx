@@ -1303,6 +1303,11 @@ return {
               <>
                 <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
                   As of <strong>{currentLabel}</strong> (simulated from baseline {anchors.baselineYear} using your current monthly contributions and return assumptions).
+                  {vars.balancesAsOf && (
+                    <span style={{ marginLeft: 8 }}>
+                      Balances last updated: <strong>{new Date(vars.balancesAsOf + "T00:00:00").toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</strong>.
+                    </span>
+                  )}
                 </p>
 
                 {(() => {
@@ -1556,6 +1561,17 @@ return {
                 </div>
 
                 <h3 style={{ marginTop: 14 }}>Current balances (editable)</h3>
+                <div style={{ marginBottom: 10 }}>
+                  <Field label="Balances as of">
+                    <input
+                      type="date"
+                      value={vars.balancesAsOf ?? ""}
+                      onChange={(e) =>
+                        setVars((v) => ({ ...v, balancesAsOf: e.target.value }))
+                      }
+                    />
+                  </Field>
+                </div>
                 <div className="tightGrid">
                   <Field label="FHSA Shingo (starting, $)">
                     <input

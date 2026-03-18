@@ -9,6 +9,7 @@ type DbPlan = {
   baseline_year: number;
   target_retirement_year: number;
   location: string;
+  balances_as_of: string | null;
 };
 
 type DbMember = {
@@ -125,6 +126,7 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
       liraShingo: account("lira", shingo.id)?.balance ?? 0,
       nonRegistered: account("non_registered")?.balance ?? 0,
     },
+    balancesAsOf: plan.balances_as_of ?? "2026-01-01",
     tfsaRoomShingo: account("tfsa", shingo.id)?.contribution_room ?? 0,
     tfsaRoomSarah: account("tfsa", sarah.id)?.contribution_room ?? 0,
     rrspRoomShingo: account("rrsp", shingo.id)?.contribution_room ?? 0,
@@ -178,6 +180,7 @@ export async function savePlan(
       target_retirement_year: anchors.targetRetirementYear,
       baseline_year: anchors.baselineYear,
       location: anchors.location,
+      balances_as_of: vars.balancesAsOf ?? null,
     }).eq("id", planId),
 
     // Members

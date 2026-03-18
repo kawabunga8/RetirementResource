@@ -213,6 +213,9 @@ export type Variables = {
 
   // Baseline balances (as-of baselineYear snapshot)
   balances: AccountBalances;
+
+  // ISO date string (YYYY-MM-DD) recording when balances were last updated.
+  balancesAsOf: string;
 };
 
 // From your notes: Jan 2026 snapshot
@@ -357,6 +360,8 @@ export const DEFAULT_VARIABLES: Variables = {
     workingIncomeSarah: 100000,
     enableRefundToTfsa: true,
   },
+
+  balancesAsOf: "2026-01-01",
 
   balances: {
     fhsaShingo: 18521.09,
