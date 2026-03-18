@@ -140,10 +140,11 @@ function buildAccumulationSchedule(params: {
   fhsaLifetimeCap: number;
   fhsaContributedToDateShingo: number;
   fhsaContributedToDateSarah: number;
-  // Refund modeling
+  // Refund is always projected into TFSA, except for the balancesAsOf year
+  // when tfsaIncludesRefund is true (balance already contains that deposit).
   incomeShingo: number;
   incomeSarah: number;
-  enableRefundToTfsa: boolean;
+  tfsaIncludesRefund: boolean;
   // ISO date (YYYY-MM-DD): simulation starts from this month, skipping months
   // already reflected in the starting balances. Defaults to Jan 1 of baselineYear.
   balancesAsOf?: string;
@@ -158,6 +159,11 @@ function buildAccumulationSchedule(params: {
     const elapsed = (d.getFullYear() - params.baselineYear) * 12 + d.getMonth();
     return Math.max(0, Math.min(totalMonths, elapsed));
   })();
+
+  // Year in which the balance snapshot was taken — refund suppressed for this year only.
+  const balancesAsOfYear = params.balancesAsOf
+    ? new Date(params.balancesAsOf + "T00:00:00").getFullYear()
+    : params.baselineYear;
 
   const r = params.annualReturn / 12;
 
@@ -294,7 +300,8 @@ function buildAccumulationSchedule(params: {
       const fhsaAnnualSa = fhsaAnnualUsedSa;
       const tfsaAnnual = params.monthlyTfsaTotal * 12;
 
-      const estRefundToTfsa = params.enableRefundToTfsa
+      const suppressRefund = params.tfsaIncludesRefund && year === balancesAsOfYear;
+      const estRefundToTfsa = !suppressRefund
         ? estimateTaxSavingsFromDeduction({
             income: params.incomeShingo,
             deduction: rrspAnnualS + fhsaAnnualS,
@@ -535,8 +542,7 @@ export default function App() {
       fhsaContributedToDateSarah: vars.fhsa.contributedSarah,
       incomeShingo: vars.tax.workingIncomeShingo,
       incomeSarah: vars.tax.workingIncomeSarah,
-      // Refund assumed invested in TFSA; suppressed if balance already includes it.
-      enableRefundToTfsa: !vars.tfsaIncludesRefund,
+      tfsaIncludesRefund: vars.tfsaIncludesRefund ?? false,
       balancesAsOf: vars.balancesAsOf,
     });
 
