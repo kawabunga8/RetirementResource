@@ -535,8 +535,8 @@ export default function App() {
       fhsaContributedToDateSarah: vars.fhsa.contributedSarah,
       incomeShingo: vars.tax.workingIncomeShingo,
       incomeSarah: vars.tax.workingIncomeSarah,
-      // Suppress refund projection if the TFSA balance already includes the deposit.
-      enableRefundToTfsa: vars.tax.enableRefundToTfsa && !vars.tfsaIncludesRefund,
+      // Refund assumed invested in TFSA; suppressed if balance already includes it.
+      enableRefundToTfsa: !vars.tfsaIncludesRefund,
       balancesAsOf: vars.balancesAsOf,
     });
 
@@ -2104,25 +2104,11 @@ return {
                 <details style={{ marginTop: 12 }}>
                   <summary style={{ cursor: "pointer" }}>Working-year refund model (separate)</summary>
                   <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
-                    This refund estimate is only used in the accumulation model (working years) for RRSP/FHSA deductions.
+                    RRSP/FHSA refund is assumed to be invested in TFSA each year.
+                    Controlled by the "includes tax refund" checkbox on the Current page.
                     Retirement years do not include withholding/refunds.
                   </div>
                   <div className="selectRow" style={{ marginTop: 8 }}>
-                    <Field label="Refund → TFSA">
-                      <select
-                        className="yesNoSelect"
-                        value={vars.tax.enableRefundToTfsa ? "yes" : "no"}
-                        onChange={(e) =>
-                          setVars((v) => ({
-                            ...v,
-                            tax: { ...v.tax, enableRefundToTfsa: e.target.value === "yes" },
-                          }))
-                        }
-                      >
-                        <option value="yes">Yes</option>
-                        <option value="no">No</option>
-                      </select>
-                    </Field>
                     <Field label="Working income Shingo ($/yr)">
                       <input
                         className="moneyInputLg"
