@@ -358,7 +358,7 @@ export const DEFAULT_VARIABLES: Variables = {
     // Working-year refund modeling inputs
     workingIncomeShingo: 100000,
     workingIncomeSarah: 100000,
-    enableRefundToTfsa: true,
+    enableRefundToTfsa: false,
   },
 
   balancesAsOf: "2026-01-01",
