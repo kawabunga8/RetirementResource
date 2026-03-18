@@ -144,9 +144,21 @@ function buildAccumulationSchedule(params: {
   incomeShingo: number;
   incomeSarah: number;
   enableRefundToTfsa: boolean;
+  // ISO date (YYYY-MM-DD): simulation starts from this month, skipping months
+  // already reflected in the starting balances. Defaults to Jan 1 of baselineYear.
+  balancesAsOf?: string;
 }): AccumRow[] {
   const years = Math.max(0, params.retirementYear - params.baselineYear);
-  const months = years * 12;
+  const totalMonths = years * 12;
+
+  // Months from Jan 1 of baselineYear to balancesAsOf (already in the balance snapshot).
+  const startMonth = (() => {
+    if (!params.balancesAsOf) return 0;
+    const d = new Date(params.balancesAsOf + "T00:00:00");
+    const elapsed = (d.getFullYear() - params.baselineYear) * 12 + d.getMonth();
+    return Math.max(0, Math.min(totalMonths, elapsed));
+  })();
+
   const r = params.annualReturn / 12;
 
   // balances
@@ -177,12 +189,14 @@ function buildAccumulationSchedule(params: {
 
   const rows: AccumRow[] = [];
 
-  for (let m = 0; m < months; m++) {
-    const yearIndex = Math.floor(m / 12);
+  for (let m = 0; m < totalMonths - startMonth; m++) {
+    const absMonth = m + startMonth;
+    const yearIndex = Math.floor(absMonth / 12);
     const year = params.baselineYear + yearIndex;
+    const monthInYear = absMonth % 12;
 
     // reset annual used at Jan
-    if (m % 12 === 0) {
+    if (monthInYear === 0) {
       fhsaAnnualUsedS = 0;
       fhsaAnnualUsedSa = 0;
       rrspAnnualS = 0;
@@ -272,7 +286,7 @@ function buildAccumulationSchedule(params: {
     nonReg *= 1 + r;
 
     // record end-of-year snapshot
-    const endOfYear = (m % 12) === 11;
+    const endOfYear = monthInYear === 11;
     if (endOfYear) {
       // Estimate annual refund from RRSP+FHSA deductions and deposit into TFSA once per year.
       // (v1: uses the simple tax estimator; no credits.)
@@ -522,6 +536,7 @@ export default function App() {
       incomeShingo: vars.tax.workingIncomeShingo,
       incomeSarah: vars.tax.workingIncomeSarah,
       enableRefundToTfsa: vars.tax.enableRefundToTfsa,
+      balancesAsOf: vars.balancesAsOf,
     });
 
     const lastAccum = accumulationSchedule[accumulationSchedule.length - 1];
