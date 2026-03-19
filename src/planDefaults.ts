@@ -116,6 +116,11 @@ export type WithdrawalPlan = {
   cppSarahAnnual: number;
   oasShingoAnnual: number;
   oasSarahAnnual: number;
+
+  // Per-year extra RRSP overlay (year string → nominal $).
+  // When non-empty, bypasses the binary-search glidepath entirely.
+  // Keys are calendar year strings, e.g. "2037": 20000.
+  rrspExtraByYear: Record<string, number>;
 };
 
 export type TaxInputs = {
@@ -325,6 +330,8 @@ export const DEFAULT_VARIABLES: Variables = {
     // Rough OAS-at-70 placeholder (annual). Replace with your preferred assumption.
     oasShingoAnnual: 11000,
     oasSarahAnnual: 11000,
+
+    rrspExtraByYear: {},
   },
 
   tax: {

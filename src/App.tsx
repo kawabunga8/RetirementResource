@@ -3144,14 +3144,66 @@ return {
           </div>
 
           <h3 style={{ marginTop: 14 }}>Schedule</h3>
-          <label style={{ display: "inline-flex", gap: 8, alignItems: "center", justifyContent: "flex-start", textAlign: "left", fontSize: 12, opacity: 0.85, marginTop: 6, whiteSpace: "nowrap" }}>
-            <input
-              type="checkbox"
-              checked={showFullSchedule}
-              onChange={(e) => setShowFullSchedule(e.target.checked)}
-            />
-            Show full schedule
-          </label>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 6 }}>
+            <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
+              <input
+                type="checkbox"
+                checked={showFullSchedule}
+                onChange={(e) => setShowFullSchedule(e.target.checked)}
+              />
+              Show full schedule
+            </label>
+            <button
+              className="btnSmall"
+              type="button"
+              onClick={() => {
+                // Build a clean schedule with no overrides and front-load=0 to get the
+                // binary-search even glidepath, then average the overlay values across
+                // all pre-depletion years and write that level amount into rrspExtraByYear.
+                const flatVars: Variables = {
+                  ...vars,
+                  withdrawals: { ...vars.withdrawals, rrifFrontLoad: 0, rrspExtraByYear: {} },
+                };
+                const sched = buildWithdrawalSchedule({
+                  vars: flatVars,
+                  retirementYear: vars.retirementYear,
+                  retirementBalances: model.retirementBalances,
+                });
+                const depletionAge = vars.withdrawals.rrifDepleteByAge;
+                const glideRows = sched.filter(
+                  (r) => r.year >= vars.retirementYear && r.ageShingo < depletionAge
+                );
+                const extras = glideRows.map((r) => Math.max(0, (r.debug as any).extraRrifPlanned ?? 0));
+                const total = extras.reduce((a, b) => a + b, 0);
+                if (glideRows.length === 0 || total <= 0) return;
+                const levelAmount = Math.round(total / glideRows.length);
+                const overrides: Record<string, number> = {};
+                for (const r of glideRows) {
+                  overrides[String(r.year)] = levelAmount;
+                }
+                setVars((v) => ({
+                  ...v,
+                  withdrawals: { ...v.withdrawals, rrspExtraByYear: overrides },
+                }));
+              }}
+            >
+              Auto-level RRSP
+            </button>
+            {Object.keys(vars.withdrawals.rrspExtraByYear ?? {}).length > 0 && (
+              <button
+                className="btnSmall"
+                type="button"
+                onClick={() =>
+                  setVars((v) => ({
+                    ...v,
+                    withdrawals: { ...v.withdrawals, rrspExtraByYear: {} },
+                  }))
+                }
+              >
+                Clear (auto)
+              </button>
+            )}
+          </div>
           <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
             Note: Sarah’s CPP/OAS begins when <strong>she</strong> reaches the selected start age (e.g. 70),
             which is typically ~2 years after Shingo given your birth years.
@@ -3191,6 +3243,7 @@ return {
                           ["Pension", "$/yr"],
                           ["CPP+OAS", "$/yr"],
                           ["W/d", "RRSP"],
+                          ["Extra", "RRSP"],
                           ["W/d", "LIF"],
                           // (removed W/d TFSA)
                           // (removed W/d NonReg)
@@ -3238,6 +3291,28 @@ return {
                             <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.guaranteedIncome, r.year)}</td>
                             <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.benefitsIncome, r.year)}</td>
                             <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.rrsp, r.year)}</td>
+                            <td style={{ padding: "2px 4px", borderBottom: "1px solid #f1f5f9" }}>
+                              <input
+                                type="number"
+                                step="1000"
+                                min={0}
+                                placeholder="auto"
+                                value={vars.withdrawals.rrspExtraByYear?.[String(r.year)] ?? ""}
+                                style={{ width: 80, fontSize: 12, textAlign: "right", padding: "2px 4px", border: "1px solid #d1d5db", borderRadius: 4, background: vars.withdrawals.rrspExtraByYear?.[String(r.year)] != null ? "#fffbeb" : undefined }}
+                                onChange={(e) => {
+                                  const raw = e.target.value.trim();
+                                  setVars((v) => {
+                                    const prev = { ...(v.withdrawals.rrspExtraByYear ?? {}) };
+                                    if (raw === "" || raw === "0") {
+                                      delete prev[String(r.year)];
+                                    } else {
+                                      prev[String(r.year)] = Math.max(0, Number(raw));
+                                    }
+                                    return { ...v, withdrawals: { ...v.withdrawals, rrspExtraByYear: prev } };
+                                  });
+                                }}
+                              />
+                            </td>
                             <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.withdrawals.lira, r.year)}</td>
                             {/* removed W/d TFSA */}
                             {/* removed W/d NonReg */}

@@ -788,7 +788,16 @@ export function buildWithdrawalSchedule(params: {
     .filter((r) => r.year >= params.retirementYear && r.year < depletionYear)
     .map((r) => r.year);
 
-  if (startRrspAtDepletion > 1 && years.length > 0) {
+  // If the user has supplied per-year manual overrides, bypass the binary search entirely.
+  const manualOverrides = vars.withdrawals.rrspExtraByYear ?? {};
+  const hasManualOverrides = Object.keys(manualOverrides).length > 0;
+
+  if (hasManualOverrides) {
+    for (const y of years) {
+      const v = manualOverrides[String(y)];
+      if (v != null) extraPlan[y] = Math.max(0, v);
+    }
+  } else if (startRrspAtDepletion > 1 && years.length > 0) {
     // Goal: after covering spending gaps (Pass 1), distribute the remaining RRSP more-or-less evenly
     // across the retirement years up to (but not including) the depletion year.
     // We solve for a level (or gently front-loaded) overlay that drives the RRSP balance to ~0
@@ -812,7 +821,13 @@ export function buildWithdrawalSchedule(params: {
     }
 
     const r = Math.max(0, vars.expectedNominalReturn);
-    const B0 = Math.max(0, params.retirementBalances.rrsp);
+    // When FHSA is rolled into RRSP at retirement, the binary search must start
+    // from the combined balance so it targets the right depletion trajectory.
+    const B0 = Math.max(
+      0,
+      params.retirementBalances.rrsp +
+        (vars.withdrawals.rollFhsaIntoRrspAtRetirement ? params.retirementBalances.fhsa : 0)
+    );
 
     const simulateEndBalance = (A: number) => {
       let bal = B0;
