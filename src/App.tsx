@@ -3144,7 +3144,7 @@ return {
           </div>
 
           <h3 style={{ marginTop: 14 }}>Schedule</h3>
-          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 6 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start", marginTop: 6 }}>
             <label style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 12, opacity: 0.85, whiteSpace: "nowrap" }}>
               <input
                 type="checkbox"
@@ -3153,6 +3153,7 @@ return {
               />
               Show full schedule
             </label>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button
               className="btnSmall"
               type="button"
@@ -3203,6 +3204,7 @@ return {
                 Clear (auto)
               </button>
             )}
+            </div>
           </div>
           <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
             Note: Sarah’s CPP/OAS begins when <strong>she</strong> reaches the selected start age (e.g. 70),
