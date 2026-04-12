@@ -606,21 +606,43 @@ export default function App() {
   const monthlyTotal = useMemo(() => sumMonthly(vars.monthly), [vars.monthly]);
 
   const model = useMemo(() => {
-    const yearsToRetirement = vars.retirementYear - anchors.baselineYear;
-    const monthsToRetirement = Math.max(0, Math.round(yearsToRetirement * 12));
+    // Grow saved balances from balancesAsOf to today (interest only, no contributions).
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    const savedDate = vars.balancesAsOf ? new Date(vars.balancesAsOf + "T00:00:00") : null;
+    const daysElapsed = savedDate
+      ? Math.max(0, (today.getTime() - savedDate.getTime()) / 86400000)
+      : 0;
+    const interestGrowth = Math.pow(1 + vars.expectedNominalReturn, daysElapsed / 365);
+    const todayBalances = {
+      fhsaShingo:    vars.balances.fhsaShingo    * interestGrowth,
+      fhsaSarah:     vars.balances.fhsaSarah     * interestGrowth,
+      rrspShingo:    vars.balances.rrspShingo    * interestGrowth,
+      rrspSarah:     vars.balances.rrspSarah     * interestGrowth,
+      tfsaShingo:    vars.balances.tfsaShingo    * interestGrowth,
+      tfsaSarah:     vars.balances.tfsaSarah     * interestGrowth,
+      liraShingo:    vars.balances.liraShingo    * interestGrowth,
+      nonRegistered: vars.balances.nonRegistered * interestGrowth,
+    };
+
+    // Months from today to retirement (for non-registered future-value calc).
+    const monthsFromTodayToRetirement = Math.max(
+      0,
+      (vars.retirementYear - today.getFullYear()) * 12 - today.getMonth()
+    );
 
     const accumulationSchedule = buildAccumulationSchedule({
       baselineYear: anchors.baselineYear,
       retirementYear: vars.retirementYear,
       annualReturn: vars.expectedNominalReturn,
-      fhsaShingo: vars.balances.fhsaShingo,
-      fhsaSarah: vars.balances.fhsaSarah,
-      rrspShingo: vars.balances.rrspShingo,
-      rrspSarah: vars.balances.rrspSarah,
-      tfsaShingo: vars.balances.tfsaShingo,
-      tfsaSarah: vars.balances.tfsaSarah,
-      liraShingo: vars.balances.liraShingo,
-      nonRegistered: vars.balances.nonRegistered,
+      fhsaShingo: todayBalances.fhsaShingo,
+      fhsaSarah: todayBalances.fhsaSarah,
+      rrspShingo: todayBalances.rrspShingo,
+      rrspSarah: todayBalances.rrspSarah,
+      tfsaShingo: todayBalances.tfsaShingo,
+      tfsaSarah: todayBalances.tfsaSarah,
+      liraShingo: todayBalances.liraShingo,
+      nonRegistered: todayBalances.nonRegistered,
       tfsaRoomShingo: vars.tfsaRoomShingo,
       tfsaRoomSarah: vars.tfsaRoomSarah,
       rrspRoomShingo: vars.rrspRoomShingo,
@@ -639,16 +661,16 @@ export default function App() {
       incomeShingo: vars.tax.workingIncomeShingo,
       incomeSarah: vars.tax.workingIncomeSarah,
       tfsaIncludesRefund: vars.tfsaIncludesRefund ?? false,
-      balancesAsOf: vars.balancesAsOf,
+      balancesAsOf: todayStr,
     });
 
     const lastAccum = accumulationSchedule[accumulationSchedule.length - 1];
 
     const nonRegisteredAtRetirement = futureValueMonthly({
-      pv: vars.balances.nonRegistered,
+      pv: todayBalances.nonRegistered,
       monthlyContribution: 0,
       annualReturn: vars.expectedNominalReturn,
-      months: monthsToRetirement,
+      months: monthsFromTodayToRetirement,
     });
 
     const retirementBalances: RetirementBalances = {
@@ -668,6 +690,9 @@ export default function App() {
       retirementBalances.tfsa +
       retirementBalances.lira +
       retirementBalances.nonRegistered;
+
+    const yearsToRetirement = vars.retirementYear - anchors.baselineYear;
+    const monthsToRetirement = monthsFromTodayToRetirement;
 
     const totalRealAtRetirement = toRealDollars(
       totalNominalAtRetirement,
