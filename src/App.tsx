@@ -1325,15 +1325,25 @@ return {
         <section id="current" className="card">
           <h2>Current snapshot</h2>
           {(() => {
-            const nowYear = new Date().getFullYear();
+            const today = new Date();
+            const nowYear = today.getFullYear();
             const yearForDollars = nowYear;
 
+            // Grow saved balances from balancesAsOf to today (interest only, no contributions)
+            const savedDate = vars.balancesAsOf ? new Date(vars.balancesAsOf + "T00:00:00") : null;
+            const daysElapsed = savedDate
+              ? Math.max(0, (today.getTime() - savedDate.getTime()) / 86400000)
+              : 0;
+            const growthFactor = Math.pow(1 + vars.expectedNominalReturn, daysElapsed / 365);
+
+            const grow = (v: number) => v * growthFactor;
+
             const totals = {
-              fhsa: vars.balances.fhsaShingo + vars.balances.fhsaSarah,
-              rrsp: vars.balances.rrspShingo + vars.balances.rrspSarah,
-              tfsa: vars.balances.tfsaShingo + vars.balances.tfsaSarah,
-              lira: vars.balances.liraShingo,
-              nonReg: vars.balances.nonRegistered,
+              fhsa: grow(vars.balances.fhsaShingo + vars.balances.fhsaSarah),
+              rrsp: grow(vars.balances.rrspShingo + vars.balances.rrspSarah),
+              tfsa: grow(vars.balances.tfsaShingo + vars.balances.tfsaSarah),
+              lira: grow(vars.balances.liraShingo),
+              nonReg: grow(vars.balances.nonRegistered),
             };
 
             const grandTotal = totals.fhsa + totals.rrsp + totals.tfsa + totals.lira + totals.nonReg;
@@ -1341,9 +1351,12 @@ return {
             return (
               <>
                 <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-                  {vars.balancesAsOf
-                    ? <>Balances as of <strong>{new Date(vars.balancesAsOf + "T00:00:00").toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</strong>.</>
-                    : "Last saved balances."}
+                  Balances as of <strong>{today.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</strong>
+                  {savedDate && daysElapsed > 0 && (
+                    <span style={{ opacity: 0.7 }}>
+                      {" "}(last saved {savedDate.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}, interest applied)
+                    </span>
+                  )}.
                 </p>
 
                 {(() => {
