@@ -545,38 +545,39 @@ export default function App() {
       if (plan) {
         planIdRef.current = plan.planId;
         setAnchors(plan.anchors);
-        setVars((v) => {
-          const ov = plan.varsOverrides;
-          const todayStr = new Date().toISOString().slice(0, 10);
-          const savedDate = ov.balancesAsOf
-            ? new Date(ov.balancesAsOf + "T00:00:00")
-            : null;
-          const daysElapsed = savedDate
-            ? Math.max(0, (Date.now() - savedDate.getTime()) / 86400000)
-            : 0;
-          const annualReturn = ov.expectedNominalReturn ?? v.expectedNominalReturn;
-          const g = Math.pow(1 + annualReturn, daysElapsed / 365);
-          const b = ov.balances ?? v.balances;
-          // Store original (pre-growth) snapshot for the "back" button
-          savedSnapshotRef.current = { balances: b, asOf: ov.balancesAsOf ?? todayStr };
-          const grownBalances = {
-            fhsaShingo:    b.fhsaShingo    * g,
-            fhsaSarah:     b.fhsaSarah     * g,
-            rrspShingo:    b.rrspShingo    * g,
-            rrspSarah:     b.rrspSarah     * g,
-            tfsaShingo:    b.tfsaShingo    * g,
-            tfsaSarah:     b.tfsaSarah     * g,
-            liraShingo:    b.liraShingo    * g,
-            nonRegistered: b.nonRegistered * g,
-          };
-          return {
-            ...v,
-            ...ov,
-            withdrawals: { ...v.withdrawals, ...ov.withdrawals },
-            balances: grownBalances,
-            balancesAsOf: todayStr,
-          };
-        });
+
+        const ov = plan.varsOverrides;
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const rawBalances = ov.balances ?? DEFAULT_VARIABLES.balances;
+        const rawAsOf = ov.balancesAsOf ?? todayStr;
+
+        // Store raw snapshot before growth — must be set before the render triggered by setVars
+        savedSnapshotRef.current = { balances: rawBalances, asOf: rawAsOf };
+
+        const savedDate = rawAsOf ? new Date(rawAsOf + "T00:00:00") : null;
+        const daysElapsed = savedDate
+          ? Math.max(0, (Date.now() - savedDate.getTime()) / 86400000)
+          : 0;
+        const annualReturn = ov.expectedNominalReturn ?? DEFAULT_VARIABLES.expectedNominalReturn;
+        const g = Math.pow(1 + annualReturn, daysElapsed / 365);
+        const grownBalances = {
+          fhsaShingo:    rawBalances.fhsaShingo    * g,
+          fhsaSarah:     rawBalances.fhsaSarah     * g,
+          rrspShingo:    rawBalances.rrspShingo    * g,
+          rrspSarah:     rawBalances.rrspSarah     * g,
+          tfsaShingo:    rawBalances.tfsaShingo    * g,
+          tfsaSarah:     rawBalances.tfsaSarah     * g,
+          liraShingo:    rawBalances.liraShingo    * g,
+          nonRegistered: rawBalances.nonRegistered * g,
+        };
+
+        setVars((v) => ({
+          ...v,
+          ...ov,
+          withdrawals: { ...v.withdrawals, ...ov.withdrawals },
+          balances: grownBalances,
+          balancesAsOf: todayStr,
+        }));
       }
       if (rules) {
         updateTfsaLimitsFromDb(rules.tfsaLimitsByYear);
