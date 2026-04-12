@@ -4,6 +4,26 @@ import type { TaxYearTables } from "../tax/tables";
 
 // ─── Types mirroring DB rows ──────────────────────────────────────────────────
 
+type DbTaxBracketRow = {
+  tax_year: number;
+  jurisdiction: string;
+  up_to: number | null;
+  rate: number;
+  sort_order: number;
+};
+
+type DbTaxCreditRow = {
+  tax_year: number;
+  jurisdiction: string;
+  bpa: number | null;
+  age_amount_max: number | null;
+  age_amount_threshold: number | null;
+  age_amount_phase_out: number | null;
+  pension_credit_base: number | null;
+  oas_clawback_threshold: number | null;
+  oas_clawback_rate: number | null;
+};
+
 type DbPlan = {
   id: string;
   baseline_year: number;
@@ -275,18 +295,21 @@ export async function loadPublicRules(): Promise<PublicRules | null> {
   }
 
   // Tax tables — group brackets + credits by year
-  const years = [...new Set((bracketsRes.data ?? []).map((r: any) => r.tax_year))];
+  const bracketRows = (bracketsRes.data ?? []) as DbTaxBracketRow[];
+  const creditRows  = (creditsRes.data  ?? []) as DbTaxCreditRow[];
+
+  const years = [...new Set(bracketRows.map((r) => r.tax_year))];
   const taxTables: TaxYearTables[] = years.map((year) => {
-    const fedBrackets = (bracketsRes.data ?? [])
-      .filter((r: any) => r.tax_year === year && r.jurisdiction === "federal")
-      .map((r: any) => ({ upTo: r.up_to === null ? Infinity : Number(r.up_to), rate: Number(r.rate) }));
+    const fedBrackets = bracketRows
+      .filter((r) => r.tax_year === year && r.jurisdiction === "federal")
+      .map((r) => ({ upTo: r.up_to === null ? Infinity : Number(r.up_to), rate: Number(r.rate) }));
 
-    const bcBrackets = (bracketsRes.data ?? [])
-      .filter((r: any) => r.tax_year === year && r.jurisdiction === "bc")
-      .map((r: any) => ({ upTo: r.up_to === null ? Infinity : Number(r.up_to), rate: Number(r.rate) }));
+    const bcBrackets = bracketRows
+      .filter((r) => r.tax_year === year && r.jurisdiction === "bc")
+      .map((r) => ({ upTo: r.up_to === null ? Infinity : Number(r.up_to), rate: Number(r.rate) }));
 
-    const fedCredits = (creditsRes.data ?? []).find((r: any) => r.tax_year === year && r.jurisdiction === "federal");
-    const bcCredits  = (creditsRes.data ?? []).find((r: any) => r.tax_year === year && r.jurisdiction === "bc");
+    const fedCredits = creditRows.find((r) => r.tax_year === year && r.jurisdiction === "federal");
+    const bcCredits  = creditRows.find((r) => r.tax_year === year && r.jurisdiction === "bc");
 
     return {
       year: Number(year),

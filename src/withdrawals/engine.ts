@@ -35,6 +35,10 @@ export type WithdrawalDebug = {
   taxableIncomeCeiling: number;
   ceilingBinding: boolean;
 
+  // Pass-2 glidepath helpers
+  startBalances: RetirementBalances;
+  extraRrifPlanned: number;
+
   // Mandatory / glidepath
   lifMinRequired: number;
   lifMaxAllowed: number;
@@ -763,7 +767,7 @@ export function buildWithdrawalSchedule(params: {
           shortfallAfterTax,
           startBalances,
           extraRrifPlanned: extraThisYear,
-        } as any,
+        },
       });
     }
 
@@ -779,7 +783,7 @@ export function buildWithdrawalSchedule(params: {
   if (!depletionRow) return pass1;
 
   const depletionYear = depletionRow.year;
-  const startRrspAtDepletion = (depletionRow as any).debug?.startBalances?.rrsp ?? 0;
+  const startRrspAtDepletion = depletionRow.debug.startBalances.rrsp;
 
   const extraPlan: ExtraPlan = {};
 

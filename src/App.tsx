@@ -70,6 +70,105 @@ function sumMonthly(m: MonthlyContributions) {
   return m.tfsaTotal + m.fhsaShingo + m.fhsaSarah + m.rrspShingo + m.rrspSarah;
 }
 
+function calculateBalancesToDate(params: {
+  baselineYear: number;
+  baselineBalances: AccountBalances;
+  targetDateStr: string;
+  annualReturn: number;
+  fhsaContributedToDateShingo: number;
+  fhsaContributedToDateSarah: number;
+  fhsaAnnualLimit: number;
+  fhsaLifetimeCap: number;
+  monthlyFhsaShingo: number;
+  monthlyFhsaSarah: number;
+  monthlyRrspShingo: number;
+  monthlyRrspSarah: number;
+  monthlyTfsaTotal: number;
+}): AccountBalances {
+  const targetDate = new Date(params.targetDateStr + "T00:00:00");
+  const targetYear = targetDate.getFullYear();
+  const targetMonth = targetDate.getMonth();
+
+  const monthsElapsed = Math.max(
+    0,
+    (targetYear - params.baselineYear) * 12 + targetMonth
+  );
+
+  const r = params.annualReturn / 12;
+
+  let fhsaS = params.baselineBalances.fhsaShingo;
+  let fhsaSa = params.baselineBalances.fhsaSarah;
+  let rrspS = params.baselineBalances.rrspShingo;
+  let rrspSa = params.baselineBalances.rrspSarah;
+  let tfsaS = params.baselineBalances.tfsaShingo;
+  let tfsaSa = params.baselineBalances.tfsaSarah;
+  let lira = params.baselineBalances.liraShingo;
+  let nonReg = params.baselineBalances.nonRegistered;
+
+  let roomFhsaS = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateShingo);
+  let roomFhsaSa = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateSarah);
+
+  let fhsaAnnualUsedS = 0;
+  let fhsaAnnualUsedSa = 0;
+
+  for (let m = 0; m < monthsElapsed; m++) {
+    if (m % 12 === 0) {
+      fhsaAnnualUsedS = 0;
+      fhsaAnnualUsedSa = 0;
+    }
+
+    const tfsaEach = params.monthlyTfsaTotal / 2;
+
+    let rrspContribS = params.monthlyRrspShingo;
+    let rrspContribSa = params.monthlyRrspSarah;
+
+    let fhsaContribS = params.monthlyFhsaShingo;
+    fhsaContribS = Math.min(fhsaContribS, Math.max(0, params.fhsaAnnualLimit - fhsaAnnualUsedS));
+    fhsaContribS = Math.min(fhsaContribS, roomFhsaS);
+    const overflowS = params.monthlyFhsaShingo - fhsaContribS;
+    if (overflowS > 0) rrspContribS += overflowS;
+
+    let fhsaContribSa = params.monthlyFhsaSarah;
+    fhsaContribSa = Math.min(fhsaContribSa, Math.max(0, params.fhsaAnnualLimit - fhsaAnnualUsedSa));
+    fhsaContribSa = Math.min(fhsaContribSa, roomFhsaSa);
+    const overflowSa = params.monthlyFhsaSarah - fhsaContribSa;
+    if (overflowSa > 0) rrspContribSa += overflowSa;
+
+    fhsaS += fhsaContribS;
+    fhsaSa += fhsaContribSa;
+    rrspS += rrspContribS;
+    rrspSa += rrspContribSa;
+    tfsaS += tfsaEach;
+    tfsaSa += tfsaEach;
+
+    fhsaAnnualUsedS += fhsaContribS;
+    fhsaAnnualUsedSa += fhsaContribSa;
+    roomFhsaS -= fhsaContribS;
+    roomFhsaSa -= fhsaContribSa;
+
+    fhsaS *= 1 + r;
+    fhsaSa *= 1 + r;
+    rrspS *= 1 + r;
+    rrspSa *= 1 + r;
+    tfsaS *= 1 + r;
+    tfsaSa *= 1 + r;
+    lira *= 1 + r;
+    nonReg *= 1 + r;
+  }
+
+  return {
+    fhsaShingo: fhsaS,
+    fhsaSarah: fhsaSa,
+    rrspShingo: rrspS,
+    rrspSarah: rrspSa,
+    tfsaShingo: tfsaS,
+    tfsaSarah: tfsaSa,
+    liraShingo: lira,
+    nonRegistered: nonReg,
+  };
+}
+
+
 function futureValueMonthly({
   pv,
   monthlyContribution,
@@ -503,9 +602,6 @@ export default function App() {
 
   // navigation uses page tabs now
 
-  const pensionAnnual =
-    anchors.pensionShingo + anchors.pensionSarah;
-
   const baselineTotal = useMemo(() => sumBalances(vars.balances), [vars.balances]);
   const monthlyTotal = useMemo(() => sumMonthly(vars.monthly), [vars.monthly]);
 
@@ -555,7 +651,7 @@ export default function App() {
       months: monthsToRetirement,
     });
 
-    let retirementBalances: RetirementBalances = {
+    const retirementBalances: RetirementBalances = {
       fhsa: lastAccum?.endFhsaTotal ?? 0,
       rrsp: lastAccum?.endRrspTotal ?? 0,
       tfsa: lastAccum?.endTfsaTotal ?? 0,
@@ -597,7 +693,7 @@ return {
       totalRealAtRetirement,
       schedule,
     };
-  }, [vars, pensionAnnual, baselineTotal, monthlyTotal]);
+  }, [vars, anchors.baselineYear, baselineTotal, monthlyTotal]);
 
   const orderOptions: WithdrawalOrder[] = [
     "fhsa",
@@ -1229,94 +1325,15 @@ return {
         <section id="current" className="card">
           <h2>Current snapshot</h2>
           {(() => {
-            const now = new Date();
-            const nowYear = now.getFullYear();
-            const nowMonth = now.getMonth(); // 0-11
-
-            const monthsElapsed = Math.max(
-              0,
-              (nowYear - anchors.baselineYear) * 12 + nowMonth
-            );
-
-            // Simulate month-by-month from baseline to the start of the current month.
-            const r = vars.expectedNominalReturn / 12;
-
-            let fhsaS = vars.balances.fhsaShingo;
-            let fhsaSa = vars.balances.fhsaSarah;
-            let rrspS = vars.balances.rrspShingo;
-            let rrspSa = vars.balances.rrspSarah;
-            let tfsaS = vars.balances.tfsaShingo;
-            let tfsaSa = vars.balances.tfsaSarah;
-            let lira = vars.balances.liraShingo;
-            let nonReg = vars.balances.nonRegistered;
-
-            let roomFhsaS = Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedShingo);
-            let roomFhsaSa = Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah);
-
-            let fhsaAnnualUsedS = 0;
-            let fhsaAnnualUsedSa = 0;
-
-            for (let m = 0; m < monthsElapsed; m++) {
-              // const year = anchors.baselineYear + Math.floor(m / 12);
-
-              if (m % 12 === 0) {
-                fhsaAnnualUsedS = 0;
-                fhsaAnnualUsedSa = 0;
-              }
-
-              // TFSA split (household)
-              const tfsaEach = vars.monthly.tfsaTotal / 2;
-
-              // RRSP base
-              let rrspContribS = vars.monthly.rrspShingo;
-              let rrspContribSa = vars.monthly.rrspSarah;
-
-              // FHSA with annual + lifetime caps; overflow -> RRSP
-              let fhsaContribS = vars.monthly.fhsaShingo;
-              fhsaContribS = Math.min(fhsaContribS, Math.max(0, vars.fhsa.annualLimit - fhsaAnnualUsedS));
-              fhsaContribS = Math.min(fhsaContribS, roomFhsaS);
-              const overflowS = vars.monthly.fhsaShingo - fhsaContribS;
-              if (overflowS > 0) rrspContribS += overflowS;
-
-              let fhsaContribSa = vars.monthly.fhsaSarah;
-              fhsaContribSa = Math.min(fhsaContribSa, Math.max(0, vars.fhsa.annualLimit - fhsaAnnualUsedSa));
-              fhsaContribSa = Math.min(fhsaContribSa, roomFhsaSa);
-              const overflowSa = vars.monthly.fhsaSarah - fhsaContribSa;
-              if (overflowSa > 0) rrspContribSa += overflowSa;
-
-              // apply contribs
-              fhsaS += fhsaContribS;
-              fhsaSa += fhsaContribSa;
-              rrspS += rrspContribS;
-              rrspSa += rrspContribSa;
-              tfsaS += tfsaEach;
-              tfsaSa += tfsaEach;
-
-              fhsaAnnualUsedS += fhsaContribS;
-              fhsaAnnualUsedSa += fhsaContribSa;
-              roomFhsaS -= fhsaContribS;
-              roomFhsaSa -= fhsaContribSa;
-
-              // growth
-              fhsaS *= 1 + r;
-              fhsaSa *= 1 + r;
-              rrspS *= 1 + r;
-              rrspSa *= 1 + r;
-              tfsaS *= 1 + r;
-              tfsaSa *= 1 + r;
-              lira *= 1 + r;
-              nonReg *= 1 + r;
-            }
-
-            const currentLabel = now.toLocaleString(undefined, { month: "long", year: "numeric" });
-            const yearForDollars = nowYear; // approximate
+            const nowYear = new Date().getFullYear();
+            const yearForDollars = nowYear;
 
             const totals = {
-              fhsa: fhsaS + fhsaSa,
-              rrsp: rrspS + rrspSa,
-              tfsa: tfsaS + tfsaSa,
-              lira,
-              nonReg,
+              fhsa: vars.balances.fhsaShingo + vars.balances.fhsaSarah,
+              rrsp: vars.balances.rrspShingo + vars.balances.rrspSarah,
+              tfsa: vars.balances.tfsaShingo + vars.balances.tfsaSarah,
+              lira: vars.balances.liraShingo,
+              nonReg: vars.balances.nonRegistered,
             };
 
             const grandTotal = totals.fhsa + totals.rrsp + totals.tfsa + totals.lira + totals.nonReg;
@@ -1324,12 +1341,9 @@ return {
             return (
               <>
                 <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-                  As of <strong>{currentLabel}</strong> (simulated from baseline {anchors.baselineYear} using your current monthly contributions and return assumptions).
-                  {vars.balancesAsOf && (
-                    <span style={{ marginLeft: 8 }}>
-                      Balances last updated: <strong>{new Date(vars.balancesAsOf + "T00:00:00").toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</strong>.
-                    </span>
-                  )}
+                  {vars.balancesAsOf
+                    ? <>Balances as of <strong>{new Date(vars.balancesAsOf + "T00:00:00").toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</strong>.</>
+                    : "Last saved balances."}
                 </p>
 
                 {(() => {
@@ -1588,9 +1602,33 @@ return {
                     <input
                       type="date"
                       value={vars.balancesAsOf ?? ""}
-                      onChange={(e) =>
-                        setVars((v) => ({ ...v, balancesAsOf: e.target.value }))
-                      }
+                      onChange={(e) => {
+                        const newDate = e.target.value;
+                        if (!newDate) {
+                          setVars((v) => ({ ...v, balancesAsOf: newDate }));
+                          return;
+                        }
+                        const newBalances = calculateBalancesToDate({
+                          baselineYear: anchors.baselineYear,
+                          baselineBalances: vars.balances,
+                          targetDateStr: newDate,
+                          annualReturn: vars.expectedNominalReturn,
+                          fhsaContributedToDateShingo: vars.fhsa.contributedShingo,
+                          fhsaContributedToDateSarah: vars.fhsa.contributedSarah,
+                          fhsaAnnualLimit: vars.fhsa.annualLimit,
+                          fhsaLifetimeCap: vars.fhsa.lifetimeCap,
+                          monthlyFhsaShingo: vars.monthly.fhsaShingo,
+                          monthlyFhsaSarah: vars.monthly.fhsaSarah,
+                          monthlyRrspShingo: vars.monthly.rrspShingo,
+                          monthlyRrspSarah: vars.monthly.rrspSarah,
+                          monthlyTfsaTotal: vars.monthly.tfsaTotal,
+                        });
+                        setVars((v) => ({
+                          ...v,
+                          balancesAsOf: newDate,
+                          balances: newBalances,
+                        }));
+                      }}
                     />
                   </Field>
                 </div>
@@ -2399,7 +2437,7 @@ return {
                     <select
                       className="yesNoSelect"
                       value={bracketsPerson}
-                      onChange={(e) => setBracketsPerson(e.target.value as any)}
+                      onChange={(e) => setBracketsPerson(e.target.value as "Shingo" | "Sarah")}
                     >
                       <option value="Shingo">Shingo</option>
                       <option value="Sarah">Sarah</option>
@@ -3174,7 +3212,7 @@ return {
                 const glideRows = sched.filter(
                   (r) => r.year >= vars.retirementYear && r.ageShingo < depletionAge
                 );
-                const extras = glideRows.map((r) => Math.max(0, (r.debug as any).extraRrifPlanned ?? 0));
+                const extras = glideRows.map((r) => Math.max(0, r.debug.extraRrifPlanned));
                 const total = extras.reduce((a, b) => a + b, 0);
                 if (glideRows.length === 0 || total <= 0) return;
                 const levelAmount = Math.round(total / glideRows.length);
