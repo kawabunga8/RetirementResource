@@ -536,6 +536,8 @@ export default function App() {
   const [dbLoading, setDbLoading] = useState(true);
   const planIdRef = useRef<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedSnapshotRef = useRef<{ balances: Variables["balances"]; asOf: string } | null>(null);
+  const [showingSavedSnapshot, setShowingSavedSnapshot] = useState(false);
 
   // Load plan and public rules from DB on mount
   useEffect(() => {
@@ -543,11 +545,38 @@ export default function App() {
       if (plan) {
         planIdRef.current = plan.planId;
         setAnchors(plan.anchors);
-        setVars((v) => ({
-          ...v,
-          ...plan.varsOverrides,
-          withdrawals: { ...v.withdrawals, ...plan.varsOverrides.withdrawals },
-        }));
+        setVars((v) => {
+          const ov = plan.varsOverrides;
+          const todayStr = new Date().toISOString().slice(0, 10);
+          const savedDate = ov.balancesAsOf
+            ? new Date(ov.balancesAsOf + "T00:00:00")
+            : null;
+          const daysElapsed = savedDate
+            ? Math.max(0, (Date.now() - savedDate.getTime()) / 86400000)
+            : 0;
+          const annualReturn = ov.expectedNominalReturn ?? v.expectedNominalReturn;
+          const g = Math.pow(1 + annualReturn, daysElapsed / 365);
+          const b = ov.balances ?? v.balances;
+          // Store original (pre-growth) snapshot for the "back" button
+          savedSnapshotRef.current = { balances: b, asOf: ov.balancesAsOf ?? todayStr };
+          const grownBalances = {
+            fhsaShingo:    b.fhsaShingo    * g,
+            fhsaSarah:     b.fhsaSarah     * g,
+            rrspShingo:    b.rrspShingo    * g,
+            rrspSarah:     b.rrspSarah     * g,
+            tfsaShingo:    b.tfsaShingo    * g,
+            tfsaSarah:     b.tfsaSarah     * g,
+            liraShingo:    b.liraShingo    * g,
+            nonRegistered: b.nonRegistered * g,
+          };
+          return {
+            ...v,
+            ...ov,
+            withdrawals: { ...v.withdrawals, ...ov.withdrawals },
+            balances: grownBalances,
+            balancesAsOf: todayStr,
+          };
+        });
       }
       if (rules) {
         updateTfsaLimitsFromDb(rules.tfsaLimitsByYear);
@@ -1354,35 +1383,60 @@ return {
             const nowYear = today.getFullYear();
             const yearForDollars = nowYear;
 
-            // Grow saved balances from balancesAsOf to today (interest only, no contributions)
-            const savedDate = vars.balancesAsOf ? new Date(vars.balancesAsOf + "T00:00:00") : null;
-            const daysElapsed = savedDate
-              ? Math.max(0, (today.getTime() - savedDate.getTime()) / 86400000)
+            // Back-button: compute display balances from saved snapshot + contributions
+            const snap = savedSnapshotRef.current;
+            const snapDate = snap ? new Date(snap.asOf + "T00:00:00") : null;
+            const fullMonthsElapsed = snapDate
+              ? Math.max(0,
+                  (today.getFullYear() - snapDate.getFullYear()) * 12 +
+                  (today.getMonth() - snapDate.getMonth())
+                )
               : 0;
-            const growthFactor = Math.pow(1 + vars.expectedNominalReturn, daysElapsed / 365);
 
-            const grow = (v: number) => v * growthFactor;
+            const displayBalances = showingSavedSnapshot && snap
+              ? {
+                  fhsaShingo:    snap.balances.fhsaShingo    + vars.monthly.fhsaShingo      * fullMonthsElapsed,
+                  fhsaSarah:     snap.balances.fhsaSarah     + vars.monthly.fhsaSarah       * fullMonthsElapsed,
+                  rrspShingo:    snap.balances.rrspShingo    + vars.monthly.rrspShingo      * fullMonthsElapsed,
+                  rrspSarah:     snap.balances.rrspSarah     + vars.monthly.rrspSarah       * fullMonthsElapsed,
+                  tfsaShingo:    snap.balances.tfsaShingo    + (vars.monthly.tfsaTotal / 2) * fullMonthsElapsed,
+                  tfsaSarah:     snap.balances.tfsaSarah     + (vars.monthly.tfsaTotal / 2) * fullMonthsElapsed,
+                  liraShingo:    snap.balances.liraShingo,
+                  nonRegistered: snap.balances.nonRegistered,
+                }
+              : vars.balances;
+
+            const displayDate = showingSavedSnapshot && snap ? snap.asOf : (vars.balancesAsOf ?? today.toISOString().slice(0, 10));
 
             const totals = {
-              fhsa: grow(vars.balances.fhsaShingo + vars.balances.fhsaSarah),
-              rrsp: grow(vars.balances.rrspShingo + vars.balances.rrspSarah),
-              tfsa: grow(vars.balances.tfsaShingo + vars.balances.tfsaSarah),
-              lira: grow(vars.balances.liraShingo),
-              nonReg: grow(vars.balances.nonRegistered),
+              fhsa:   displayBalances.fhsaShingo + displayBalances.fhsaSarah,
+              rrsp:   displayBalances.rrspShingo + displayBalances.rrspSarah,
+              tfsa:   displayBalances.tfsaShingo + displayBalances.tfsaSarah,
+              lira:   displayBalances.liraShingo,
+              nonReg: displayBalances.nonRegistered,
             };
 
             const grandTotal = totals.fhsa + totals.rrsp + totals.tfsa + totals.lira + totals.nonReg;
 
             return (
               <>
-                <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-                  Balances as of <strong>{today.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</strong>
-                  {savedDate && daysElapsed > 0 && (
-                    <span style={{ opacity: 0.7 }}>
-                      {" "}(last saved {savedDate.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}, interest applied)
-                    </span>
-                  )}.
-                </p>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 6 }}>
+                  <p style={{ marginTop: 0, marginBottom: 0, opacity: 0.85, fontSize: 13 }}>
+                    {showingSavedSnapshot && snap
+                      ? <>Last saved: <strong>{new Date(snap.asOf + "T00:00:00").toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</strong>{fullMonthsElapsed > 0 && <span style={{ opacity: 0.7 }}> + {fullMonthsElapsed} mo contributions</span>}</>
+                      : <>Today's estimate: <strong>{today.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</strong> (interest applied)</>
+                    }
+                  </p>
+                  {snap && (
+                    <button
+                      type="button"
+                      onClick={() => setShowingSavedSnapshot((s) => !s)}
+                      style={{ fontSize: 12, padding: "2px 8px", borderRadius: 6, border: "1px solid #cbd5e1", background: "white", cursor: "pointer", whiteSpace: "nowrap" }}
+                    >
+                      {showingSavedSnapshot ? "→ Today's estimate" : "← Last saved"}
+                    </button>
+                  )}
+                </div>
 
                 {(() => {
                   const year = currentSnapshotYear;
@@ -1634,12 +1688,13 @@ return {
                   </Field>
                 </div>
 
-                <h3 style={{ marginTop: 14 }}>Current balances (editable)</h3>
+                <h3 style={{ marginTop: 14 }}>Current balances {showingSavedSnapshot ? "(last saved)" : "(editable)"}</h3>
                 <div style={{ marginBottom: 10 }}>
                   <Field label="Balances as of">
                     <input
                       type="date"
-                      value={vars.balancesAsOf ?? ""}
+                      value={displayDate}
+                      readOnly={showingSavedSnapshot}
                       onChange={(e) => {
                         const newDate = e.target.value;
                         if (!newDate) {
@@ -1674,10 +1729,12 @@ return {
                   <Field label="FHSA Shingo (starting, $)">
                     <input
                       type="number"
-                      value={vars.balances.fhsaShingo}
+                      value={displayBalances.fhsaShingo}
+                      readOnly={showingSavedSnapshot}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
+                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, fhsaShingo: num(e.target.value) },
                         }))
                       }
@@ -1686,10 +1743,12 @@ return {
                   <Field label="FHSA Sarah (starting, $)">
                     <input
                       type="number"
-                      value={vars.balances.fhsaSarah}
+                      value={displayBalances.fhsaSarah}
+                      readOnly={showingSavedSnapshot}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
+                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, fhsaSarah: num(e.target.value) },
                         }))
                       }
@@ -1698,10 +1757,12 @@ return {
                   <Field label="RRSP Shingo (starting, $)">
                     <input
                       type="number"
-                      value={vars.balances.rrspShingo}
+                      value={displayBalances.rrspShingo}
+                      readOnly={showingSavedSnapshot}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
+                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, rrspShingo: num(e.target.value) },
                         }))
                       }
@@ -1710,10 +1771,12 @@ return {
                   <Field label="RRSP Sarah (starting, $)">
                     <input
                       type="number"
-                      value={vars.balances.rrspSarah}
+                      value={displayBalances.rrspSarah}
+                      readOnly={showingSavedSnapshot}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
+                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, rrspSarah: num(e.target.value) },
                         }))
                       }
@@ -1722,10 +1785,12 @@ return {
                   <Field label="TFSA Shingo (starting, $)">
                     <input
                       type="number"
-                      value={vars.balances.tfsaShingo}
+                      value={displayBalances.tfsaShingo}
+                      readOnly={showingSavedSnapshot}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
+                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, tfsaShingo: num(e.target.value) },
                         }))
                       }
@@ -1734,10 +1799,12 @@ return {
                   <Field label="TFSA Sarah (starting, $)">
                     <input
                       type="number"
-                      value={vars.balances.tfsaSarah}
+                      value={displayBalances.tfsaSarah}
+                      readOnly={showingSavedSnapshot}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
+                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, tfsaSarah: num(e.target.value) },
                         }))
                       }
@@ -1754,10 +1821,12 @@ return {
                   <Field label="LIRA/LIF Shingo (starting, $)">
                     <input
                       type="number"
-                      value={vars.balances.liraShingo}
+                      value={displayBalances.liraShingo}
+                      readOnly={showingSavedSnapshot}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
+                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, liraShingo: num(e.target.value) },
                         }))
                       }
@@ -1766,10 +1835,12 @@ return {
                   <Field label="Non-registered (starting, $)">
                     <input
                       type="number"
-                      value={vars.balances.nonRegistered}
+                      value={displayBalances.nonRegistered}
+                      readOnly={showingSavedSnapshot}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
+                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, nonRegistered: num(e.target.value) },
                         }))
                       }
