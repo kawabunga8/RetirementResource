@@ -182,7 +182,10 @@ export async function savePlan(
   vars: Variables
 ): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
+  if (!user) {
+    console.error("savePlan: no user logged in");
+    return;
+  }
 
   // Fetch member IDs
   const { data: members } = await supabase
@@ -192,7 +195,10 @@ export async function savePlan(
 
   const shingo = members?.find((m) => m.name === "Shingo");
   const sarah = members?.find((m) => m.name === "Sarah");
-  if (!shingo || !sarah) return;
+  if (!shingo || !sarah) {
+    console.error("savePlan: members not found", { shingo, sarah });
+    return;
+  }
 
   await Promise.all([
     // Plan top-level

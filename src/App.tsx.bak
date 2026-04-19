@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
-import { supabase } from "./lib/supabase";
 import {
   DEFAULT_ANCHORS,
   DEFAULT_VARIABLES,
@@ -70,105 +69,6 @@ function sumBalances(b: AccountBalances) {
 function sumMonthly(m: MonthlyContributions) {
   return m.tfsaTotal + m.fhsaShingo + m.fhsaSarah + m.rrspShingo + m.rrspSarah;
 }
-
-function calculateBalancesToDate(params: {
-  baselineYear: number;
-  baselineBalances: AccountBalances;
-  targetDateStr: string;
-  annualReturn: number;
-  fhsaContributedToDateShingo: number;
-  fhsaContributedToDateSarah: number;
-  fhsaAnnualLimit: number;
-  fhsaLifetimeCap: number;
-  monthlyFhsaShingo: number;
-  monthlyFhsaSarah: number;
-  monthlyRrspShingo: number;
-  monthlyRrspSarah: number;
-  monthlyTfsaTotal: number;
-}): AccountBalances {
-  const targetDate = new Date(params.targetDateStr + "T00:00:00");
-  const targetYear = targetDate.getFullYear();
-  const targetMonth = targetDate.getMonth();
-
-  const monthsElapsed = Math.max(
-    0,
-    (targetYear - params.baselineYear) * 12 + targetMonth
-  );
-
-  const r = params.annualReturn / 12;
-
-  let fhsaS = params.baselineBalances.fhsaShingo;
-  let fhsaSa = params.baselineBalances.fhsaSarah;
-  let rrspS = params.baselineBalances.rrspShingo;
-  let rrspSa = params.baselineBalances.rrspSarah;
-  let tfsaS = params.baselineBalances.tfsaShingo;
-  let tfsaSa = params.baselineBalances.tfsaSarah;
-  let lira = params.baselineBalances.liraShingo;
-  let nonReg = params.baselineBalances.nonRegistered;
-
-  let roomFhsaS = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateShingo);
-  let roomFhsaSa = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateSarah);
-
-  let fhsaAnnualUsedS = 0;
-  let fhsaAnnualUsedSa = 0;
-
-  for (let m = 0; m < monthsElapsed; m++) {
-    if (m % 12 === 0) {
-      fhsaAnnualUsedS = 0;
-      fhsaAnnualUsedSa = 0;
-    }
-
-    const tfsaEach = params.monthlyTfsaTotal / 2;
-
-    let rrspContribS = params.monthlyRrspShingo;
-    let rrspContribSa = params.monthlyRrspSarah;
-
-    let fhsaContribS = params.monthlyFhsaShingo;
-    fhsaContribS = Math.min(fhsaContribS, Math.max(0, params.fhsaAnnualLimit - fhsaAnnualUsedS));
-    fhsaContribS = Math.min(fhsaContribS, roomFhsaS);
-    const overflowS = params.monthlyFhsaShingo - fhsaContribS;
-    if (overflowS > 0) rrspContribS += overflowS;
-
-    let fhsaContribSa = params.monthlyFhsaSarah;
-    fhsaContribSa = Math.min(fhsaContribSa, Math.max(0, params.fhsaAnnualLimit - fhsaAnnualUsedSa));
-    fhsaContribSa = Math.min(fhsaContribSa, roomFhsaSa);
-    const overflowSa = params.monthlyFhsaSarah - fhsaContribSa;
-    if (overflowSa > 0) rrspContribSa += overflowSa;
-
-    fhsaS += fhsaContribS;
-    fhsaSa += fhsaContribSa;
-    rrspS += rrspContribS;
-    rrspSa += rrspContribSa;
-    tfsaS += tfsaEach;
-    tfsaSa += tfsaEach;
-
-    fhsaAnnualUsedS += fhsaContribS;
-    fhsaAnnualUsedSa += fhsaContribSa;
-    roomFhsaS -= fhsaContribS;
-    roomFhsaSa -= fhsaContribSa;
-
-    fhsaS *= 1 + r;
-    fhsaSa *= 1 + r;
-    rrspS *= 1 + r;
-    rrspSa *= 1 + r;
-    tfsaS *= 1 + r;
-    tfsaSa *= 1 + r;
-    lira *= 1 + r;
-    nonReg *= 1 + r;
-  }
-
-  return {
-    fhsaShingo: fhsaS,
-    fhsaSarah: fhsaSa,
-    rrspShingo: rrspS,
-    rrspSarah: rrspSa,
-    tfsaShingo: tfsaS,
-    tfsaSarah: tfsaSa,
-    liraShingo: lira,
-    nonRegistered: nonReg,
-  };
-}
-
 
 function futureValueMonthly({
   pv,
@@ -532,90 +432,22 @@ function estimateTaxSavingsFromDeduction(params: {
 }
 
 export default function App() {
-  const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [authError, setAuthError] = useState("");
-  const [anchors, setAnchors] = useState<Anchors>(() => {
-    const saved = localStorage.getItem("retirementPlan");
-    if (saved) {
-      try {
-        const data = JSON.parse(saved);
-        if (data.anchors) return data.anchors;
-      } catch {
-        // ignore parse errors, use default
-      }
-    }
-    return DEFAULT_ANCHORS;
-  });
-  const [vars, setVars] = useState<Variables>(() => {
-    const saved = localStorage.getItem("retirementPlan");
-    if (saved) {
-      try {
-        const data = JSON.parse(saved);
-        if (data.vars) return data.vars;
-      } catch {
-        // ignore parse errors, use default
-      }
-    }
-    return DEFAULT_VARIABLES;
-  });
+  const [anchors, setAnchors] = useState<Anchors>(DEFAULT_ANCHORS);
+  const [vars, setVars] = useState<Variables>(DEFAULT_VARIABLES);
   const [dbLoading, setDbLoading] = useState(true);
   const planIdRef = useRef<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const savedSnapshotRef = useRef<{ balances: Variables["balances"]; asOf: string } | null>(null);
-  const [showingSavedSnapshot, setShowingSavedSnapshot] = useState(false);
-  const [savedSnapshot, setSavedSnapshot] = useState<{ balances: Variables["balances"]; asOf: string } | null>(null);
-
-  // Auth: check session on mount
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      setAuthLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  async function handleAuth(e: React.FormEvent) {
-    e.preventDefault();
-    setAuthError("");
-    const { error } = isSignUp
-      ? await supabase.auth.signUp({ email, password })
-      : await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      setAuthError(error.message);
-    } else if (isSignUp) {
-      setAuthError("Check your email to confirm your account, then sign in.");
-    }
-  }
 
   // Load plan and public rules from DB on mount
   useEffect(() => {
-    if (!user) return;
     Promise.all([loadPlan(), loadPublicRules()]).then(([plan, rules]) => {
       if (plan) {
         planIdRef.current = plan.planId;
         setAnchors(plan.anchors);
-
-        const ov = plan.varsOverrides;
-        const rawBalances = ov.balances ?? DEFAULT_VARIABLES.balances;
-        const rawAsOf = ov.balancesAsOf ?? DEFAULT_VARIABLES.balancesAsOf;
-
-        // Store raw snapshot for the "back" button — set before setVars triggers a render
-        savedSnapshotRef.current = { balances: rawBalances, asOf: rawAsOf };
-        setSavedSnapshot({ balances: rawBalances, asOf: rawAsOf });
-
         setVars((v) => ({
           ...v,
-          ...ov,
-          withdrawals: { ...v.withdrawals, ...ov.withdrawals },
+          ...plan.varsOverrides,
+          withdrawals: { ...v.withdrawals, ...plan.varsOverrides.withdrawals },
         }));
       }
       if (rules) {
@@ -626,16 +458,11 @@ export default function App() {
       }
       setDbLoading(false);
     });
-  }, [user]);
+  }, []);
 
-  // Auto-save: to DB if logged in with a plan, otherwise localStorage
+  // Auto-save to DB 1s after the last change
   useEffect(() => {
-    if (dbLoading) return;
-    // Skip if no user (local mode) or no plan yet
-    if (!user || !planIdRef.current) {
-      localStorage.setItem("retirementPlan", JSON.stringify({ anchors, vars }));
-      return;
-    }
+    if (dbLoading || !planIdRef.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       savePlan(planIdRef.current!, anchors, vars);
@@ -643,7 +470,7 @@ export default function App() {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
-  }, [anchors, vars, dbLoading, user]);
+  }, [anchors, vars, dbLoading]);
 
   const [page, setPage] = useState<"overview" | "current" | "tax" | "taxBrackets" | "withdrawals">("overview");
   const [showFullSchedule, setShowFullSchedule] = useState(false);
@@ -676,47 +503,28 @@ export default function App() {
 
   // navigation uses page tabs now
 
+  const pensionAnnual =
+    anchors.pensionShingo + anchors.pensionSarah;
+
   const baselineTotal = useMemo(() => sumBalances(vars.balances), [vars.balances]);
   const monthlyTotal = useMemo(() => sumMonthly(vars.monthly), [vars.monthly]);
 
   const model = useMemo(() => {
-    // Grow saved balances from balancesAsOf to today (interest only, no contributions).
-    const today = new Date();
-    const todayStr = today.toISOString().slice(0, 10);
-    const savedDate = vars.balancesAsOf ? new Date(vars.balancesAsOf + "T00:00:00") : null;
-    const daysElapsed = savedDate
-      ? Math.max(0, (today.getTime() - savedDate.getTime()) / 86400000)
-      : 0;
-    const interestGrowth = Math.pow(1 + vars.expectedNominalReturn, daysElapsed / 365);
-    const todayBalances = {
-      fhsaShingo:    vars.balances.fhsaShingo    * interestGrowth,
-      fhsaSarah:     vars.balances.fhsaSarah     * interestGrowth,
-      rrspShingo:    vars.balances.rrspShingo    * interestGrowth,
-      rrspSarah:     vars.balances.rrspSarah     * interestGrowth,
-      tfsaShingo:    vars.balances.tfsaShingo    * interestGrowth,
-      tfsaSarah:     vars.balances.tfsaSarah     * interestGrowth,
-      liraShingo:    vars.balances.liraShingo    * interestGrowth,
-      nonRegistered: vars.balances.nonRegistered * interestGrowth,
-    };
-
-    // Months from today to retirement (for non-registered future-value calc).
-    const monthsFromTodayToRetirement = Math.max(
-      0,
-      (vars.retirementYear - today.getFullYear()) * 12 - today.getMonth()
-    );
+    const yearsToRetirement = vars.retirementYear - anchors.baselineYear;
+    const monthsToRetirement = Math.max(0, Math.round(yearsToRetirement * 12));
 
     const accumulationSchedule = buildAccumulationSchedule({
       baselineYear: anchors.baselineYear,
       retirementYear: vars.retirementYear,
       annualReturn: vars.expectedNominalReturn,
-      fhsaShingo: todayBalances.fhsaShingo,
-      fhsaSarah: todayBalances.fhsaSarah,
-      rrspShingo: todayBalances.rrspShingo,
-      rrspSarah: todayBalances.rrspSarah,
-      tfsaShingo: todayBalances.tfsaShingo,
-      tfsaSarah: todayBalances.tfsaSarah,
-      liraShingo: todayBalances.liraShingo,
-      nonRegistered: todayBalances.nonRegistered,
+      fhsaShingo: vars.balances.fhsaShingo,
+      fhsaSarah: vars.balances.fhsaSarah,
+      rrspShingo: vars.balances.rrspShingo,
+      rrspSarah: vars.balances.rrspSarah,
+      tfsaShingo: vars.balances.tfsaShingo,
+      tfsaSarah: vars.balances.tfsaSarah,
+      liraShingo: vars.balances.liraShingo,
+      nonRegistered: vars.balances.nonRegistered,
       tfsaRoomShingo: vars.tfsaRoomShingo,
       tfsaRoomSarah: vars.tfsaRoomSarah,
       rrspRoomShingo: vars.rrspRoomShingo,
@@ -735,19 +543,19 @@ export default function App() {
       incomeShingo: vars.tax.workingIncomeShingo,
       incomeSarah: vars.tax.workingIncomeSarah,
       tfsaIncludesRefund: vars.tfsaIncludesRefund ?? false,
-      balancesAsOf: todayStr,
+      balancesAsOf: vars.balancesAsOf,
     });
 
     const lastAccum = accumulationSchedule[accumulationSchedule.length - 1];
 
     const nonRegisteredAtRetirement = futureValueMonthly({
-      pv: todayBalances.nonRegistered,
+      pv: vars.balances.nonRegistered,
       monthlyContribution: 0,
       annualReturn: vars.expectedNominalReturn,
-      months: monthsFromTodayToRetirement,
+      months: monthsToRetirement,
     });
 
-    const retirementBalances: RetirementBalances = {
+    let retirementBalances: RetirementBalances = {
       fhsa: lastAccum?.endFhsaTotal ?? 0,
       rrsp: lastAccum?.endRrspTotal ?? 0,
       tfsa: lastAccum?.endTfsaTotal ?? 0,
@@ -764,9 +572,6 @@ export default function App() {
       retirementBalances.tfsa +
       retirementBalances.lira +
       retirementBalances.nonRegistered;
-
-    const yearsToRetirement = vars.retirementYear - anchors.baselineYear;
-    const monthsToRetirement = monthsFromTodayToRetirement;
 
     const totalRealAtRetirement = toRealDollars(
       totalNominalAtRetirement,
@@ -792,7 +597,7 @@ return {
       totalRealAtRetirement,
       schedule,
     };
-  }, [vars, anchors.baselineYear, baselineTotal, monthlyTotal]);
+  }, [vars, anchors.baselineYear, pensionAnnual, baselineTotal, monthlyTotal]);
 
   const orderOptions: WithdrawalOrder[] = [
     "fhsa",
@@ -801,59 +606,6 @@ return {
     "nonRegistered",
     "tfsa",
   ];
-
-  if (authLoading) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", fontSize: 16, opacity: 0.6 }}>
-        Loading…
-      </div>
-    );
-  }
-
-  if (!user) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", background: "#f7f7f7" }}>
-        <div style={{ background: "white", padding: 40, borderRadius: 12, boxShadow: "0 4px 20px rgba(0,0,0,0.1)", maxWidth: 360, width: "100%" }}>
-          <h2 style={{ margin: "0 0 24px", fontSize: 24, textAlign: "center" }}>Retirement Resource</h2>
-          <form onSubmit={handleAuth} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              style={{ padding: "12px 14px", fontSize: 16, borderRadius: 6, border: "1px solid #ddd" }}
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              minLength={6}
-              style={{ padding: "12px 14px", fontSize: 16, borderRadius: 6, border: "1px solid #ddd" }}
-            />
-            {authError && <div style={{ color: "#dc2626", fontSize: 14 }}>{authError}</div>}
-            <button type="submit" style={{ padding: "12px", fontSize: 16, borderRadius: 6, border: "none", background: "#2563eb", color: "white", cursor: "pointer", fontWeight: 600 }}>
-              {isSignUp ? "Sign Up" : "Sign In"}
-            </button>
-          </form>
-          <button
-            onClick={() => setIsSignUp(!isSignUp)}
-            style={{ marginTop: 16, width: "100%", padding: 8, fontSize: 14, background: "none", border: "none", color: "#2563eb", cursor: "pointer" }}
-          >
-            {isSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up"}
-          </button>
-          <button
-            onClick={() => setUser({ id: "local" })}
-            style={{ marginTop: 12, width: "100%", padding: 10, fontSize: 14, background: "#f3f4f6", border: "none", borderRadius: 6, color: "#374151", cursor: "pointer" }}
-          >
-            Continue without account
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   if (dbLoading) {
     return (
@@ -879,24 +631,12 @@ return {
       color: "white",
     }}>
       <div style={{ maxWidth: 1080, margin: "0 auto", padding: "36px 32px 32px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 30, fontWeight: 700, letterSpacing: "-0.5px" }}>
-              Retirement Resource
-            </h1>
-            <p style={{ marginTop: 6, marginBottom: 32, opacity: 0.88, fontSize: 14, maxWidth: 520, lineHeight: 1.5 }}>
-              Canada / BC retirement planner — adjust levers while keeping anchors explicit.
-            </p>
-          </div>
-          {user && user.id !== "local" && (
-            <button
-              onClick={() => supabase.auth.signOut()}
-              style={{ padding: "8px 16px", fontSize: 14, borderRadius: 6, border: "1px solid rgba(255,255,255,0.3)", background: "rgba(255,255,255,0.1)", color: "white", cursor: "pointer" }}
-            >
-              Sign Out
-            </button>
-          )}
-        </div>
+        <h1 style={{ margin: 0, fontSize: 30, fontWeight: 700, letterSpacing: "-0.5px" }}>
+          Retirement Resource
+        </h1>
+        <p style={{ marginTop: 6, marginBottom: 32, opacity: 0.88, fontSize: 14, maxWidth: 520, lineHeight: 1.5 }}>
+          Canada / BC retirement planner — adjust levers while keeping anchors explicit.
+        </p>
 
         {/* Timeline */}
         <div style={{ position: "relative", paddingBottom: 36 }}>
@@ -1489,72 +1229,108 @@ return {
         <section id="current" className="card">
           <h2>Current snapshot</h2>
           {(() => {
-            const today = new Date();
-            const nowYear = today.getFullYear();
-            const yearForDollars = nowYear;
+            const now = new Date();
+            const nowYear = now.getFullYear();
+            const nowMonth = now.getMonth(); // 0-11
 
-            // Back-button: compute display balances from saved snapshot + contributions
-            const snap = savedSnapshot;
-            const snapDate = snap ? new Date(snap.asOf + "T00:00:00") : null;
-            const fullMonthsElapsed = snapDate
-              ? Math.max(0,
-                  (today.getFullYear() - snapDate.getFullYear()) * 12 +
-                  (today.getMonth() - snapDate.getMonth())
-                )
-              : 0;
+            const monthsElapsed = Math.max(
+              0,
+              (nowYear - anchors.baselineYear) * 12 + nowMonth
+            );
 
-            const displayBalances = showingSavedSnapshot && snap
-              ? {
-                  fhsaShingo:    snap.balances.fhsaShingo    + vars.monthly.fhsaShingo      * fullMonthsElapsed,
-                  fhsaSarah:     snap.balances.fhsaSarah     + vars.monthly.fhsaSarah       * fullMonthsElapsed,
-                  rrspShingo:    snap.balances.rrspShingo    + vars.monthly.rrspShingo      * fullMonthsElapsed,
-                  rrspSarah:     snap.balances.rrspSarah     + vars.monthly.rrspSarah       * fullMonthsElapsed,
-                  tfsaShingo:    snap.balances.tfsaShingo    + (vars.monthly.tfsaTotal / 2) * fullMonthsElapsed,
-                  tfsaSarah:     snap.balances.tfsaSarah     + (vars.monthly.tfsaTotal / 2) * fullMonthsElapsed,
-                  liraShingo:    snap.balances.liraShingo,
-                  nonRegistered: snap.balances.nonRegistered,
-                }
-              : vars.balances;
+            // Simulate month-by-month from baseline to the start of the current month.
+            const r = vars.expectedNominalReturn / 12;
 
-            const displayDate = showingSavedSnapshot && snap ? snap.asOf : (vars.balancesAsOf ?? today.toISOString().slice(0, 10));
+            let fhsaS = vars.balances.fhsaShingo;
+            let fhsaSa = vars.balances.fhsaSarah;
+            let rrspS = vars.balances.rrspShingo;
+            let rrspSa = vars.balances.rrspSarah;
+            let tfsaS = vars.balances.tfsaShingo;
+            let tfsaSa = vars.balances.tfsaSarah;
+            let lira = vars.balances.liraShingo;
+            let nonReg = vars.balances.nonRegistered;
 
-            // For "today" mode, grow the raw saved balances to today for the totals display.
-            const savedDateForGrowth = vars.balancesAsOf ? new Date(vars.balancesAsOf + "T00:00:00") : null;
-            const daysToToday = savedDateForGrowth
-              ? Math.max(0, (today.getTime() - savedDateForGrowth.getTime()) / 86400000)
-              : 0;
-            const growthToToday = Math.pow(1 + vars.expectedNominalReturn, daysToToday / 365);
-            const grow = showingSavedSnapshot ? (x: number) => x : (x: number) => x * growthToToday;
+            let roomFhsaS = Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedShingo);
+            let roomFhsaSa = Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah);
+
+            let fhsaAnnualUsedS = 0;
+            let fhsaAnnualUsedSa = 0;
+
+            for (let m = 0; m < monthsElapsed; m++) {
+              // const year = anchors.baselineYear + Math.floor(m / 12);
+
+              if (m % 12 === 0) {
+                fhsaAnnualUsedS = 0;
+                fhsaAnnualUsedSa = 0;
+              }
+
+              // TFSA split (household)
+              const tfsaEach = vars.monthly.tfsaTotal / 2;
+
+              // RRSP base
+              let rrspContribS = vars.monthly.rrspShingo;
+              let rrspContribSa = vars.monthly.rrspSarah;
+
+              // FHSA with annual + lifetime caps; overflow -> RRSP
+              let fhsaContribS = vars.monthly.fhsaShingo;
+              fhsaContribS = Math.min(fhsaContribS, Math.max(0, vars.fhsa.annualLimit - fhsaAnnualUsedS));
+              fhsaContribS = Math.min(fhsaContribS, roomFhsaS);
+              const overflowS = vars.monthly.fhsaShingo - fhsaContribS;
+              if (overflowS > 0) rrspContribS += overflowS;
+
+              let fhsaContribSa = vars.monthly.fhsaSarah;
+              fhsaContribSa = Math.min(fhsaContribSa, Math.max(0, vars.fhsa.annualLimit - fhsaAnnualUsedSa));
+              fhsaContribSa = Math.min(fhsaContribSa, roomFhsaSa);
+              const overflowSa = vars.monthly.fhsaSarah - fhsaContribSa;
+              if (overflowSa > 0) rrspContribSa += overflowSa;
+
+              // apply contribs
+              fhsaS += fhsaContribS;
+              fhsaSa += fhsaContribSa;
+              rrspS += rrspContribS;
+              rrspSa += rrspContribSa;
+              tfsaS += tfsaEach;
+              tfsaSa += tfsaEach;
+
+              fhsaAnnualUsedS += fhsaContribS;
+              fhsaAnnualUsedSa += fhsaContribSa;
+              roomFhsaS -= fhsaContribS;
+              roomFhsaSa -= fhsaContribSa;
+
+              // growth
+              fhsaS *= 1 + r;
+              fhsaSa *= 1 + r;
+              rrspS *= 1 + r;
+              rrspSa *= 1 + r;
+              tfsaS *= 1 + r;
+              tfsaSa *= 1 + r;
+              lira *= 1 + r;
+              nonReg *= 1 + r;
+            }
+
+            const currentLabel = now.toLocaleString(undefined, { month: "long", year: "numeric" });
+            const yearForDollars = nowYear; // approximate
 
             const totals = {
-              fhsa:   grow(displayBalances.fhsaShingo + displayBalances.fhsaSarah),
-              rrsp:   grow(displayBalances.rrspShingo + displayBalances.rrspSarah),
-              tfsa:   grow(displayBalances.tfsaShingo + displayBalances.tfsaSarah),
-              lira:   grow(displayBalances.liraShingo),
-              nonReg: grow(displayBalances.nonRegistered),
+              fhsa: fhsaS + fhsaSa,
+              rrsp: rrspS + rrspSa,
+              tfsa: tfsaS + tfsaSa,
+              lira,
+              nonReg,
             };
 
             const grandTotal = totals.fhsa + totals.rrsp + totals.tfsa + totals.lira + totals.nonReg;
 
             return (
               <>
-                <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 6 }}>
-                  <p style={{ marginTop: 0, marginBottom: 0, opacity: 0.85, fontSize: 13 }}>
-                    {showingSavedSnapshot && snap
-                      ? <>Last saved: <strong>{new Date(snap.asOf + "T00:00:00").toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</strong>{fullMonthsElapsed > 0 && <span style={{ opacity: 0.7 }}> + {fullMonthsElapsed} mo contributions</span>}</>
-                      : <>Today's estimate: <strong>{today.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</strong> (interest applied)</>
-                    }
-                  </p>
-                  {snap && (
-                    <button
-                      type="button"
-                      onClick={() => setShowingSavedSnapshot((s) => !s)}
-                      style={{ fontSize: 12, padding: "2px 8px", borderRadius: 6, border: "1px solid #cbd5e1", background: "white", cursor: "pointer", whiteSpace: "nowrap" }}
-                    >
-                      {showingSavedSnapshot ? "→ Today's estimate" : "← Last saved"}
-                    </button>
+                <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
+                  As of <strong>{currentLabel}</strong> (simulated from baseline {anchors.baselineYear} using your current monthly contributions and return assumptions).
+                  {vars.balancesAsOf && (
+                    <span style={{ marginLeft: 8 }}>
+                      Balances last updated: <strong>{new Date(vars.balancesAsOf + "T00:00:00").toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}</strong>.
+                    </span>
                   )}
-                </div>
+                </p>
 
                 {(() => {
                   const year = currentSnapshotYear;
@@ -1806,40 +1582,15 @@ return {
                   </Field>
                 </div>
 
-                <h3 style={{ marginTop: 14 }}>Current balances {showingSavedSnapshot ? "(last saved)" : "(editable)"}</h3>
+                <h3 style={{ marginTop: 14 }}>Current balances (editable)</h3>
                 <div style={{ marginBottom: 10 }}>
                   <Field label="Balances as of">
                     <input
                       type="date"
-                      value={displayDate}
-                      readOnly={showingSavedSnapshot}
-                      onChange={(e) => {
-                        const newDate = e.target.value;
-                        if (!newDate) {
-                          setVars((v) => ({ ...v, balancesAsOf: newDate }));
-                          return;
-                        }
-                        const newBalances = calculateBalancesToDate({
-                          baselineYear: anchors.baselineYear,
-                          baselineBalances: vars.balances,
-                          targetDateStr: newDate,
-                          annualReturn: vars.expectedNominalReturn,
-                          fhsaContributedToDateShingo: vars.fhsa.contributedShingo,
-                          fhsaContributedToDateSarah: vars.fhsa.contributedSarah,
-                          fhsaAnnualLimit: vars.fhsa.annualLimit,
-                          fhsaLifetimeCap: vars.fhsa.lifetimeCap,
-                          monthlyFhsaShingo: vars.monthly.fhsaShingo,
-                          monthlyFhsaSarah: vars.monthly.fhsaSarah,
-                          monthlyRrspShingo: vars.monthly.rrspShingo,
-                          monthlyRrspSarah: vars.monthly.rrspSarah,
-                          monthlyTfsaTotal: vars.monthly.tfsaTotal,
-                        });
-                        setVars((v) => ({
-                          ...v,
-                          balancesAsOf: newDate,
-                          balances: newBalances,
-                        }));
-                      }}
+                      value={vars.balancesAsOf ?? ""}
+                      onChange={(e) =>
+                        setVars((v) => ({ ...v, balancesAsOf: e.target.value }))
+                      }
                     />
                   </Field>
                 </div>
@@ -1847,12 +1598,10 @@ return {
                   <Field label="FHSA Shingo (starting, $)">
                     <input
                       type="number"
-                      value={displayBalances.fhsaShingo}
-                      readOnly={showingSavedSnapshot}
+                      value={vars.balances.fhsaShingo}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
-                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, fhsaShingo: num(e.target.value) },
                         }))
                       }
@@ -1861,12 +1610,10 @@ return {
                   <Field label="FHSA Sarah (starting, $)">
                     <input
                       type="number"
-                      value={displayBalances.fhsaSarah}
-                      readOnly={showingSavedSnapshot}
+                      value={vars.balances.fhsaSarah}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
-                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, fhsaSarah: num(e.target.value) },
                         }))
                       }
@@ -1875,12 +1622,10 @@ return {
                   <Field label="RRSP Shingo (starting, $)">
                     <input
                       type="number"
-                      value={displayBalances.rrspShingo}
-                      readOnly={showingSavedSnapshot}
+                      value={vars.balances.rrspShingo}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
-                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, rrspShingo: num(e.target.value) },
                         }))
                       }
@@ -1889,12 +1634,10 @@ return {
                   <Field label="RRSP Sarah (starting, $)">
                     <input
                       type="number"
-                      value={displayBalances.rrspSarah}
-                      readOnly={showingSavedSnapshot}
+                      value={vars.balances.rrspSarah}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
-                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, rrspSarah: num(e.target.value) },
                         }))
                       }
@@ -1903,12 +1646,10 @@ return {
                   <Field label="TFSA Shingo (starting, $)">
                     <input
                       type="number"
-                      value={displayBalances.tfsaShingo}
-                      readOnly={showingSavedSnapshot}
+                      value={vars.balances.tfsaShingo}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
-                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, tfsaShingo: num(e.target.value) },
                         }))
                       }
@@ -1917,12 +1658,10 @@ return {
                   <Field label="TFSA Sarah (starting, $)">
                     <input
                       type="number"
-                      value={displayBalances.tfsaSarah}
-                      readOnly={showingSavedSnapshot}
+                      value={vars.balances.tfsaSarah}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
-                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, tfsaSarah: num(e.target.value) },
                         }))
                       }
@@ -1939,12 +1678,10 @@ return {
                   <Field label="LIRA/LIF Shingo (starting, $)">
                     <input
                       type="number"
-                      value={displayBalances.liraShingo}
-                      readOnly={showingSavedSnapshot}
+                      value={vars.balances.liraShingo}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
-                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, liraShingo: num(e.target.value) },
                         }))
                       }
@@ -1953,12 +1690,10 @@ return {
                   <Field label="Non-registered (starting, $)">
                     <input
                       type="number"
-                      value={displayBalances.nonRegistered}
-                      readOnly={showingSavedSnapshot}
+                      value={vars.balances.nonRegistered}
                       onChange={(e) =>
                         setVars((v) => ({
                           ...v,
-                          balancesAsOf: new Date().toISOString().slice(0, 10),
                           balances: { ...v.balances, nonRegistered: num(e.target.value) },
                         }))
                       }
@@ -2664,7 +2399,7 @@ return {
                     <select
                       className="yesNoSelect"
                       value={bracketsPerson}
-                      onChange={(e) => setBracketsPerson(e.target.value as "Shingo" | "Sarah")}
+                      onChange={(e) => setBracketsPerson(e.target.value as any)}
                     >
                       <option value="Shingo">Shingo</option>
                       <option value="Sarah">Sarah</option>
@@ -3439,7 +3174,7 @@ return {
                 const glideRows = sched.filter(
                   (r) => r.year >= vars.retirementYear && r.ageShingo < depletionAge
                 );
-                const extras = glideRows.map((r) => Math.max(0, r.debug.extraRrifPlanned));
+                const extras = glideRows.map((r) => Math.max(0, (r.debug as any).extraRrifPlanned ?? 0));
                 const total = extras.reduce((a, b) => a + b, 0);
                 if (glideRows.length === 0 || total <= 0) return;
                 const levelAmount = Math.round(total / glideRows.length);

@@ -371,7 +371,7 @@ export const DEFAULT_VARIABLES: Variables = {
     workingIncomeSarah: 100000,
   },
 
-  balancesAsOf: "2026-01-01",
+  balancesAsOf: new Date().toISOString().slice(0, 10),
   tfsaIncludesRefund: true,
 
   balances: {
