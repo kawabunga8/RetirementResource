@@ -236,8 +236,8 @@ export const DEFAULT_ANCHORS: Anchors = {
   shingoBirthYear: 1969,
   sarahBirthYear: 1971,
 
-  pensionShingo: 29000,
-  pensionSarah: 35000,
+  pensionShingo: 31345,
+  pensionSarah: 38000,
 
   cppShingoAt70Monthly: 1700,
 };
@@ -345,8 +345,8 @@ export const DEFAULT_VARIABLES: Variables = {
     shingoEmployment: 0,
     sarahEmployment: 0,
 
-    shingoPensionDb: 29000,
-    sarahPensionDb: 35000,
+    shingoPensionDb: 31345,
+    sarahPensionDb: 38000,
 
     shingoRrif: 0,
     sarahRrif: 0,
