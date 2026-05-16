@@ -266,7 +266,7 @@ export const DEFAULT_VARIABLES: Variables = {
 
   // From your screenshot: monthly investments
   monthly: {
-    tfsaTotal: 80,
+    tfsaTotal: 0,
     fhsaSarah: 666,
     rrspSarah: 700,
     fhsaShingo: 666,
