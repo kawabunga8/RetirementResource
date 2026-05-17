@@ -73,10 +73,6 @@ export type WithdrawalScheduleRow = {
   debug: WithdrawalDebug;
 };
 
-function clampToZero(n: number) {
-  return n < 0 ? 0 : n;
-}
-
 // clamp01 removed (no longer needed)
 
 function withdrawFrom(amount: number, balance: number, cap: number) {
@@ -645,7 +641,7 @@ export function buildWithdrawalSchedule(params: {
         iterations = iter + 1;
         lastTaxRes = computeTax();
 
-        const shortfall = clampToZero(targetAfterTaxNominal - afterTaxCashAvailable);
+        const shortfall = Math.max(0,targetAfterTaxNominal - afterTaxCashAvailable);
         if (shortfall <= 1) break;
 
         // Determine taxable headroom (approx) for guardrails.
@@ -714,8 +710,8 @@ export function buildWithdrawalSchedule(params: {
         computeTax();
       }
 
-      const surplusAfterTax = clampToZero(afterTaxCashAvailable - targetAfterTaxNominal);
-      const shortfallAfterTax = clampToZero(targetAfterTaxNominal - afterTaxCashAvailable);
+      const surplusAfterTax = Math.max(0,afterTaxCashAvailable - targetAfterTaxNominal);
+      const shortfallAfterTax = Math.max(0,targetAfterTaxNominal - afterTaxCashAvailable);
 
       // Surplus routing (after-tax definition)
       const toTfsa = Math.min(surplusAfterTax, tfsaRoom);

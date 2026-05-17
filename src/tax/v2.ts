@@ -89,10 +89,6 @@ export type HouseholdTaxResult = {
   };
 };
 
-function clampToZero(n: number) {
-  return n < 0 ? 0 : n;
-}
-
 function progressiveTax(income: number, brackets: Bracket[]) {
   const x = Math.max(0, income);
   let tax = 0;
@@ -173,13 +169,13 @@ function computeCredits(params: {
 
   if (params.toggles.useAgeAmount && params.age >= 65) {
     // Income-tested phase-out (rough) against taxable income.
-    const fedAmt = clampToZero(
+    const fedAmt = Math.max(0,
       tables.federal.ageAmountMax -
         Math.max(0, params.taxableIncome - tables.federal.ageAmountThreshold) *
           tables.federal.ageAmountPhaseOutRate
     );
 
-    const bcAmt = clampToZero(
+    const bcAmt = Math.max(0,
       tables.bc.ageAmountMax -
         Math.max(0, params.taxableIncome - tables.bc.ageAmountThreshold) *
           tables.bc.ageAmountPhaseOutRate
@@ -239,7 +235,9 @@ function computePerson(params: {
     toggles: params.credits,
   });
 
-  const taxAfterCredits = Math.max(0, fedBefore + bcBefore - credits.total);
+  const taxAfterCredits =
+    Math.max(0, fedBefore - credits.fed.total) +
+    Math.max(0, bcBefore - credits.bc.total);
 
   // OAS clawback is based on net income. We approximate with taxable income.
   const clawback = computeOasClawback({
