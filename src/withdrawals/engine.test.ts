@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_VARIABLES } from "../planDefaults";
+import { DEFAULT_ANCHORS, DEFAULT_VARIABLES } from "../planDefaults";
 import { buildWithdrawalSchedule, type RetirementBalances } from "./engine";
 import { getOasClawbackThreshold } from "../tax/v2";
 
@@ -52,6 +52,7 @@ describe("withdrawal engine (after-tax targets, tax v2)", () => {
 
     const sched = buildWithdrawalSchedule({
       vars,
+      anchors: DEFAULT_ANCHORS,
       retirementYear: vars.retirementYear,
       retirementBalances,
     });
@@ -95,6 +96,7 @@ describe("withdrawal engine (after-tax targets, tax v2)", () => {
 
     const [r] = buildWithdrawalSchedule({
       vars,
+      anchors: DEFAULT_ANCHORS,
       retirementYear: vars.retirementYear,
       retirementBalances,
     });
@@ -151,6 +153,7 @@ describe("withdrawal engine (after-tax targets, tax v2)", () => {
 
     const [r] = buildWithdrawalSchedule({
       vars,
+      anchors: DEFAULT_ANCHORS,
       retirementYear: vars.retirementYear,
       retirementBalances,
     });

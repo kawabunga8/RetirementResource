@@ -777,6 +777,7 @@ export default function App() {
     // --- Withdrawal schedule (v2, after-tax real targets) ---
     const schedule = buildWithdrawalSchedule({
       vars,
+      anchors,
       retirementYear: vars.retirementYear,
       retirementBalances,
     });
@@ -3119,6 +3120,7 @@ return {
 
                       const sched = buildWithdrawalSchedule({
                         vars: testVars,
+                        anchors,
                         retirementYear: testVars.retirementYear,
                         retirementBalances: model.retirementBalances,
                       });
@@ -3432,6 +3434,7 @@ return {
                 };
                 const sched = buildWithdrawalSchedule({
                   vars: flatVars,
+                  anchors,
                   retirementYear: vars.retirementYear,
                   retirementBalances: model.retirementBalances,
                 });

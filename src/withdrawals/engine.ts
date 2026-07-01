@@ -1,6 +1,5 @@
 import { computeHouseholdTax, getOasClawbackThreshold } from "../tax/v2";
-import type { LifMode, Variables, WithdrawalOrder } from "../planDefaults";
-import { DEFAULT_ANCHORS } from "../planDefaults";
+import type { Anchors, LifMode, Variables, WithdrawalOrder } from "../planDefaults";
 
 export type RetirementBalances = {
   fhsa: number;
@@ -296,13 +295,14 @@ const FHSA_SHINGO_FORCE_ROLL_YEAR = FHSA_SHINGO_START_YEAR + FHSA_MAX_YEARS; // 
 
 export function buildWithdrawalSchedule(params: {
   vars: Variables;
+  anchors: Anchors;
   retirementYear: number;
   retirementBalances: RetirementBalances;
 }) {
-  const { vars } = params;
+  const { vars, anchors } = params;
 
   const indexRate = vars.expectedInflation * vars.cpiMultiplier;
-  const pensionAnnualReal = DEFAULT_ANCHORS.pensionShingo + DEFAULT_ANCHORS.pensionSarah;
+  const pensionAnnualReal = anchors.pensionShingo + anchors.pensionSarah;
 
   const retireAgeShingo = vars.shingoRetireAge;
   const retireAgeSarah = vars.sarahRetireAge;
@@ -355,7 +355,7 @@ export function buildWithdrawalSchedule(params: {
       const targetAfterTaxReal =
         phase === "Go-Go" ? vars.spending.goGo : phase === "Slow-Go" ? vars.spending.slowGo : vars.spending.noGo;
 
-      const yearsFromBaseline = year - DEFAULT_ANCHORS.baselineYear;
+      const yearsFromBaseline = year - anchors.baselineYear;
       // Spending targets are defined as REAL (today dollars). Convert using FULL inflation (not partial CPI).
       const targetAfterTaxNominal = nominalFromRealBase({
         amountReal: targetAfterTaxReal,
@@ -448,12 +448,12 @@ export function buildWithdrawalSchedule(params: {
         // Estimate current taxable income BEFORE adding any RRSP/RRIF withdrawal.
         // (Uses v2 tax engine + splitting optimizer; planning approximation.)
         const pensionShingo0 = nominalFromRealBase({
-          amountReal: DEFAULT_ANCHORS.pensionShingo,
+          amountReal: anchors.pensionShingo,
           annualIndexRate: indexRate,
           yearsFromBaseline,
         });
         const pensionSarah0 = nominalFromRealBase({
-          amountReal: DEFAULT_ANCHORS.pensionSarah,
+          amountReal: anchors.pensionSarah,
           annualIndexRate: indexRate,
           yearsFromBaseline,
         });
@@ -554,12 +554,12 @@ export function buildWithdrawalSchedule(params: {
 
       const computeTax = () => {
         const pensionShingo = nominalFromRealBase({
-          amountReal: DEFAULT_ANCHORS.pensionShingo,
+          amountReal: anchors.pensionShingo,
           annualIndexRate: indexRate,
           yearsFromBaseline,
         });
         const pensionSarah = nominalFromRealBase({
-          amountReal: DEFAULT_ANCHORS.pensionSarah,
+          amountReal: anchors.pensionSarah,
           annualIndexRate: indexRate,
           yearsFromBaseline,
         });
