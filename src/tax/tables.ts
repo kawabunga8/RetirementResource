@@ -40,7 +40,7 @@ export let TAX_TABLES: TaxYearTables[] = [
       brackets: [
         // Thresholds: exact 2025 CRA values.
         // First-bracket rate: 14.5% (blended — 15% Jan–Jun, 14% Jul–Dec 2025).
-        // From 2026 onward the rate is permanently 14%; add a year:2026 entry when exact thresholds are confirmed.
+        // See the year:2026 entry below for the permanent 14% rate onward.
         { upTo: 57375, rate: 0.145 },
         { upTo: 114750, rate: 0.205 },
         { upTo: 177882, rate: 0.26 },
@@ -72,6 +72,48 @@ export let TAX_TABLES: TaxYearTables[] = [
       ageAmountMax: 5799,
       ageAmountThreshold: 43169,
       // 15%: $5,799 phases out to zero at $81,829 ($43,169 + $5,799/0.15).
+      ageAmountPhaseOutRate: 0.15,
+      pensionCreditBase: 1000,
+    },
+  },
+  {
+    year: 2026,
+    federal: {
+      brackets: [
+        // Exact 2026 CRA thresholds. Lowest rate is 14% for the full year
+        // (no more mid-year blend now that the 2025 Jul 1 cut is permanent).
+        { upTo: 58523, rate: 0.14 },
+        { upTo: 117045, rate: 0.205 },
+        { upTo: 181440, rate: 0.26 },
+        { upTo: 258482, rate: 0.29 },
+        { upTo: Infinity, rate: 0.33 },
+      ],
+      lowestRate: 0.14,
+      bpa: 16452,
+      ageAmountMax: 9208,
+      ageAmountThreshold: 46432,
+      ageAmountPhaseOutRate: 0.15,
+      pensionCreditBase: 2000,
+      oasClawbackThreshold: 95323,
+      oasClawbackRate: 0.15,
+    },
+    bc: {
+      brackets: [
+        // Exact 2026 BC thresholds (indexed 2.2% from 2025). BC also raised
+        // its lowest bracket rate from 5.06% to 5.60% starting 2026.
+        { upTo: 50363, rate: 0.056 },
+        { upTo: 100728, rate: 0.077 },
+        { upTo: 115648, rate: 0.1050 },
+        { upTo: 140430, rate: 0.1229 },
+        { upTo: 190405, rate: 0.147 },
+        { upTo: 265545, rate: 0.168 },
+        { upTo: Infinity, rate: 0.205 },
+      ],
+      lowestRate: 0.056,
+      bpa: 13216,
+      ageAmountMax: 5927,
+      ageAmountThreshold: 44119,
+      // 15%: $5,927 phases out to zero at $83,632 ($44,119 + $5,927/0.15).
       ageAmountPhaseOutRate: 0.15,
       pensionCreditBase: 1000,
     },
