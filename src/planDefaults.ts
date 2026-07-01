@@ -247,7 +247,7 @@ export const DEFAULT_VARIABLES: Variables = {
   cpiMultiplier: 1,
 
   // As-of baseline snapshot (Jan 2026)
-  tfsaRoomShingo: 102339,
+  tfsaRoomShingo: 105352.19,
   tfsaRoomSarah: 109000,
   rrspRoomShingo: 120125,
   rrspRoomSarah: 63252,
@@ -326,6 +326,9 @@ export const DEFAULT_VARIABLES: Variables = {
     // placeholders (we’ll compute these from rules later; for now editable)
     // Defaults are placeholders; adjust to your Service Canada estimates.
     cppShingoAnnual: DEFAULT_ANCHORS.cppShingoAt70Monthly * 12,
+    // KNOWN PLACEHOLDER: Sarah's real CPP estimate is not yet on file — this
+    // just copies Shingo's figure as a stand-in. Replace with her own
+    // Service Canada "estimate of monthly CPP retirement pension" once available.
     cppSarahAnnual: DEFAULT_ANCHORS.cppShingoAt70Monthly * 12,
     // Rough OAS-at-70 placeholder (annual). Replace with your preferred assumption.
     oasShingoAnnual: 11000,
