@@ -365,7 +365,7 @@ export function buildWithdrawalSchedule(params: {
 
       const guaranteedIncome = nominalFromRealBase({
         amountReal: pensionAnnualReal,
-        annualIndexRate: indexRate,
+        annualIndexRate: vars.pensionIndexRate,
         yearsFromBaseline,
       });
 
@@ -449,12 +449,12 @@ export function buildWithdrawalSchedule(params: {
         // (Uses v2 tax engine + splitting optimizer; planning approximation.)
         const pensionShingo0 = nominalFromRealBase({
           amountReal: anchors.pensionShingo,
-          annualIndexRate: indexRate,
+          annualIndexRate: vars.pensionIndexRate,
           yearsFromBaseline,
         });
         const pensionSarah0 = nominalFromRealBase({
           amountReal: anchors.pensionSarah,
-          annualIndexRate: indexRate,
+          annualIndexRate: vars.pensionIndexRate,
           yearsFromBaseline,
         });
 
@@ -555,12 +555,12 @@ export function buildWithdrawalSchedule(params: {
       const computeTax = () => {
         const pensionShingo = nominalFromRealBase({
           amountReal: anchors.pensionShingo,
-          annualIndexRate: indexRate,
+          annualIndexRate: vars.pensionIndexRate,
           yearsFromBaseline,
         });
         const pensionSarah = nominalFromRealBase({
           amountReal: anchors.pensionSarah,
-          annualIndexRate: indexRate,
+          annualIndexRate: vars.pensionIndexRate,
           yearsFromBaseline,
         });
 

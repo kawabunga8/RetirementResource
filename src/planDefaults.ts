@@ -201,6 +201,7 @@ export type Variables = {
   // Expectations
   expectedNominalReturn: number; // e.g. 0.07
   expectedInflation: number; // e.g. 0.02
+  pensionIndexRate: number; // e.g. 0.02 (annual indexation rate for DB pensions)
 
   // Contributions
   monthly: MonthlyContributions;
@@ -236,7 +237,7 @@ export const DEFAULT_ANCHORS: Anchors = {
   shingoBirthYear: 1969,
   sarahBirthYear: 1971,
 
-  pensionShingo: 31345,
+  pensionShingo: 33374.27, // Updated from PENCAN projection (Sept 2025)
   pensionSarah: 38400,
 
   cppShingoAt70Monthly: 1700,
@@ -263,6 +264,7 @@ export const DEFAULT_VARIABLES: Variables = {
 
   expectedNominalReturn: 0.07,
   expectedInflation: 0.03,
+  pensionIndexRate: 0.02, // Shingo's PENCAN pension indexes at 2% annually
 
   // From your screenshot: monthly investments
   monthly: {
