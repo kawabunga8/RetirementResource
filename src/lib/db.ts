@@ -110,10 +110,9 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
   const sarah = members.find((m) => m.name === "Sarah");
   if (!shingo || !sarah) return null;
 
-  // plan_benefits has no plan_id column, only member_id — scope to this plan's members
-  // to avoid pulling another plan's benefit rows if member IDs were ever non-unique.
-  const memberIds = new Set(members.map((m) => m.id));
-  const benefits = ((benefitsRes.data ?? []) as DbBenefit[]).filter((b) => memberIds.has(b.member_id));
+  // Extract benefits from nested structure (plan_members.plan_benefits)
+  const benefitsNested = (benefitsRes.data ?? []) as Array<DbMember & { plan_benefits: DbBenefit[] }>;
+  const benefits: DbBenefit[] = benefitsNested.flatMap((m) => m.plan_benefits ?? []);
 
   const account = (type: string, memberId?: string) =>
     accounts.find((a) => a.account_type === type && (memberId ? a.member_id === memberId : true));
