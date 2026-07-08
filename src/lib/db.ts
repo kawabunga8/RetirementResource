@@ -95,7 +95,10 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
     supabase.from("plan_assumptions").select("*").eq("plan_id", plan.id).limit(1),
     supabase.from("plan_accounts").select("*").eq("plan_id", plan.id),
     supabase.from("plan_spending_phases").select("*").eq("plan_id", plan.id),
-    supabase.from("plan_benefits").select("*"),
+    supabase
+      .from("plan_members")
+      .select("plan_benefits(*)")
+      .eq("plan_id", plan.id),
   ]);
 
   const members = (membersRes.data ?? []) as DbMember[];
