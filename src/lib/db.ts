@@ -292,7 +292,7 @@ export async function savePlan(
       { plan_id: planId, member_id: sarah.id,  account_type: "tfsa",           balance: vars.balances.tfsaSarah,     contribution_room: vars.tfsaRoomSarah,    monthly_contribution: 0, as_of_date: vars.balancesAsOf },
       { plan_id: planId, member_id: shingo.id, account_type: "lira",           balance: vars.balances.liraShingo,    contribution_room: 0,                    monthly_contribution: 0, as_of_date: vars.balancesAsOf },
       { plan_id: planId, member_id: null,      account_type: "non_registered", balance: vars.balances.nonRegistered, contribution_room: 0,                    monthly_contribution: 0, as_of_date: vars.balancesAsOf },
-    ], { onConflict: "plan_id,member_id,account_type,as_of_date" }),
+    ], { onConflict: "plan_id,member_id,account_type" }),
   ]);
 }
 
