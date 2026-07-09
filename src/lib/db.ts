@@ -93,7 +93,7 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
   const [membersRes, assumptionsRes, accountsRes, phasesRes, benefitsRes] = await Promise.all([
     supabase.from("plan_members").select("*").eq("plan_id", plan.id),
     supabase.from("plan_assumptions").select("*").eq("plan_id", plan.id).limit(1),
-    supabase.from("plan_accounts").select("*").eq("plan_id", plan.id),
+    supabase.from("plan_accounts").select("*").eq("plan_id", plan.id).eq("as_of_date", plan.balances_as_of ?? "2026-01-01"),
     supabase.from("plan_spending_phases").select("*").eq("plan_id", plan.id),
     supabase.from("plan_benefits").select("*"),
   ]);
