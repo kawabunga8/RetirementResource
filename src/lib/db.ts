@@ -115,13 +115,27 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
   };
 
   const asOfDateStr = toDateString(plan.balances_as_of);
+  console.log("🔍 [DEBUG] Filter start:", {
+    plan_balances_as_of: plan.balances_as_of,
+    asOfDateStr,
+    allAccounts_count: allAccounts.length,
+    sample_account_as_of_date: allAccounts[0]?.as_of_date,
+    sample_account_type: typeof allAccounts[0]?.as_of_date,
+  });
+
   let accounts = allAccounts.filter((a) => toDateString(a.as_of_date) === asOfDateStr);
+  console.log("🔍 [DEBUG] After filter:", {
+    matched_count: accounts.length,
+    first_matched: accounts[0] ? { type: accounts[0].account_type, date: accounts[0].as_of_date } : null,
+  });
 
   if (accounts.length === 0 && allAccounts.length > 0) {
+    console.log("⚠️ [DEBUG] Filter returned 0, using fallback");
     const uniqueDates = allAccounts
       .map(a => toDateString(a.as_of_date))
       .filter(d => d !== "");
     const mostRecentDate = [...new Set(uniqueDates)].sort().reverse()[0];
+    console.log("🔍 [DEBUG] Fallback:", { uniqueDates, mostRecentDate });
     accounts = allAccounts.filter((a) => toDateString(a.as_of_date) === mostRecentDate);
   }
 
@@ -270,14 +284,14 @@ export async function savePlan(
 
     // Accounts
     supabase.from("plan_accounts").upsert([
-      { plan_id: planId, member_id: shingo.id, account_type: "fhsa",           balance: vars.balances.fhsaShingo,    contribution_room: 0,                    monthly_contribution: vars.monthly.fhsaShingo },
-      { plan_id: planId, member_id: sarah.id,  account_type: "fhsa",           balance: vars.balances.fhsaSarah,     contribution_room: 0,                    monthly_contribution: vars.monthly.fhsaSarah },
-      { plan_id: planId, member_id: shingo.id, account_type: "rrsp",           balance: vars.balances.rrspShingo,    contribution_room: vars.rrspRoomShingo,   monthly_contribution: vars.monthly.rrspShingo },
-      { plan_id: planId, member_id: sarah.id,  account_type: "rrsp",           balance: vars.balances.rrspSarah,     contribution_room: vars.rrspRoomSarah,    monthly_contribution: vars.monthly.rrspSarah },
-      { plan_id: planId, member_id: shingo.id, account_type: "tfsa",           balance: vars.balances.tfsaShingo,    contribution_room: vars.tfsaRoomShingo,   monthly_contribution: 0 },
-      { plan_id: planId, member_id: sarah.id,  account_type: "tfsa",           balance: vars.balances.tfsaSarah,     contribution_room: vars.tfsaRoomSarah,    monthly_contribution: 0 },
-      { plan_id: planId, member_id: shingo.id, account_type: "lira",           balance: vars.balances.liraShingo,    contribution_room: 0,                    monthly_contribution: 0 },
-      { plan_id: planId, member_id: null,      account_type: "non_registered", balance: vars.balances.nonRegistered, contribution_room: 0,                    monthly_contribution: 0 },
+      { plan_id: planId, member_id: shingo.id, account_type: "fhsa",           balance: vars.balances.fhsaShingo,    contribution_room: 0,                    monthly_contribution: vars.monthly.fhsaShingo, as_of_date: vars.balancesAsOf },
+      { plan_id: planId, member_id: sarah.id,  account_type: "fhsa",           balance: vars.balances.fhsaSarah,     contribution_room: 0,                    monthly_contribution: vars.monthly.fhsaSarah, as_of_date: vars.balancesAsOf },
+      { plan_id: planId, member_id: shingo.id, account_type: "rrsp",           balance: vars.balances.rrspShingo,    contribution_room: vars.rrspRoomShingo,   monthly_contribution: vars.monthly.rrspShingo, as_of_date: vars.balancesAsOf },
+      { plan_id: planId, member_id: sarah.id,  account_type: "rrsp",           balance: vars.balances.rrspSarah,     contribution_room: vars.rrspRoomSarah,    monthly_contribution: vars.monthly.rrspSarah, as_of_date: vars.balancesAsOf },
+      { plan_id: planId, member_id: shingo.id, account_type: "tfsa",           balance: vars.balances.tfsaShingo,    contribution_room: vars.tfsaRoomShingo,   monthly_contribution: 0, as_of_date: vars.balancesAsOf },
+      { plan_id: planId, member_id: sarah.id,  account_type: "tfsa",           balance: vars.balances.tfsaSarah,     contribution_room: vars.tfsaRoomSarah,    monthly_contribution: 0, as_of_date: vars.balancesAsOf },
+      { plan_id: planId, member_id: shingo.id, account_type: "lira",           balance: vars.balances.liraShingo,    contribution_room: 0,                    monthly_contribution: 0, as_of_date: vars.balancesAsOf },
+      { plan_id: planId, member_id: null,      account_type: "non_registered", balance: vars.balances.nonRegistered, contribution_room: 0,                    monthly_contribution: 0, as_of_date: vars.balancesAsOf },
     ], { onConflict: "plan_id,member_id,account_type" }),
   ]);
 }
