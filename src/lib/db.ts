@@ -54,6 +54,7 @@ type DbAccount = {
   balance: number;
   contribution_room: number;
   monthly_contribution: number;
+  as_of_date: string;
 };
 
 type DbSpendingPhase = {
