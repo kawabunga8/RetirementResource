@@ -108,31 +108,21 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
   const sarah = members.find((m) => m.name === "Sarah");
   if (!shingo || !sarah) return null;
 
-  // Filter accounts by balances_as_of date; normalize dates to strings for comparison
-  const asOfDateStr = typeof plan.balances_as_of === "string"
-    ? plan.balances_as_of
-    : new Date(plan.balances_as_of).toISOString().split('T')[0];
+    const toDateString = (d: string | Date | null | undefined): string => {
+    if (!d) return "";
+    if (typeof d === "string") return d;
+    return new Date(d).toISOString().split('T')[0];
+  };
 
-  let accounts = allAccounts.filter((a) => {
-    const accountDateStr = typeof a.as_of_date === "string"
-      ? a.as_of_date
-      : new Date(a.as_of_date).toISOString().split('T')[0];
-    return accountDateStr === asOfDateStr;
-  });
+  const asOfDateStr = toDateString(plan.balances_as_of);
+  let accounts = allAccounts.filter((a) => toDateString(a.as_of_date) === asOfDateStr);
 
   if (accounts.length === 0 && allAccounts.length > 0) {
-    const uniqueDates = allAccounts.map(a =>
-      typeof a.as_of_date === "string"
-        ? a.as_of_date
-        : new Date(a.as_of_date).toISOString().split('T')[0]
-    );
+    const uniqueDates = allAccounts
+      .map(a => toDateString(a.as_of_date))
+      .filter(d => d !== "");
     const mostRecentDate = [...new Set(uniqueDates)].sort().reverse()[0];
-    accounts = allAccounts.filter((a) => {
-      const accountDateStr = typeof a.as_of_date === "string"
-        ? a.as_of_date
-        : new Date(a.as_of_date).toISOString().split('T')[0];
-      return accountDateStr === mostRecentDate;
-    });
+    accounts = allAccounts.filter((a) => toDateString(a.as_of_date) === mostRecentDate);
   }
 
   // plan_benefits has no plan_id column, only member_id — scope to this plan's members
