@@ -108,12 +108,31 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
   const sarah = members.find((m) => m.name === "Sarah");
   if (!shingo || !sarah) return null;
 
-  // Filter accounts by balances_as_of date; fall back to most recent if no match
-  let accounts = allAccounts.filter((a) => a.as_of_date === plan.balances_as_of);
+  // Filter accounts by balances_as_of date; normalize dates to strings for comparison
+  const asOfDateStr = typeof plan.balances_as_of === "string"
+    ? plan.balances_as_of
+    : new Date(plan.balances_as_of).toISOString().split('T')[0];
+
+  let accounts = allAccounts.filter((a) => {
+    const accountDateStr = typeof a.as_of_date === "string"
+      ? a.as_of_date
+      : new Date(a.as_of_date).toISOString().split('T')[0];
+    return accountDateStr === asOfDateStr;
+  });
+
   if (accounts.length === 0 && allAccounts.length > 0) {
-    const uniqueDates = [...new Set(allAccounts.map(a => a.as_of_date))];
-    const mostRecentDate = uniqueDates.sort().reverse()[0];
-    accounts = allAccounts.filter((a) => a.as_of_date === mostRecentDate);
+    const uniqueDates = allAccounts.map(a =>
+      typeof a.as_of_date === "string"
+        ? a.as_of_date
+        : new Date(a.as_of_date).toISOString().split('T')[0]
+    );
+    const mostRecentDate = [...new Set(uniqueDates)].sort().reverse()[0];
+    accounts = allAccounts.filter((a) => {
+      const accountDateStr = typeof a.as_of_date === "string"
+        ? a.as_of_date
+        : new Date(a.as_of_date).toISOString().split('T')[0];
+      return accountDateStr === mostRecentDate;
+    });
   }
 
   // plan_benefits has no plan_id column, only member_id — scope to this plan's members
