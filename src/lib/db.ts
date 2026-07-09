@@ -108,18 +108,12 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
   const sarah = members.find((m) => m.name === "Sarah");
   if (!shingo || !sarah) return null;
 
-  // Filter accounts by balances_as_of date
+  // Filter accounts by balances_as_of date; fall back to most recent if no match
   let accounts = allAccounts.filter((a) => a.as_of_date === plan.balances_as_of);
-  const uniqueDates = [...new Set(allAccounts.map(a => a.as_of_date))];
-
   if (accounts.length === 0 && allAccounts.length > 0) {
-    console.warn("[WARNING] No accounts matched date:", plan.balances_as_of);
-    console.warn("[DEBUG] Available dates:", uniqueDates);
-    console.warn("[DEBUG] Falling back to most recent date");
-    const sortedDates = uniqueDates.sort().reverse();
-    const mostRecentDate = sortedDates[0];
+    const uniqueDates = [...new Set(allAccounts.map(a => a.as_of_date))];
+    const mostRecentDate = uniqueDates.sort().reverse()[0];
     accounts = allAccounts.filter((a) => a.as_of_date === mostRecentDate);
-    console.log("[DEBUG] Using date:", mostRecentDate, 'with', accounts.length, 'accounts');
   }
 
   // plan_benefits has no plan_id column, only member_id — scope to this plan's members
