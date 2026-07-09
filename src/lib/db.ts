@@ -110,6 +110,13 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
 
   // Filter accounts by balances_as_of date
   const accounts = allAccounts.filter((a) => a.as_of_date === plan.balances_as_of);
+  console.log("[DEBUG loadPlan]", {
+    plan_balances_as_of: plan.balances_as_of,
+    all_accounts_count: allAccounts.length,
+    filtered_accounts_count: accounts.length,
+    all_dates: allAccounts.map(a => ({ type: a.account_type, date: a.as_of_date })),
+    filtered_dates: accounts.map(a => ({ type: a.account_type, date: a.as_of_date })),
+  });
 
   // plan_benefits has no plan_id column, only member_id — scope to this plan's members
   // to avoid pulling another plan's benefit rows if member IDs were ever non-unique.
