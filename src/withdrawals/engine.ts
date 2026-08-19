@@ -1,4 +1,10 @@
 import { computeHouseholdTax, getOasClawbackThreshold } from "../tax/v2";
+import {
+  cppAmountForStartAge,
+  oasAmountForStartAge,
+  effectiveCppStartAge,
+  effectiveOasStartAge,
+} from "../benefits";
 import type { Anchors, LifMode, Variables, WithdrawalOrder } from "../planDefaults";
 
 export type RetirementBalances = {
@@ -74,10 +80,24 @@ export type WithdrawalScheduleRow = {
 
 // clamp01 removed (no longer needed)
 
+/**
+ * `cap` is a hard ceiling on the amount withdrawn. Use NO_CAP (Infinity) for
+ * "unlimited" — a cap of 0 genuinely means "withdraw nothing".
+ *
+ * (This used to treat 0 as "no cap", which meant a binding OAS ceiling of $0 of
+ * headroom silently became *unlimited* headroom for the LIRA.)
+ */
+const NO_CAP = Infinity;
+
+/** Plan config uses 0 to mean "no cap"; convert to the real sentinel. */
+function capFromConfig(configured: number) {
+  return configured > 0 ? configured : NO_CAP;
+}
+
 function withdrawFrom(amount: number, balance: number, cap: number) {
   if (amount <= 0) return { withdrawn: 0, remainingNeed: 0, newBalance: balance };
 
-  const allowed = cap > 0 ? Math.min(amount, cap) : amount;
+  const allowed = Math.min(amount, Math.max(0, cap));
   const withdrawn = Math.min(allowed, Math.max(0, balance));
   return {
     withdrawn,
@@ -85,6 +105,13 @@ function withdrawFrom(amount: number, balance: number, cap: number) {
     newBalance: balance - withdrawn,
   };
 }
+
+/**
+ * Age at which RRIF/LIF minimum withdrawals become mandatory. Conversion happens
+ * by the end of the year you turn 71; the first required payment is the year you
+ * turn 72.
+ */
+const MANDATORY_MIN_START_AGE = 72;
 
 let RRIF_STATUTORY_FACTORS: Record<number, number> = {
   71: 0.0528,
@@ -223,7 +250,12 @@ function applyWithdrawalOrder(params: {
     sarah: number;
     household: number;
   };
-  avoidTaxable: boolean;
+  /**
+   * Dollars of LIF allowance still unused this year. The BC LIF maximum is an
+   * ANNUAL limit, so any mandatory LIF withdrawal already taken has to be
+   * subtracted before the solver tops up from the same account.
+   */
+  lifRemainingThisYear: number;
 }) {
   let need = params.need;
 
@@ -233,15 +265,10 @@ function applyWithdrawalOrder(params: {
     if (src === "pension") continue;
     if (src === "tfsa" && !params.allowTfsa) continue;
 
-    if (params.avoidTaxable && (src === "rrsp" || src === "lira" || src === "fhsa")) {
-      continue;
-    }
-
     if (src === "fhsa") {
       // treat FHSA as taxable (RRSP-like) in drawdown planning.
-      const capByCeiling = params.taxableHeadroom.household;
-      const cap = params.caps.fhsa > 0 ? Math.min(params.caps.fhsa, capByCeiling) : capByCeiling;
-      const r = withdrawFrom(Math.min(need, capByCeiling), params.balances.fhsa, cap);
+      const cap = Math.min(capFromConfig(params.caps.fhsa), params.taxableHeadroom.household);
+      const r = withdrawFrom(need, params.balances.fhsa, cap);
       params.withdrawals.fhsa += r.withdrawn;
       params.balances.fhsa = r.newBalance;
       need = r.remainingNeed;
@@ -249,20 +276,22 @@ function applyWithdrawalOrder(params: {
 
     if (src === "rrsp") {
       // household RRSP assumed split 50/50 for taxable-income purposes.
-      const capByCeiling = params.taxableHeadroom.household;
-      const cap = params.caps.rrsp > 0 ? Math.min(params.caps.rrsp, capByCeiling) : capByCeiling;
-      const r = withdrawFrom(Math.min(need, capByCeiling), params.balances.rrsp, cap);
+      const cap = Math.min(capFromConfig(params.caps.rrsp), params.taxableHeadroom.household);
+      const r = withdrawFrom(need, params.balances.rrsp, cap);
       params.withdrawals.rrsp += r.withdrawn;
       params.balances.rrsp = r.newBalance;
       need = r.remainingNeed;
     }
 
     if (src === "lira") {
+      // Never exceed the BC LIF maximum, the configured cap, or the taxable ceiling.
       const lifMax = params.balances.lira * lifTargetFactor(params.ageShingo, params.lifMode);
-      const explicitCap = params.caps.lira;
-      const capCandidate = explicitCap > 0 ? Math.min(explicitCap, lifMax) : lifMax;
-      const capByCeiling = params.taxableHeadroom.shingo;
-      const cap = Math.min(capCandidate, capByCeiling);
+      const cap = Math.min(
+        capFromConfig(params.caps.lira),
+        lifMax,
+        Math.max(0, params.lifRemainingThisYear),
+        params.taxableHeadroom.shingo
+      );
 
       const r = withdrawFrom(need, params.balances.lira, cap);
       params.withdrawals.lira += r.withdrawn;
@@ -271,15 +300,15 @@ function applyWithdrawalOrder(params: {
     }
 
     if (src === "nonRegistered") {
-      // v2 does not model cap gains/dividends yet; treat as after-tax cash for now.
-      const r = withdrawFrom(need, params.balances.nonRegistered, params.caps.nonRegistered);
+      // Treated as after-tax cash; tax drag is applied to its growth instead.
+      const r = withdrawFrom(need, params.balances.nonRegistered, capFromConfig(params.caps.nonRegistered));
       params.withdrawals.nonRegistered += r.withdrawn;
       params.balances.nonRegistered = r.newBalance;
       need = r.remainingNeed;
     }
 
     if (src === "tfsa") {
-      const r = withdrawFrom(need, params.balances.tfsa, params.caps.tfsa);
+      const r = withdrawFrom(need, params.balances.tfsa, capFromConfig(params.caps.tfsa));
       params.withdrawals.tfsa += r.withdrawn;
       params.balances.tfsa = r.newBalance;
       need = r.remainingNeed;
@@ -306,6 +335,17 @@ export function buildWithdrawalSchedule(params: {
 
   const retireAgeShingo = vars.shingoRetireAge;
   const retireAgeSarah = vars.sarahRetireAge;
+
+  // CPP/OAS start ages, clamped to what the programs allow (CPP 60-70, OAS 65-70).
+  const cppStartAge = effectiveCppStartAge(vars.cppStartAge);
+  const oasStartAge = effectiveOasStartAge(vars.oasStartAge);
+
+  // Stored amounts are quoted at age 70. Apply the actuarial adjustment so that
+  // moving the start age actually changes the size of the cheque, not just its timing.
+  const cppShingoReal = cppAmountForStartAge(vars.withdrawals.cppShingoAnnual, cppStartAge);
+  const cppSarahReal = cppAmountForStartAge(vars.withdrawals.cppSarahAnnual, cppStartAge);
+  const oasShingoReal = oasAmountForStartAge(vars.withdrawals.oasShingoAnnual, oasStartAge);
+  const oasSarahReal = oasAmountForStartAge(vars.withdrawals.oasSarahAnnual, oasStartAge);
 
   const yearsInPlan = Math.max(0, vars.phaseAges.endAge - Math.min(retireAgeShingo, retireAgeSarah) + 1);
 
@@ -369,17 +409,20 @@ export function buildWithdrawalSchedule(params: {
         yearsFromBaseline,
       });
 
-      const benefitsIncomeReal =
-        (ageShingo >= vars.cppStartAge ? vars.withdrawals.cppShingoAnnual : 0) +
-        (ageSarah >= vars.cppStartAge ? vars.withdrawals.cppSarahAnnual : 0) +
-        (ageShingo >= vars.oasStartAge ? vars.withdrawals.oasShingoAnnual : 0) +
-        (ageSarah >= vars.oasStartAge ? vars.withdrawals.oasSarahAnnual : 0);
+      // CPP/OAS for this year, in nominal dollars. Computed once and reused by
+      // every tax pass below (previously duplicated in three places).
+      const benefitNominal = (amountReal: number, hasStarted: boolean) =>
+        hasStarted
+          ? nominalFromRealBase({ amountReal, annualIndexRate: indexRate, yearsFromBaseline })
+          : 0;
 
-      const benefitsIncome = nominalFromRealBase({
-        amountReal: benefitsIncomeReal,
-        annualIndexRate: indexRate,
-        yearsFromBaseline,
-      });
+      const cppShingoNominal = benefitNominal(cppShingoReal, ageShingo >= cppStartAge);
+      const cppSarahNominal = benefitNominal(cppSarahReal, ageSarah >= cppStartAge);
+      const oasShingoNominal = benefitNominal(oasShingoReal, ageShingo >= oasStartAge);
+      const oasSarahNominal = benefitNominal(oasSarahReal, ageSarah >= oasStartAge);
+
+      const benefitsIncome =
+        cppShingoNominal + cppSarahNominal + oasShingoNominal + oasSarahNominal;
 
       const withdrawals: WithdrawalSources = {
         fhsa: 0,
@@ -395,7 +438,12 @@ export function buildWithdrawalSchedule(params: {
       // When forceLifFromRetirement is enabled, we treat lifMode (min/mid/max) as the planned annual withdrawal factor.
       // (This makes the min/mid/max selection actually change the LIF remaining balance over time.)
       const { minF: lifMinF } = lifMinMaxFactors(ageShingo);
-      const lifMinRequired = vars.withdrawals.forceLifFromRetirement ? balances.lira * lifMinF : 0;
+      // A LIRA must convert to a LIF by 31 Dec of the year you turn 71, and the
+      // first mandatory minimum falls in the year you turn 72. That is the law,
+      // not a planning preference, so it applies regardless of the toggle.
+      const lifMandatory = ageShingo >= MANDATORY_MIN_START_AGE;
+      const lifMinRequired =
+        vars.withdrawals.forceLifFromRetirement || lifMandatory ? balances.lira * lifMinF : 0;
       // BC LIF maximum annual withdrawal is the greater of:
       // - the preceding year's investment return in the LIF (planning approx: prior balance * expectedNominalReturn)
       // - beginning-of-year balance × BC max percentage table
@@ -410,9 +458,7 @@ export function buildWithdrawalSchedule(params: {
       const lifTarget = Math.min(lifMaxAllowed, Math.max(lifMinRequired, lifPlanned));
 
       if (lifTarget > 0 && balances.lira > 0) {
-        // caps.lira = 0 means "no cap".
-        const cap = vars.withdrawals.caps.lira > 0 ? vars.withdrawals.caps.lira : 0;
-        const r = withdrawFrom(lifTarget, balances.lira, cap);
+        const r = withdrawFrom(lifTarget, balances.lira, capFromConfig(vars.withdrawals.caps.lira));
         withdrawals.lira += r.withdrawn;
         balances.lira = r.newBalance;
       }
@@ -420,18 +466,20 @@ export function buildWithdrawalSchedule(params: {
       const extraThisYear = Math.max(0, extraPlan[year] ?? 0);
 
       // Guardrail: OAS clawback ceiling (used to cap taxable drawdowns when enabled)
-      const oasClawbackThreshold = getOasClawbackThreshold(year);
+      const oasClawbackThreshold = getOasClawbackThreshold(year, vars.expectedInflation);
       const taxableIncomeCeiling = vars.withdrawals.avoidOasClawback ? Math.max(0, oasClawbackThreshold - 1000) : Infinity;
 
-      // RRIF min starts at 71; otherwise 0. We treat household RRSP as RRIF-like for min-factor purposes.
+      // No minimum is required in the year the RRIF is established (age 71); the
+      // first mandatory withdrawal is in the year you turn 72.
+      // We treat the household RRSP as RRIF-like for min-factor purposes.
       const rrifMinRequired =
-        ageShingo >= 71
+        ageShingo >= MANDATORY_MIN_START_AGE
           ? balances.rrsp * rrifMinFactor(ageShingo) * Math.max(0, vars.withdrawals.rrifMinMultiplier)
           : 0;
 
       // Mandatory RRSP/RRIF withdrawal is capped by the taxable-income ceiling when avoid-clawback is enabled.
       // NOTE: in the depletion year we force full depletion regardless of ceilings.
-      const inOasYearsForCeiling = ageShingo >= vars.oasStartAge || ageSarah >= vars.oasStartAge;
+      const inOasYearsForCeiling = ageShingo >= oasStartAge || ageSarah >= oasStartAge;
       const applyCeiling = vars.withdrawals.avoidOasClawback && inOasYearsForCeiling;
 
       let ceilingBinding = false;
@@ -458,21 +506,9 @@ export function buildWithdrawalSchedule(params: {
           yearsFromBaseline,
         });
 
-        const cppShingo0 = ageShingo >= vars.cppStartAge
-          ? nominalFromRealBase({ amountReal: vars.withdrawals.cppShingoAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-          : 0;
-        const cppSarah0 = ageSarah >= vars.cppStartAge
-          ? nominalFromRealBase({ amountReal: vars.withdrawals.cppSarahAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-          : 0;
-        const oasShingo0 = ageShingo >= vars.oasStartAge
-          ? nominalFromRealBase({ amountReal: vars.withdrawals.oasShingoAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-          : 0;
-        const oasSarah0 = ageSarah >= vars.oasStartAge
-          ? nominalFromRealBase({ amountReal: vars.withdrawals.oasSarahAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-          : 0;
-
         const baseTax = computeHouseholdTax({
           taxYear: year,
+          annualInflation: vars.expectedInflation,
           spouseA: {
             name: "Shingo",
             age: ageShingo,
@@ -482,8 +518,8 @@ export function buildWithdrawalSchedule(params: {
               rrspWithdrawal: 0,
               rrifWithdrawal: 0,
               lifWithdrawal: withdrawals.lira,
-              cpp: cppShingo0,
-              oas: oasShingo0,
+              cpp: cppShingoNominal,
+              oas: oasShingoNominal,
               tfsaWithdrawal: 0,
             },
           },
@@ -496,8 +532,8 @@ export function buildWithdrawalSchedule(params: {
               rrspWithdrawal: 0,
               rrifWithdrawal: 0,
               lifWithdrawal: 0,
-              cpp: cppSarah0,
-              oas: oasSarah0,
+              cpp: cppSarahNominal,
+              oas: oasSarahNominal,
               tfsaWithdrawal: 0,
             },
           },
@@ -531,12 +567,9 @@ export function buildWithdrawalSchedule(params: {
 
       if (rrspMandatory > 0 && balances.rrsp > 0) {
         // In depletion year, force full depletion regardless of caps.
-        // caps.rrsp = 0 means "no cap".
         const cap = isDepletionYear
-          ? 0
-          : (vars.withdrawals.caps.rrsp > 0
-              ? Math.max(0, vars.withdrawals.caps.rrsp - withdrawals.rrsp)
-              : 0);
+          ? NO_CAP
+          : Math.max(0, capFromConfig(vars.withdrawals.caps.rrsp) - withdrawals.rrsp);
         const r = withdrawFrom(rrspMandatory, balances.rrsp, cap);
         withdrawals.rrsp += r.withdrawn;
         balances.rrsp = r.newBalance;
@@ -564,21 +597,9 @@ export function buildWithdrawalSchedule(params: {
           yearsFromBaseline,
         });
 
-        const cppShingo = ageShingo >= vars.cppStartAge
-          ? nominalFromRealBase({ amountReal: vars.withdrawals.cppShingoAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-          : 0;
-        const cppSarah = ageSarah >= vars.cppStartAge
-          ? nominalFromRealBase({ amountReal: vars.withdrawals.cppSarahAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-          : 0;
-        const oasShingo = ageShingo >= vars.oasStartAge
-          ? nominalFromRealBase({ amountReal: vars.withdrawals.oasShingoAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-          : 0;
-        const oasSarah = ageSarah >= vars.oasStartAge
-          ? nominalFromRealBase({ amountReal: vars.withdrawals.oasSarahAnnual, annualIndexRate: indexRate, yearsFromBaseline })
-          : 0;
-
         const res = computeHouseholdTax({
           taxYear: year,
+          annualInflation: vars.expectedInflation,
           spouseA: {
             name: "Shingo",
             age: ageShingo,
@@ -588,8 +609,8 @@ export function buildWithdrawalSchedule(params: {
               rrspWithdrawal: withdrawals.fhsa * 0.5, // FHSA treated as RRSP-like taxable
               rrifWithdrawal: withdrawals.rrsp * 0.5,
               lifWithdrawal: withdrawals.lira,
-              cpp: cppShingo,
-              oas: oasShingo,
+              cpp: cppShingoNominal,
+              oas: oasShingoNominal,
               tfsaWithdrawal: 0,
             },
           },
@@ -602,8 +623,8 @@ export function buildWithdrawalSchedule(params: {
               rrspWithdrawal: withdrawals.fhsa * 0.5,
               rrifWithdrawal: withdrawals.rrsp * 0.5,
               lifWithdrawal: 0,
-              cpp: cppSarah,
-              oas: oasSarah,
+              cpp: cppSarahNominal,
+              oas: oasSarahNominal,
               tfsaWithdrawal: 0,
             },
           },
@@ -645,14 +666,20 @@ export function buildWithdrawalSchedule(params: {
         if (shortfall <= 1) break;
 
         // Determine taxable headroom (approx) for guardrails.
-        const inOasYears = ageShingo >= vars.oasStartAge || ageSarah >= vars.oasStartAge;
+        const inOasYears = ageShingo >= oasStartAge || ageSarah >= oasStartAge;
         const applyCeiling2 = vars.withdrawals.avoidOasClawback && inOasYears;
 
         const headroomShingo = applyCeiling2 ? Math.max(0, taxableIncomeCeiling - taxableIncomeShingo) : Infinity;
         const headroomSarah = applyCeiling2 ? Math.max(0, taxableIncomeCeiling - taxableIncomeSarah) : Infinity;
 
+        // With pension splitting we can move eligible income to whichever spouse
+        // has room, so the household can absorb the SUM of both headrooms.
+        // Without it, RRSP/RRIF income is modelled 50/50, so the binding
+        // constraint is twice the SMALLER headroom.
         const headroomHousehold = applyCeiling2
-          ? (vars.tax.enablePensionSplitting ? 2 * Math.min(headroomShingo, headroomSarah) : Math.min(headroomShingo, headroomSarah) * 2)
+          ? (vars.tax.enablePensionSplitting
+              ? headroomShingo + headroomSarah
+              : 2 * Math.min(headroomShingo, headroomSarah))
           : Infinity;
 
         const avgTaxRate = lastTaxRes.household.taxableIncome > 0 ? lastTaxRes.household.totalTax / lastTaxRes.household.taxableIncome : 0;
@@ -664,9 +691,11 @@ export function buildWithdrawalSchedule(params: {
           ...vars.withdrawals.order.filter((o) => o !== "rrsp" && o !== "tfsa" && o !== "nonRegistered"),
         ];
 
-        // If ceiling is binding, prefer non-taxable sources (but we have none in this model), so just mark it.
-        const avoidTaxableNow = applyCeiling2 && headroomHousehold < 1000;
-        if (avoidTaxableNow) ceilingBinding = true;
+        // Record that the OAS ceiling is out of room. We still fund the spending
+        // target from taxable sources rather than manufacturing a shortfall --
+        // the ceiling is a soft guardrail, not a hard constraint -- but the flag
+        // surfaces in the debug output so the year is visibly constrained.
+        if (applyCeiling2 && headroomHousehold < 1000) ceilingBinding = true;
 
         const needForOrder = shortfall * grossUpTaxable;
 
@@ -684,7 +713,7 @@ export function buildWithdrawalSchedule(params: {
             sarah: headroomSarah,
             household: headroomHousehold,
           },
-          avoidTaxable: false,
+          lifRemainingThisYear: Math.max(0, lifMaxAllowed - withdrawals.lira),
         });
 
         if (remaining > 1) {
@@ -699,10 +728,7 @@ export function buildWithdrawalSchedule(params: {
       // Extra RRIF overlay (global plan): withdraw additional RRIF AFTER the spending gap is covered,
       // and invest the resulting after-tax surplus (TFSA first, then NonReg).
       if (extraThisYear > 0 && balances.rrsp > 0) {
-        // caps.rrsp = 0 means "no cap".
-        const cap = vars.withdrawals.caps.rrsp > 0
-          ? Math.max(0, vars.withdrawals.caps.rrsp - withdrawals.rrsp)
-          : 0;
+        const cap = Math.max(0, capFromConfig(vars.withdrawals.caps.rrsp) - withdrawals.rrsp);
 
         const r = withdrawFrom(extraThisYear, balances.rrsp, cap);
         withdrawals.rrsp += r.withdrawn;
@@ -721,12 +747,17 @@ export function buildWithdrawalSchedule(params: {
       tfsaRoom -= toTfsa;
 
       // Apply growth at year-end
+      // Non-registered growth is taxed as it is earned, so it compounds at a
+      // reduced rate. Registered accounts grow untaxed.
+      const nonRegReturn =
+        vars.expectedNominalReturn - Math.max(0, vars.nonRegTaxDragRate ?? 0);
+
       balances = {
         fhsa: balances.fhsa * (1 + vars.expectedNominalReturn),
         rrsp: balances.rrsp * (1 + vars.expectedNominalReturn),
         tfsa: balances.tfsa * (1 + vars.expectedNominalReturn),
         lira: balances.lira * (1 + vars.expectedNominalReturn),
-        nonRegistered: balances.nonRegistered * (1 + vars.expectedNominalReturn),
+        nonRegistered: balances.nonRegistered * (1 + Math.max(-1, nonRegReturn)),
       };
 
       rows.push({

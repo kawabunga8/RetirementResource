@@ -115,27 +115,16 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
   };
 
   const asOfDateStr = toDateString(plan.balances_as_of);
-  console.log("🔍 [DEBUG] Filter start:", {
-    plan_balances_as_of: plan.balances_as_of,
-    asOfDateStr,
-    allAccounts_count: allAccounts.length,
-    sample_account_as_of_date: allAccounts[0]?.as_of_date,
-    sample_account_type: typeof allAccounts[0]?.as_of_date,
-  });
 
   let accounts = allAccounts.filter((a) => toDateString(a.as_of_date) === asOfDateStr);
-  console.log("🔍 [DEBUG] After filter:", {
-    matched_count: accounts.length,
-    first_matched: accounts[0] ? { type: accounts[0].account_type, date: accounts[0].as_of_date } : null,
-  });
 
+  // Fallback: if nothing matches the plan's as-of date, use the most recent
+  // snapshot date present in the account rows.
   if (accounts.length === 0 && allAccounts.length > 0) {
-    console.log("⚠️ [DEBUG] Filter returned 0, using fallback");
     const uniqueDates = allAccounts
       .map(a => toDateString(a.as_of_date))
       .filter(d => d !== "");
     const mostRecentDate = [...new Set(uniqueDates)].sort().reverse()[0];
-    console.log("🔍 [DEBUG] Fallback:", { uniqueDates, mostRecentDate });
     accounts = allAccounts.filter((a) => toDateString(a.as_of_date) === mostRecentDate);
   }
 

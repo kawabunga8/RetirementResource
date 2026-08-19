@@ -17,6 +17,7 @@ import { updateTaxTablesFromDb } from "./tax/tables";
 import { updateRrifFactorsFromDb, updateBcLifMaxFromDb } from "./withdrawals/engine";
 import { TFSA_ANNUAL_LIMIT_BY_YEAR } from "./data/publicRules";
 import { computeHouseholdTax } from "./tax/v2";
+import { newRrspRoomForYear } from "./rrspRoom";
 import { getBracketTableForYear } from "./tax/tables";
 import { buildWithdrawalSchedule } from "./withdrawals/engine";
 
@@ -85,6 +86,7 @@ function calculateBalancesToDate(params: {
   monthlyRrspShingo: number;
   monthlyRrspSarah: number;
   monthlyTfsaTotal: number;
+  nonRegTaxDragRate: number;
 }): AccountBalances {
   const targetDate = new Date(params.targetDateStr + "T00:00:00");
   const targetYear = targetDate.getFullYear();
@@ -154,7 +156,9 @@ function calculateBalancesToDate(params: {
     tfsaS *= 1 + r;
     tfsaSa *= 1 + r;
     lira *= 1 + r;
-    nonReg *= 1 + r;
+    // Non-registered growth is taxable as it is earned, so it compounds at a
+    // reduced rate. Registered accounts are unaffected.
+    nonReg *= 1 + Math.max(-1, r - Math.max(0, params.nonRegTaxDragRate) / 12);
   }
 
   return {
@@ -170,25 +174,7 @@ function calculateBalancesToDate(params: {
 }
 
 
-function futureValueMonthly({
-  pv,
-  monthlyContribution,
-  annualReturn,
-  months,
-}: {
-  pv: number;
-  monthlyContribution: number;
-  annualReturn: number;
-  months: number;
-}) {
-  const r = annualReturn / 12;
-  if (months <= 0) return pv;
-  if (Math.abs(r) < 1e-9) return pv + monthlyContribution * months;
-
-  // FV = PV*(1+r)^n + PMT * ((1+r)^n - 1) / r
-  const growth = Math.pow(1 + r, months);
-  return pv * growth + monthlyContribution * ((growth - 1) / r);
-}
+// (futureValueMonthly removed: all accounts now project through buildAccumulationSchedule)
 
 // (removed unused helper)
 
@@ -229,6 +215,15 @@ function buildAccumulationSchedule(params: {
   // working income assumptions for new RRSP room
   earnedIncomeShingo: number;
   earnedIncomeSarah: number;
+  // RRSP annual dollar limit (indexed forward) and pension adjustments
+  rrspDollarLimit: number;
+  rrspDollarLimitYear: number;
+  pensionAdjustmentShingo: number;
+  pensionAdjustmentSarah: number;
+  // inflation, used to index the RRSP dollar limit forward
+  annualInflation: number;
+  // annual tax drag applied to non-registered growth
+  nonRegTaxDragRate: number;
   // contributions
   monthlyFhsaShingo: number;
   monthlyFhsaSarah: number;
@@ -292,6 +287,7 @@ function buildAccumulationSchedule(params: {
   let fhsaAnnualUsedSa = 0;
   let rrspAnnualS = 0;
   let rrspAnnualSa = 0;
+  let tfsaAnnualActual = 0;
 
   const rows: AccumRow[] = [];
 
@@ -307,6 +303,7 @@ function buildAccumulationSchedule(params: {
       fhsaAnnualUsedSa = 0;
       rrspAnnualS = 0;
       rrspAnnualSa = 0;
+      tfsaAnnualActual = 0;
 
       // TFSA room increases each Jan 1 (excluding baseline snapshot year, since room is already provided as-of baseline).
       if (year > params.baselineYear) {
@@ -315,12 +312,28 @@ function buildAccumulationSchedule(params: {
         tfsaRoomSa += add;
       }
 
-      // RRSP room increases each year based on earned income (planning approximation).
-      // We treat the provided rrspRoom* as a starting snapshot, then add new room each Jan 1.
+      // RRSP room increases each Jan 1. The real formula is
+      //   min(18% of prior-year earned income, the RRSP dollar limit)
+      //     minus last year's pension adjustment.
+      // The dollar limit is indexed to average wage growth; we approximate that
+      // with the plan's inflation assumption.
       if (year > params.baselineYear) {
-        const RRSP_RATE = 0.18;
-        rrspRoomS += Math.max(0, params.earnedIncomeShingo) * RRSP_RATE;
-        rrspRoomSa += Math.max(0, params.earnedIncomeSarah) * RRSP_RATE;
+        const common = {
+          year,
+          rrspDollarLimit: params.rrspDollarLimit,
+          rrspDollarLimitYear: params.rrspDollarLimitYear,
+          annualInflation: params.annualInflation,
+        };
+        rrspRoomS += newRrspRoomForYear({
+          ...common,
+          earnedIncome: params.earnedIncomeShingo,
+          pensionAdjustment: params.pensionAdjustmentShingo,
+        });
+        rrspRoomSa += newRrspRoomForYear({
+          ...common,
+          earnedIncome: params.earnedIncomeSarah,
+          pensionAdjustment: params.pensionAdjustmentSarah,
+        });
       }
     }
 
@@ -374,6 +387,7 @@ function buildAccumulationSchedule(params: {
 
     tfsaRoomS -= tfsaSAllowed;
     tfsaRoomSa -= tfsaSaAllowed;
+    tfsaAnnualActual += tfsaSAllowed + tfsaSaAllowed;
 
     // update cap trackers
     fhsaAnnualUsedS += fhsaContribS;
@@ -389,7 +403,9 @@ function buildAccumulationSchedule(params: {
     tfsaS *= 1 + r;
     tfsaSa *= 1 + r;
     lira *= 1 + r;
-    nonReg *= 1 + r;
+    // Non-registered growth is taxable as it is earned, so it compounds at a
+    // reduced rate. Registered accounts are unaffected.
+    nonReg *= 1 + Math.max(-1, r - Math.max(0, params.nonRegTaxDragRate) / 12);
 
     // record end-of-year snapshot
     const endOfYear = monthInYear === 11;
@@ -398,17 +414,21 @@ function buildAccumulationSchedule(params: {
       // (v1: uses the simple tax estimator; no credits.)
       const fhsaAnnualS = fhsaAnnualUsedS;
       const fhsaAnnualSa = fhsaAnnualUsedSa;
-      const tfsaAnnual = params.monthlyTfsaTotal * 12;
+      // Actual TFSA contributions for the year (room-limited), not the plan.
 
       const suppressRefund = params.tfsaIncludesRefund && year === balancesAsOfYear;
       const estRefundToTfsa = !suppressRefund
         ? estimateTaxSavingsFromDeduction({
             income: params.incomeShingo,
             deduction: rrspAnnualS + fhsaAnnualS,
+            taxYear: year,
+            annualInflation: params.annualInflation,
           }) +
           estimateTaxSavingsFromDeduction({
             income: params.incomeSarah,
             deduction: rrspAnnualSa + fhsaAnnualSa,
+            taxYear: year,
+            annualInflation: params.annualInflation,
           })
         : 0;
 
@@ -436,7 +456,7 @@ function buildAccumulationSchedule(params: {
         fhsaContribSarah: fhsaAnnualUsedSa,
         rrspContribShingo: rrspAnnualS,
         rrspContribSarah: rrspAnnualSa,
-        tfsaContribTotal: tfsaAnnual,
+        tfsaContribTotal: tfsaAnnualActual,
         estRefundToTfsa,
         endFhsaTotal,
         endRrspTotal,
@@ -471,63 +491,48 @@ function clamp01(n: number) {
   return Math.max(0, Math.min(1, n));
 }
 
-function progressiveTax(income: number, brackets: Array<{ upTo: number; rate: number }>) {
-  // brackets are ascending, last bracket should have upTo = Infinity
-  let remaining = Math.max(0, income);
-  let lastCap = 0;
-  let tax = 0;
+// (local progressiveTax removed: all tax now goes through the v2 engine)
 
-  for (const b of brackets) {
-    const cap = b.upTo;
-    const width = cap === Infinity ? remaining : Math.max(0, Math.min(remaining, cap - lastCap));
-    tax += width * b.rate;
-    remaining -= width;
-    lastCap = cap === Infinity ? lastCap : cap;
-    if (remaining <= 0) break;
-  }
-
-  return tax;
+/**
+ * Combined federal + BC tax on employment income for a single person, using the
+ * SAME v2 engine (and the same year-indexed tables) as the rest of the model.
+ *
+ * This previously used a hardcoded copy of the 2024 brackets, which meant the
+ * projected RRSP refund was computed at stale rates including the old 15%
+ * bottom rate (now 14%).
+ */
+function estimateTaxBCCanada(income: number, taxYear: number, annualInflation: number) {
+  const none = {
+    employment: 0, pensionDb: 0, rrspWithdrawal: 0, rrifWithdrawal: 0,
+    lifWithdrawal: 0, cpp: 0, oas: 0, tfsaWithdrawal: 0,
+  };
+  const res = computeHouseholdTax({
+    taxYear,
+    annualInflation,
+    // Working-age single filer: BPA only, no age amount, no pension credit.
+    spouseA: { name: "person", age: 45, incomes: { ...none, employment: Math.max(0, income) } },
+    spouseB: { name: "unused", age: 45, incomes: { ...none } },
+    credits: { useBpa: true, useAgeAmount: false, usePensionCredit: false },
+    pensionSplitting: { enabled: false, optimize: false, step: 100 },
+  });
+  return res.spouseA.totalTax;
 }
-
-function estimateFederalTaxCanada(income: number) {
-  // Approximate current-style brackets; excludes credits/surtaxes.
-  return progressiveTax(income, [
-    { upTo: 55867, rate: 0.15 },
-    { upTo: 111733, rate: 0.205 },
-    { upTo: 173205, rate: 0.26 },
-    { upTo: 246752, rate: 0.29 },
-    { upTo: Infinity, rate: 0.33 },
-  ]);
-}
-
-function estimateBCTax(income: number) {
-  // Approximate BC brackets; excludes BC credits.
-  return progressiveTax(income, [
-    { upTo: 45654, rate: 0.0506 },
-    { upTo: 91310, rate: 0.077 },
-    { upTo: 104835, rate: 0.105 },
-    { upTo: 127299, rate: 0.1229 },
-    { upTo: 172602, rate: 0.147 },
-    { upTo: 240716, rate: 0.168 },
-    { upTo: Infinity, rate: 0.205 },
-  ]);
-}
-
-function estimateTaxBCCanada(income: number) {
-  return estimateFederalTaxCanada(income) + estimateBCTax(income);
-}
-
-// (v1 taxCreditsEstimate removed; v2 engine is in src/tax/v2.ts)
 
 function estimateTaxSavingsFromDeduction(params: {
   income: number;
   deduction: number;
+  taxYear: number;
+  annualInflation: number;
 }) {
   const deduction = Math.max(0, params.deduction);
   if (deduction <= 0) return 0;
 
-  const before = estimateTaxBCCanada(params.income);
-  const after = estimateTaxBCCanada(Math.max(0, params.income - deduction));
+  const before = estimateTaxBCCanada(params.income, params.taxYear, params.annualInflation);
+  const after = estimateTaxBCCanada(
+    Math.max(0, params.income - deduction),
+    params.taxYear,
+    params.annualInflation
+  );
   return Math.max(0, before - after);
 }
 
@@ -543,7 +548,7 @@ export default function App() {
     if (saved) {
       try {
         const data = JSON.parse(saved);
-        if (data.anchors) return data.anchors;
+        if (data.anchors) return { ...DEFAULT_ANCHORS, ...data.anchors };
       } catch {
         // ignore parse errors, use default
       }
@@ -555,7 +560,8 @@ export default function App() {
     if (saved) {
       try {
         const data = JSON.parse(saved);
-        if (data.vars) return data.vars;
+        // Merge over defaults so plans saved before a new field existed still get it.
+        if (data.vars) return { ...DEFAULT_VARIABLES, ...data.vars };
       } catch {
         // ignore parse errors, use default
       }
@@ -723,6 +729,12 @@ export default function App() {
       rrspRoomSarah: vars.rrspRoomSarah,
       earnedIncomeShingo: vars.earnedIncomeShingo,
       earnedIncomeSarah: vars.earnedIncomeSarah,
+      rrspDollarLimit: vars.rrspDollarLimit ?? 33810,
+      rrspDollarLimitYear: vars.rrspDollarLimitYear ?? 2026,
+      pensionAdjustmentShingo: vars.pensionAdjustmentShingo ?? 0,
+      pensionAdjustmentSarah: vars.pensionAdjustmentSarah ?? 0,
+      annualInflation: vars.expectedInflation,
+      nonRegTaxDragRate: vars.nonRegTaxDragRate ?? 0,
       monthlyFhsaShingo: vars.monthly.fhsaShingo,
       monthlyFhsaSarah: vars.monthly.fhsaSarah,
       monthlyRrspShingo: vars.monthly.rrspShingo,
@@ -740,19 +752,16 @@ export default function App() {
 
     const lastAccum = accumulationSchedule[accumulationSchedule.length - 1];
 
-    const nonRegisteredAtRetirement = futureValueMonthly({
-      pv: todayBalances.nonRegistered,
-      monthlyContribution: 0,
-      annualReturn: vars.expectedNominalReturn,
-      months: monthsFromTodayToRetirement,
-    });
-
+    // Non-registered comes from the same accumulation loop as every other
+    // account. (It used to be projected separately with futureValueMonthly,
+    // so the number in the accumulation table could disagree with the number
+    // actually fed into the withdrawal engine.)
     const retirementBalances: RetirementBalances = {
       fhsa: lastAccum?.endFhsaTotal ?? 0,
       rrsp: lastAccum?.endRrspTotal ?? 0,
       tfsa: lastAccum?.endTfsaTotal ?? 0,
       lira: lastAccum?.endLira ?? 0,
-      nonRegistered: nonRegisteredAtRetirement,
+      nonRegistered: lastAccum?.endNonReg ?? todayBalances.nonRegistered,
     };
 
     // Note: FHSA rollover behavior is handled in the withdrawal engine.
@@ -793,7 +802,7 @@ return {
       totalRealAtRetirement,
       schedule,
     };
-  }, [vars, anchors.baselineYear, baselineTotal, monthlyTotal]);
+  }, [vars, anchors, baselineTotal, monthlyTotal]);
 
   const orderOptions: WithdrawalOrder[] = [
     "fhsa",
@@ -1098,6 +1107,16 @@ return {
                     ...v,
                     cpiMultiplier: num(e.target.value),
                   }))
+                }
+              />
+            </Field>
+            <Field label="Non-registered tax drag (e.g. 0.0075 = 0.75%/yr)">
+              <input
+                type="number"
+                step="0.0005"
+                value={vars.nonRegTaxDragRate ?? 0}
+                onChange={(e) =>
+                  setVars((v) => ({ ...v, nonRegTaxDragRate: num(e.target.value) }))
                 }
               />
             </Field>
@@ -1598,9 +1617,22 @@ return {
                         tfsaRoomS += addTfsa;
                         tfsaRoomSa += addTfsa;
 
-                        const RRSP_RATE = 0.18;
-                        rrspRoomS += Math.max(0, vars.earnedIncomeShingo) * RRSP_RATE;
-                        rrspRoomSa += Math.max(0, vars.earnedIncomeSarah) * RRSP_RATE;
+                        const rrspRoomArgs = {
+                          year: thisYear,
+                          rrspDollarLimit: vars.rrspDollarLimit ?? 33810,
+                          rrspDollarLimitYear: vars.rrspDollarLimitYear ?? 2026,
+                          annualInflation: vars.expectedInflation,
+                        };
+                        rrspRoomS += newRrspRoomForYear({
+                          ...rrspRoomArgs,
+                          earnedIncome: vars.earnedIncomeShingo,
+                          pensionAdjustment: vars.pensionAdjustmentShingo ?? 0,
+                        });
+                        rrspRoomSa += newRrspRoomForYear({
+                          ...rrspRoomArgs,
+                          earnedIncome: vars.earnedIncomeSarah,
+                          pensionAdjustment: vars.pensionAdjustmentSarah ?? 0,
+                        });
                       }
                     }
 
@@ -1664,9 +1696,22 @@ return {
                     tfsaRoomS += addTfsa;
                     tfsaRoomSa += addTfsa;
 
-                    const RRSP_RATE = 0.18;
-                    rrspRoomS += Math.max(0, vars.earnedIncomeShingo) * RRSP_RATE;
-                    rrspRoomSa += Math.max(0, vars.earnedIncomeSarah) * RRSP_RATE;
+                    const rrspRoomArgs = {
+                      year,
+                      rrspDollarLimit: vars.rrspDollarLimit ?? 33810,
+                      rrspDollarLimitYear: vars.rrspDollarLimitYear ?? 2026,
+                      annualInflation: vars.expectedInflation,
+                    };
+                    rrspRoomS += newRrspRoomForYear({
+                      ...rrspRoomArgs,
+                      earnedIncome: vars.earnedIncomeShingo,
+                      pensionAdjustment: vars.pensionAdjustmentShingo ?? 0,
+                    });
+                    rrspRoomSa += newRrspRoomForYear({
+                      ...rrspRoomArgs,
+                      earnedIncome: vars.earnedIncomeSarah,
+                      pensionAdjustment: vars.pensionAdjustmentSarah ?? 0,
+                    });
                   }
 
                   const totals = {
@@ -1777,6 +1822,46 @@ return {
                     />
                   </Field>
 
+                  <Field label="Pension adjustment Shingo ($/yr)
+(T4 box 52 — reduces RRSP room)">
+                    <input
+                      type="number"
+                      value={vars.pensionAdjustmentShingo ?? 0}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          pensionAdjustmentShingo: num(e.target.value),
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="Pension adjustment Sarah ($/yr)
+(T4 box 52 — reduces RRSP room)">
+                    <input
+                      type="number"
+                      value={vars.pensionAdjustmentSarah ?? 0}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          pensionAdjustmentSarah: num(e.target.value),
+                        }))
+                      }
+                    />
+                  </Field>
+                  <Field label="RRSP dollar limit ($, 2026)
+(caps new room at 18% of income)">
+                    <input
+                      type="number"
+                      value={vars.rrspDollarLimit ?? 33810}
+                      onChange={(e) =>
+                        setVars((v) => ({
+                          ...v,
+                          rrspDollarLimit: num(e.target.value),
+                        }))
+                      }
+                    />
+                  </Field>
+
                   <Field label="Earned income Shingo ($/yr)
 (for new RRSP room)">
                     <input
@@ -1834,6 +1919,7 @@ return {
                           monthlyRrspShingo: vars.monthly.rrspShingo,
                           monthlyRrspSarah: vars.monthly.rrspSarah,
                           monthlyTfsaTotal: vars.monthly.tfsaTotal,
+                          nonRegTaxDragRate: vars.nonRegTaxDragRate ?? 0,
                         });
                         setVars((v) => ({
                           ...v,
@@ -3343,8 +3429,13 @@ return {
           </div>
 
           <h3 style={{ marginTop: 14 }}>Benefits (annual placeholders)</h3>
+          <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
+            Enter the amounts payable <strong>at age 70</strong>. If you choose an earlier
+            start age, the model applies the real actuarial reduction
+            (CPP &minus;0.6%/month before 65, +0.7%/month after; OAS +0.6%/month after 65).
+          </div>
           <div className="selectRow">
-            <Field label="CPP Shingo ($/yr)">
+            <Field label="CPP Shingo ($/yr at age 70)">
               <input
                 className="moneyInputMd"
                 type="number"
@@ -3360,7 +3451,7 @@ return {
                 }
               />
             </Field>
-            <Field label="CPP Sarah ($/yr)">
+            <Field label="CPP Sarah ($/yr at age 70)">
               <input
                 className="moneyInputMd"
                 type="number"
@@ -3376,7 +3467,7 @@ return {
                 }
               />
             </Field>
-            <Field label="OAS Shingo ($/yr)">
+            <Field label="OAS Shingo ($/yr at age 70)">
               <input
                 className="moneyInputMd"
                 type="number"
@@ -3392,7 +3483,7 @@ return {
                 }
               />
             </Field>
-            <Field label="OAS Sarah ($/yr)">
+            <Field label="OAS Sarah ($/yr at age 70)">
               <input
                 className="moneyInputMd"
                 type="number"

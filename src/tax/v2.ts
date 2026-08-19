@@ -1,7 +1,18 @@
-import { pickTaxTables, type Bracket } from "./tables";
+import {
+  getIndexedTaxTables,
+  pickTaxTables,
+  DEFAULT_TAX_INDEXATION,
+  type Bracket,
+  type TaxYearTables,
+} from "./tables";
 
-export function getOasClawbackThreshold(taxYear: number) {
-  return pickTaxTables(taxYear).federal.oasClawbackThreshold;
+/**
+ * OAS recovery-tax threshold for a given year, indexed forward from the newest
+ * published table. Pass the plan's inflation assumption so the threshold keeps
+ * pace with the (also indexed) OAS payment.
+ */
+export function getOasClawbackThreshold(taxYear: number, annualInflation = DEFAULT_TAX_INDEXATION) {
+  return getIndexedTaxTables(taxYear, annualInflation).federal.oasClawbackThreshold;
 }
 
 
@@ -27,6 +38,12 @@ export type CreditsToggles = {
 
 export type HouseholdTaxInputs = {
   taxYear: number;
+  /**
+   * Annual indexation applied to brackets, the BPA, the age amount and the OAS
+   * clawback threshold for years beyond the newest published table.
+   * Defaults to DEFAULT_TAX_INDEXATION; pass the plan's inflation assumption.
+   */
+  annualInflation?: number;
   spouseA: { name: string; age: number; incomes: IncomeSources };
   spouseB: { name: string; age: number; incomes: IncomeSources };
   credits: CreditsToggles;
@@ -69,6 +86,7 @@ export type HouseholdTaxResult = {
   debug: {
     taxYear: number;
     tablesYear: number;
+    indexationRate: number;
     splitting: {
       enabled: boolean;
       chosenSplitAmount: number; // amount shifted from higher-income to lower-income (eligible pension)
@@ -140,13 +158,13 @@ function taxableIncomeFromSources(incomes: IncomeSources) {
 }
 
 function computeCredits(params: {
-  taxYear: number;
+  tables: TaxYearTables;
   age: number;
   taxableIncome: number;
   eligiblePensionIncome: number;
   toggles: CreditsToggles;
 }) {
-  const tables = pickTaxTables(params.taxYear);
+  const tables = params.tables;
 
   const fed = {
     bpa: 0,
@@ -202,24 +220,24 @@ function computeCredits(params: {
 }
 
 function computeOasClawback(params: {
-  taxYear: number;
+  tables: TaxYearTables;
   netIncomeForClawback: number;
   oasReceived: number;
 }) {
-  const tables = pickTaxTables(params.taxYear);
+  const tables = params.tables;
   const excess = Math.max(0, params.netIncomeForClawback - tables.federal.oasClawbackThreshold);
   const claw = tables.federal.oasClawbackRate * excess;
   return Math.min(Math.max(0, params.oasReceived), Math.max(0, claw));
 }
 
 function computePerson(params: {
-  taxYear: number;
+  tables: TaxYearTables;
   name: string;
   age: number;
   incomes: IncomeSources;
   credits: CreditsToggles;
 }) {
-  const tables = pickTaxTables(params.taxYear);
+  const tables = params.tables;
 
   const taxableIncome = taxableIncomeFromSources(params.incomes);
   const eligible = eligiblePensionIncome({ age: params.age, incomes: params.incomes });
@@ -228,7 +246,7 @@ function computePerson(params: {
   const bcBefore = progressiveTax(taxableIncome, tables.bc.brackets);
 
   const credits = computeCredits({
-    taxYear: params.taxYear,
+    tables,
     age: params.age,
     taxableIncome,
     eligiblePensionIncome: eligible,
@@ -241,7 +259,7 @@ function computePerson(params: {
 
   // OAS clawback is based on net income. We approximate with taxable income.
   const clawback = computeOasClawback({
-    taxYear: params.taxYear,
+    tables,
     netIncomeForClawback: taxableIncome,
     oasReceived: Math.max(0, params.incomes.oas),
   });
@@ -303,7 +321,8 @@ function withSplit(incomes: IncomeSources, deltaEligiblePension: number) {
  * Compute household tax with an optional pension-income splitting optimizer.
  */
 export function computeHouseholdTax(inputs: HouseholdTaxInputs): HouseholdTaxResult {
-  const tables = pickTaxTables(inputs.taxYear);
+  const annualInflation = inputs.annualInflation ?? DEFAULT_TAX_INDEXATION;
+  const tables = getIndexedTaxTables(inputs.taxYear, annualInflation);
 
   const preAEligible = eligiblePensionIncome({ age: inputs.spouseA.age, incomes: inputs.spouseA.incomes });
   const preBEligible = eligiblePensionIncome({ age: inputs.spouseB.age, incomes: inputs.spouseB.incomes });
@@ -313,7 +332,9 @@ export function computeHouseholdTax(inputs: HouseholdTaxInputs): HouseholdTaxRes
 
   const debug = {
     taxYear: inputs.taxYear,
-    tablesYear: tables.year,
+    // Which PUBLISHED table the indexed figures were extrapolated from.
+    tablesYear: pickTaxTables(inputs.taxYear).year,
+    indexationRate: annualInflation,
     splitting: {
       enabled: inputs.pensionSplitting.enabled,
       chosenSplitAmount: 0,
@@ -351,7 +372,7 @@ export function computeHouseholdTax(inputs: HouseholdTaxInputs): HouseholdTaxRes
     const bIncomes = aHigher ? recipientIncomes : donorIncomes;
 
     const resA = computePerson({
-      taxYear: inputs.taxYear,
+      tables,
       name: inputs.spouseA.name,
       age: inputs.spouseA.age,
       incomes: aIncomes,
@@ -359,7 +380,7 @@ export function computeHouseholdTax(inputs: HouseholdTaxInputs): HouseholdTaxRes
     });
 
     const resB = computePerson({
-      taxYear: inputs.taxYear,
+      tables,
       name: inputs.spouseB.name,
       age: inputs.spouseB.age,
       incomes: bIncomes,

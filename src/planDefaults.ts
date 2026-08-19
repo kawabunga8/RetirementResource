@@ -189,6 +189,24 @@ export type Variables = {
   earnedIncomeShingo: number; // $/yr
   earnedIncomeSarah: number; // $/yr
 
+  // New RRSP room each year = min(18% of earned income, rrspDollarLimit) - pension adjustment.
+  // The dollar limit is indexed forward from rrspDollarLimitYear at expectedInflation.
+  rrspDollarLimit: number; // $ for rrspDollarLimitYear (2026: $33,810)
+  rrspDollarLimitYear: number;
+
+  // Annual pension adjustment (PA) reported on each T4. For members of a
+  // defined-benefit plan this consumes most of the 18%, so leaving it at 0
+  // materially overstates available RRSP room.
+  pensionAdjustmentShingo: number; // $/yr
+  pensionAdjustmentSarah: number; // $/yr
+
+  // Annual tax drag on NON-REGISTERED growth: the share of the return lost each
+  // year to tax on interest, dividends and realized gains. Applied as a haircut
+  // to the nominal return on the non-registered account only.
+  // ~0.75% is typical for a balanced portfolio held long-term; raise it for
+  // interest-heavy holdings or frequent trading, set 0 to disable.
+  nonRegTaxDragRate: number; // e.g. 0.0075
+
   // Target year you stop working / begin retirement plan
   retirementYear: number;
 
@@ -255,6 +273,18 @@ export const DEFAULT_VARIABLES: Variables = {
 
   earnedIncomeShingo: 100000,
   earnedIncomeSarah: 100000,
+
+  // CRA RRSP dollar limit for 2026.
+  rrspDollarLimit: 33810,
+  rrspDollarLimitYear: 2026,
+
+  // PLACEHOLDER: both members have DB pensions, so their real PA is likely
+  // $10k-$20k each. Replace with the "Pension adjustment" box (box 52) from
+  // your latest T4, or the RRSP room figure on your CRA Notice of Assessment.
+  pensionAdjustmentShingo: 0,
+  pensionAdjustmentSarah: 0,
+
+  nonRegTaxDragRate: 0.0075,
 
   retirementYear: DEFAULT_ANCHORS.targetRetirementYear,
   shingoRetireAge: 67,

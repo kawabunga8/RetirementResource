@@ -139,6 +139,57 @@ function indexThreshold(threshold: number, fromYear: number, toYear: number, ann
 }
 
 /**
+ * Default indexation rate used when a caller does not supply one.
+ * CRA indexes brackets and most credit amounts to CPI every year; assuming 0%
+ * silently bakes decades of bracket creep into any long-range projection.
+ */
+export const DEFAULT_TAX_INDEXATION = 0.02;
+
+/**
+ * Return a COMPLETE tax table for any year, with every CRA/BC-indexed dollar
+ * amount inflated forward from the nearest base-year table.
+ *
+ * Indexed annually in real life (so indexed here):
+ *   - bracket thresholds
+ *   - basic personal amount
+ *   - age amount (both the maximum and the phase-out threshold)
+ *   - OAS recovery-tax (clawback) threshold
+ *
+ * NOT indexed in real life (so left alone here):
+ *   - the pension income amount, fixed at $2,000 federally since 2001 and
+ *     $1,000 in BC. Indexing it would overstate the credit in later years.
+ *
+ * Tax RATES are held constant — we have no basis for predicting rate changes.
+ */
+export function getIndexedTaxTables(taxYear: number, annualInflation: number): TaxYearTables {
+  const base = pickTaxTables(taxYear);
+  const idx = (v: number) => indexThreshold(v, base.year, taxYear, annualInflation);
+  const idxBrackets = (brackets: Bracket[]) =>
+    brackets.map((b) => ({ upTo: idx(b.upTo), rate: b.rate }));
+
+  return {
+    year: taxYear,
+    federal: {
+      ...base.federal,
+      brackets: idxBrackets(base.federal.brackets),
+      bpa: idx(base.federal.bpa),
+      ageAmountMax: idx(base.federal.ageAmountMax),
+      ageAmountThreshold: idx(base.federal.ageAmountThreshold),
+      oasClawbackThreshold: idx(base.federal.oasClawbackThreshold),
+      // pensionCreditBase intentionally NOT indexed
+    },
+    bc: {
+      ...base.bc,
+      brackets: idxBrackets(base.bc.brackets),
+      bpa: idx(base.bc.bpa),
+      ageAmountMax: idx(base.bc.ageAmountMax),
+      ageAmountThreshold: idx(base.bc.ageAmountThreshold),
+      // pensionCreditBase intentionally NOT indexed
+    },
+  };
+}
+
+/**
  * Return brackets for any year.
  *
  * If we don't have exact tables for taxYear, we inflate the nearest base-year thresholds using annualInflation.
