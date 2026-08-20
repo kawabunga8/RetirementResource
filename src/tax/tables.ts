@@ -33,7 +33,7 @@ export type TaxYearTables = {
  * - Values below are approximate and meant for sensitivity planning, not filing.
  * - Structure is intentionally year-based so we can plug in exact year tables later.
  */
-export let TAX_TABLES: TaxYearTables[] = [
+export const TAX_TABLES: TaxYearTables[] = [
   {
     year: 2025,
     federal: {
@@ -121,43 +121,18 @@ export let TAX_TABLES: TaxYearTables[] = [
 ];
 
 /**
- * A DB year-table is only usable if it actually carries the numbers we need.
- * `loadPublicRules` defaults missing credit rows to 0, so a year with bracket
- * rows but no matching credit row arrives with bpa: 0 -- which would silently
- * hand every projection a zero basic personal amount.
+ * These tables are the SINGLE source of truth for tax brackets and credits.
+ *
+ * There used to be an updateTaxTablesFromDb() that let Supabase rows replace
+ * them at runtime. The database copy was hand-maintained, drifted to 2024
+ * values labelled as 2025, and silently overrode the correct figures here for
+ * months -- the app showed a 15% federal bottom rate long after it became 14%.
+ *
+ * Bracket and credit figures change once a year and belong in version control
+ * where a change is reviewed against a published source. TFSA limits and RRIF
+ * factors still load from the database, because a script keeps those current.
  */
-function isUsableDbTable(t: TaxYearTables) {
-  return (
-    Number.isFinite(t.year) &&
-    t.federal?.brackets?.length > 0 &&
-    t.bc?.brackets?.length > 0 &&
-    t.federal.bpa > 0 &&
-    t.bc.bpa > 0
-  );
-}
 
-/**
- * Merge DB-sourced tax tables over the built-in ones, BY YEAR.
- *
- * This used to be `TAX_TABLES = tables`, a wholesale replacement. Because
- * `pickTaxTables` selects the newest table at or below the requested year, a
- * database holding only 2025 silently deleted the built-in 2026 table and sent
- * every projection back to 2025 rates -- the 15% federal bottom rate instead of
- * the permanent 14%, and BC at 5.06% instead of 5.60%. Tests never caught it
- * because they exercise the built-in tables with no DB in play.
- *
- * Merging keeps the newer built-in years available while still letting the
- * database correct any year it actually has good data for. This also matches
- * how updateRrifFactorsFromDb and updateBcLifMaxFromDb already behave.
- */
-export function updateTaxTablesFromDb(tables: TaxYearTables[]) {
-  const byYear = new Map<number, TaxYearTables>();
-  for (const t of TAX_TABLES) byYear.set(t.year, t);
-  for (const t of tables ?? []) {
-    if (isUsableDbTable(t)) byYear.set(t.year, t);
-  }
-  TAX_TABLES = [...byYear.values()].sort((a, b) => a.year - b.year);
-}
 
 export function pickTaxTables(taxYear: number): TaxYearTables {
   // Use the latest table <= taxYear; otherwise fall back to earliest.

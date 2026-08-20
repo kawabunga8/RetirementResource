@@ -1,28 +1,7 @@
 import { supabase } from "./supabase";
 import type { Anchors, Variables } from "../planDefaults";
-import type { TaxYearTables } from "../tax/tables";
 
 // ─── Types mirroring DB rows ──────────────────────────────────────────────────
-
-type DbTaxBracketRow = {
-  tax_year: number;
-  jurisdiction: string;
-  up_to: number | null;
-  rate: number;
-  sort_order: number;
-};
-
-type DbTaxCreditRow = {
-  tax_year: number;
-  jurisdiction: string;
-  bpa: number | null;
-  age_amount_max: number | null;
-  age_amount_threshold: number | null;
-  age_amount_phase_out: number | null;
-  pension_credit_base: number | null;
-  oas_clawback_threshold: number | null;
-  oas_clawback_rate: number | null;
-};
 
 type DbPlan = {
   id: string;
@@ -289,21 +268,24 @@ export async function savePlan(
 
 export type PublicRules = {
   tfsaLimitsByYear: Record<string, number>;
-  taxTables: TaxYearTables[];
   rrifFactors: Record<number, number>;
   bcLifMax: Record<number, number>;
 };
 
 export async function loadPublicRules(): Promise<PublicRules | null> {
-  const [tfsaRes, bracketsRes, creditsRes, rrifRes, lifRes] = await Promise.all([
+  // NOTE: tax brackets and credits are deliberately NOT loaded from the
+  // database. They live in src/tax/tables.ts, under version control, where a
+  // change gets reviewed. The public_rules_tax_brackets / _tax_credits tables
+  // were a hand-maintained duplicate that silently drifted to 2024 values and
+  // overrode the correct built-in figures for months. The tables are left in
+  // place but no longer read.
+  const [tfsaRes, rrifRes, lifRes] = await Promise.all([
     supabase.from("public_rules_tfsa_limits").select("year, annual_limit").order("year"),
-    supabase.from("public_rules_tax_brackets").select("*").order("tax_year").order("sort_order"),
-    supabase.from("public_rules_tax_credits").select("*"),
     supabase.from("public_rules_rrif_factors").select("age, factor").order("age"),
     supabase.from("public_rules_bc_lif_max").select("age, max_pct").order("age"),
   ]);
 
-  if (tfsaRes.error || bracketsRes.error || creditsRes.error || rrifRes.error || lifRes.error) {
+  if (tfsaRes.error || rrifRes.error || lifRes.error) {
     return null;
   }
 
@@ -325,47 +307,5 @@ export async function loadPublicRules(): Promise<PublicRules | null> {
     bcLifMax[row.age] = Number(row.max_pct);
   }
 
-  // Tax tables — group brackets + credits by year
-  const bracketRows = (bracketsRes.data ?? []) as DbTaxBracketRow[];
-  const creditRows  = (creditsRes.data  ?? []) as DbTaxCreditRow[];
-
-  const years = [...new Set(bracketRows.map((r) => r.tax_year))];
-  const taxTables: TaxYearTables[] = years.map((year) => {
-    const fedBrackets = bracketRows
-      .filter((r) => r.tax_year === year && r.jurisdiction === "federal")
-      .map((r) => ({ upTo: r.up_to === null ? Infinity : Number(r.up_to), rate: Number(r.rate) }));
-
-    const bcBrackets = bracketRows
-      .filter((r) => r.tax_year === year && r.jurisdiction === "bc")
-      .map((r) => ({ upTo: r.up_to === null ? Infinity : Number(r.up_to), rate: Number(r.rate) }));
-
-    const fedCredits = creditRows.find((r) => r.tax_year === year && r.jurisdiction === "federal");
-    const bcCredits  = creditRows.find((r) => r.tax_year === year && r.jurisdiction === "bc");
-
-    return {
-      year: Number(year),
-      federal: {
-        brackets: fedBrackets,
-        lowestRate: fedBrackets[0]?.rate ?? 0.15,
-        bpa: Number(fedCredits?.bpa ?? 0),
-        ageAmountMax: Number(fedCredits?.age_amount_max ?? 0),
-        ageAmountThreshold: Number(fedCredits?.age_amount_threshold ?? 0),
-        ageAmountPhaseOutRate: Number(fedCredits?.age_amount_phase_out ?? 0),
-        pensionCreditBase: Number(fedCredits?.pension_credit_base ?? 0),
-        oasClawbackThreshold: Number(fedCredits?.oas_clawback_threshold ?? 91000),
-        oasClawbackRate: Number(fedCredits?.oas_clawback_rate ?? 0.15),
-      },
-      bc: {
-        brackets: bcBrackets,
-        lowestRate: bcBrackets[0]?.rate ?? 0.0506,
-        bpa: Number(bcCredits?.bpa ?? 0),
-        ageAmountMax: Number(bcCredits?.age_amount_max ?? 0),
-        ageAmountThreshold: Number(bcCredits?.age_amount_threshold ?? 0),
-        ageAmountPhaseOutRate: Number(bcCredits?.age_amount_phase_out ?? 0),
-        pensionCreditBase: Number(bcCredits?.pension_credit_base ?? 0),
-      },
-    };
-  });
-
-  return { tfsaLimitsByYear, taxTables, rrifFactors, bcLifMax };
+  return { tfsaLimitsByYear, rrifFactors, bcLifMax };
 }

@@ -13,7 +13,6 @@ import {
 } from "./planDefaults";
 import { loadPlan, savePlan, loadPublicRules } from "./lib/db";
 import { updateTfsaLimitsFromDb } from "./data/publicRules";
-import { updateTaxTablesFromDb } from "./tax/tables";
 import { updateRrifFactorsFromDb, updateBcLifMaxFromDb } from "./withdrawals/engine";
 import { TFSA_ANNUAL_LIMIT_BY_YEAR } from "./data/publicRules";
 import { computeHouseholdTax } from "./tax/v2";
@@ -626,7 +625,6 @@ export default function App() {
       }
       if (rules) {
         updateTfsaLimitsFromDb(rules.tfsaLimitsByYear);
-        updateTaxTablesFromDb(rules.taxTables);
         updateRrifFactorsFromDb(rules.rrifFactors);
         updateBcLifMaxFromDb(rules.bcLifMax);
       }
