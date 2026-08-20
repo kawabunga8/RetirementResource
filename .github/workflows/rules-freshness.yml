@@ -1,0 +1,111 @@
+name: Public rules freshness
+
+# The staleness check only helps if something runs it when nobody is looking.
+# A unit test alone would sit unrun for a year; this fires on a schedule.
+on:
+  schedule:
+    # 09:00 UTC on the 2nd of every month. CRA publishes the next year's indexed
+    # amounts in November, so a monthly cadence surfaces a new year well before
+    # anyone files anything.
+    - cron: "0 9 2 * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check tax tables and TFSA limits against the calendar
+        id: freshness
+        run: |
+          set +e
+          npx vitest run src/tax/freshness.test.ts --reporter=basic > freshness.log 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          cat freshness.log
+
+      - name: Open or update an issue when the data has fallen behind
+        if: steps.freshness.outputs.exit_code != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const log = fs.readFileSync('freshness.log', 'utf8').slice(-6000);
+            const title = 'Tax tables / TFSA limits are out of date';
+            const body = [
+              'The scheduled freshness check failed, which means the calendar has',
+              'moved past the newest public-rule data in this repo.',
+              '',
+              'Until this is updated, every projection is running on older brackets,',
+              'credits and OAS clawback thresholds, indexed forward by assumption',
+              'rather than by published figures.',
+              '',
+              'Update `src/tax/tables.ts` (and run `npm run update:public-rules` for',
+              'TFSA limits), then close this issue.',
+              '',
+              '<details><summary>Check output</summary>',
+              '',
+              '```',
+              log,
+              '```',
+              '',
+              '</details>',
+              '',
+              `_Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}_`,
+            ].join('\n');
+
+            // Reuse an existing open issue rather than filing a new one each month.
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'stale-tax-data',
+            });
+
+            if (existing.data.length > 0) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.data[0].number,
+                body: `Still failing as of ${new Date().toISOString().slice(0, 10)}.`,
+              });
+              core.notice(`Commented on existing issue #${existing.data[0].number}`);
+              return;
+            }
+
+            // Create the label on first use; ignore "already exists".
+            try {
+              await github.rest.issues.createLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'stale-tax-data',
+                color: 'B60205',
+                description: 'Public-rule data has fallen behind the calendar',
+              });
+            } catch (e) {
+              if (e.status !== 422) throw e;
+            }
+
+            const created = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['stale-tax-data'],
+            });
+            core.notice(`Opened issue #${created.data.number}`);
+
+      - name: Fail the run if the data is stale
+        if: steps.freshness.outputs.exit_code != '0'
+        run: exit 1
