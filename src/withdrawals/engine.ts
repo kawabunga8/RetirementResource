@@ -43,6 +43,12 @@ export type WithdrawalDebug = {
   // Pass-2 glidepath helpers
   startBalances: RetirementBalances;
   extraRrifPlanned: number;
+  /**
+   * RRSP withdrawn to cover spending and minimums, BEFORE the levelling overlay.
+   * The overlay solver needs this to re-derive its baseline on each refinement;
+   * reading withdrawals.rrsp would double-count the overlay it just applied.
+   */
+  rrspBeforeOverlay: number;
 
   // Mandatory / glidepath
   lifMinRequired: number;
@@ -727,6 +733,8 @@ export function buildWithdrawalSchedule(params: {
 
       // Extra RRIF overlay (global plan): withdraw additional RRIF AFTER the spending gap is covered,
       // and invest the resulting after-tax surplus (TFSA first, then NonReg).
+      const rrspBeforeOverlay = withdrawals.rrsp;
+
       if (extraThisYear > 0 && balances.rrsp > 0) {
         const cap = Math.max(0, capFromConfig(vars.withdrawals.caps.rrsp) - withdrawals.rrsp);
 
@@ -794,6 +802,7 @@ export function buildWithdrawalSchedule(params: {
           shortfallAfterTax,
           startBalances,
           extraRrifPlanned: extraThisYear,
+          rrspBeforeOverlay,
         },
       });
     }
@@ -804,93 +813,110 @@ export function buildWithdrawalSchedule(params: {
   // Pass 1: cover spending gaps (RRIF-first), with hard depletion-year withdrawal.
   const pass1 = simulate({});
 
-  // Compute the "forced" RRIF amount that would otherwise be withdrawn in the depletion year,
-  // then distribute it across prior years using the aggressiveness (front-load) setting.
-  const depletionRow = pass1.find((r) => r.ageShingo >= vars.withdrawals.rrifDepleteByAge);
-  if (!depletionRow) return pass1;
+  const depleteAge = vars.withdrawals.rrifDepleteByAge;
+  if (!pass1.find((r) => r.ageShingo >= depleteAge)) return pass1;
 
-  const depletionYear = depletionRow.year;
-  const startRrspAtDepletion = depletionRow.debug.startBalances.rrsp;
-
-  const extraPlan: ExtraPlan = {};
-
-  const years = pass1
-    // Start RRIF overlay immediately at retirement year (through the year before depletion year)
-    .filter((r) => r.year >= params.retirementYear && r.year < depletionYear)
-    .map((r) => r.year);
-
-  // If the user has supplied per-year manual overrides, bypass the binary search entirely.
+  // If the user has supplied per-year manual overrides, bypass the solver entirely.
   const manualOverrides = vars.withdrawals.rrspExtraByYear ?? {};
-  const hasManualOverrides = Object.keys(manualOverrides).length > 0;
-
-  if (hasManualOverrides) {
-    for (const y of years) {
-      const v = manualOverrides[String(y)];
-      if (v != null) extraPlan[y] = Math.max(0, v);
-    }
-  } else if (startRrspAtDepletion > 1 && years.length > 0) {
-    // Goal: after covering spending gaps (Pass 1), distribute the remaining RRSP more-or-less evenly
-    // across the retirement years up to (but not including) the depletion year.
-    // We solve for a level (or gently front-loaded) overlay that drives the RRSP balance to ~0
-    // at the start of the depletion year.
-
-    const f = Math.max(0, Math.min(1, vars.withdrawals.rrifFrontLoad));
-    // Keep front-load gentle. f=0 => even. f=1 => modest front-load.
-    const ratio = 1 + 1.0 * f; // 1..2
-
-    // weights indexed by year order (0 = earliest). For front-load, give earlier years larger weights.
-    const rawWeights = years.map((_, idx) => (ratio === 1 ? 1 : Math.pow(ratio, years.length - 1 - idx)));
-    const avgW = rawWeights.reduce((a, b) => a + b, 0) / rawWeights.length;
-    const weights = rawWeights.map((w) => (avgW > 0 ? w / avgW : 1)); // normalize: average weight = 1
-
-    // Baseline RRSP withdrawals (gap-filling + minimums) from Pass 1.
-    const baseByYear = new Map<number, number>();
+  if (Object.keys(manualOverrides).length > 0) {
+    const manualPlan: ExtraPlan = {};
+    const depletionYear = pass1.find((r) => r.ageShingo >= depleteAge)!.year;
     for (const r of pass1) {
       if (r.year >= params.retirementYear && r.year < depletionYear) {
-        baseByYear.set(r.year, Math.max(0, r.withdrawals.rrsp));
+        const v = manualOverrides[String(r.year)];
+        if (v != null) manualPlan[r.year] = Math.max(0, v);
+      }
+    }
+    return simulate(manualPlan);
+  }
+
+  /**
+   * Solve for a levelling overlay that drives the RRSP to ~0 by the depletion
+   * year, using `rows` to estimate what will be withdrawn for spending anyway.
+   */
+  const solveExtraPlan = (rows: WithdrawalScheduleRow[]): ExtraPlan | null => {
+    const depletionRow = rows.find((r) => r.ageShingo >= depleteAge);
+    if (!depletionRow) return null;
+    const depletionYear = depletionRow.year;
+
+    const years = rows
+      .filter((r) => r.year >= params.retirementYear && r.year < depletionYear)
+      .map((r) => r.year);
+    if (years.length === 0) return null;
+
+    const f = Math.max(0, Math.min(1, vars.withdrawals.rrifFrontLoad));
+    const ratio = 1 + 1.0 * f; // 1 = even, 2 = modestly front-loaded
+
+    const rawWeights = years.map((_, idx) => (ratio === 1 ? 1 : Math.pow(ratio, years.length - 1 - idx)));
+    const avgW = rawWeights.reduce((a, b) => a + b, 0) / rawWeights.length;
+    const weights = rawWeights.map((w) => (avgW > 0 ? w / avgW : 1)); // average weight = 1
+
+    // Baseline = what gets withdrawn for spending and minimums WITHOUT the overlay.
+    const baseByYear = new Map<number, number>();
+    for (const r of rows) {
+      if (r.year >= params.retirementYear && r.year < depletionYear) {
+        baseByYear.set(r.year, Math.max(0, r.debug.rrspBeforeOverlay));
       }
     }
 
-    const r = Math.max(0, vars.expectedNominalReturn);
-    // When FHSA is rolled into RRSP at retirement, the binary search must start
-    // from the combined balance so it targets the right depletion trajectory.
+    const growth = Math.max(0, vars.expectedNominalReturn);
     const B0 = Math.max(
       0,
       params.retirementBalances.rrsp +
         (vars.withdrawals.rollFhsaIntoRrspAtRetirement ? params.retirementBalances.fhsa : 0)
     );
 
-    const simulateEndBalance = (A: number) => {
+    const endBalanceFor = (A: number) => {
       let bal = B0;
       for (let i = 0; i < years.length; i++) {
-        const y = years[i];
-        const base = baseByYear.get(y) ?? 0;
-        const overlay = Math.max(0, A * weights[i]);
-        const w = Math.min(bal, base + overlay);
-        bal = (bal - w) * (1 + r);
+        const base = baseByYear.get(years[i]) ?? 0;
+        const w = Math.min(bal, base + Math.max(0, A * weights[i]));
+        bal = (bal - w) * (1 + growth);
       }
       return bal;
     };
 
-    // Binary-search the scale A so that the balance at start of depletion year is ~0.
     let lo = 0;
-    let hi = Math.max(1, B0); // a safe upper bound; if too small we'll expand
-    while (simulateEndBalance(hi) > 1 && hi < B0 * 10) hi *= 1.5;
-
+    let hi = Math.max(1, B0);
+    while (endBalanceFor(hi) > 1 && hi < B0 * 10) hi *= 1.5;
     for (let iter = 0; iter < 40; iter++) {
       const mid = (lo + hi) / 2;
-      const end = simulateEndBalance(mid);
-      if (end > 1) lo = mid;
+      if (endBalanceFor(mid) > 1) lo = mid;
       else hi = mid;
     }
 
-    const A = hi;
-    for (let i = 0; i < years.length; i++) {
-      extraPlan[years[i]] = Math.max(0, A * weights[i]);
-    }
+    const plan: ExtraPlan = {};
+    for (let i = 0; i < years.length; i++) plan[years[i]] = Math.max(0, hi * weights[i]);
+    return plan;
+  };
+
+  /**
+   * Refine the overlay until the RRSP really is drained by the depletion year.
+   *
+   * A single pass is not enough. The solver estimates the overlay from a
+   * simulation whose spending withdrawals were produced WITHOUT that overlay;
+   * once the overlay is applied the balance trajectory changes, the baseline it
+   * assumed no longer holds, and a lump is left for the depletion year to
+   * absorb -- a spike in taxable income exactly where the OAS clawback bites.
+   *
+   * Each round re-derives the baseline from the previous full simulation, so
+   * the estimate converges on what the engine actually does. Four rounds is
+   * ample; the loop exits as soon as the leftover is immaterial.
+   */
+  const LEVELLING_TOLERANCE = 1000; // dollars of RRSP left at the depletion year
+  const MAX_REFINEMENTS = 4;
+
+  let rows = pass1;
+  for (let round = 0; round < MAX_REFINEMENTS; round++) {
+    const plan = solveExtraPlan(rows);
+    if (!plan) break;
+
+    const next = simulate(plan);
+    rows = next;
+
+    const dep = next.find((r) => r.ageShingo >= depleteAge);
+    if (!dep || dep.debug.startBalances.rrsp <= LEVELLING_TOLERANCE) break;
   }
 
-  // Pass 2: re-simulate with extra RRIF overlay (surplus invested to TFSA then NonReg).
-  // Note: We do NOT allow TFSA/NonReg withdrawals to cover spending gaps; they only accumulate.
-  return simulate(extraPlan);
+  return rows;
 }
