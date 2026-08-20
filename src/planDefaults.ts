@@ -271,7 +271,14 @@ export const DEFAULT_VARIABLES: Variables = {
   rrspRoomShingo: 120125,
   rrspRoomSarah: 63252,
 
-  earnedIncomeShingo: 100000,
+  // 2025 pensionable earnings, implied by his 2025 PA at the 1.90% effective
+  // accrual rate derived from his 2023 Notice of Assessment. Paired with the
+  // 2025 PA below so the two are from the same year -- mixing years is what
+  // made the old $100,000 / $16,275 pairing overstate new room.
+  // Note: earnings have grown ~6.0%/yr (2023 $87,800 -> 2025 $98,591). This
+  // model holds them flat. That is defensible only because the PA is held flat
+  // too, and the two largely cancel; do not inflate one without the other.
+  earnedIncomeShingo: 98591,
   earnedIncomeSarah: 100000,
 
   // CRA RRSP dollar limit for 2026.
