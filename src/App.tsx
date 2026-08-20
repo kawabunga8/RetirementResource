@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+import Dashboard from "./Dashboard";
 import { supabase } from "./lib/supabase";
 import {
   DEFAULT_ANCHORS,
@@ -532,6 +533,10 @@ function estimateTaxSavingsFromDeduction(params: {
 }
 
 export default function App() {
+  const [mode, setMode] = useState<'dashboard' | 'calculator'>(() => {
+    return (localStorage.getItem('appMode') as 'dashboard' | 'calculator') || 'dashboard';
+  });
+
   const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [email, setEmail] = useState("");
@@ -802,6 +807,10 @@ return {
     "nonRegistered",
     "tfsa",
   ];
+
+  if (mode === 'dashboard') {
+    return <Dashboard />;
+  }
 
   if (authLoading) {
     return (
