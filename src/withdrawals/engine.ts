@@ -337,7 +337,11 @@ export function buildWithdrawalSchedule(params: {
   const { vars, anchors } = params;
 
   const indexRate = vars.expectedInflation * vars.cpiMultiplier;
-  const pensionAnnualReal = anchors.pensionShingo + anchors.pensionSarah;
+  // Each spouse's pension indexes at its own rate. Summing them and applying a
+  // single rate cannot represent the common case of one indexed plan and one
+  // that is not.
+  const pensionIndexShingo = vars.pensionIndexRateShingo ?? vars.pensionIndexRate;
+  const pensionIndexSarah = vars.pensionIndexRateSarah ?? vars.pensionIndexRate;
 
   const retireAgeShingo = vars.shingoRetireAge;
   const retireAgeSarah = vars.sarahRetireAge;
@@ -409,11 +413,17 @@ export function buildWithdrawalSchedule(params: {
         yearsFromBaseline,
       });
 
-      const guaranteedIncome = nominalFromRealBase({
-        amountReal: pensionAnnualReal,
-        annualIndexRate: vars.pensionIndexRate,
+      const pensionShingoNominal = nominalFromRealBase({
+        amountReal: anchors.pensionShingo,
+        annualIndexRate: pensionIndexShingo,
         yearsFromBaseline,
       });
+      const pensionSarahNominal = nominalFromRealBase({
+        amountReal: anchors.pensionSarah,
+        annualIndexRate: pensionIndexSarah,
+        yearsFromBaseline,
+      });
+      const guaranteedIncome = pensionShingoNominal + pensionSarahNominal;
 
       // CPP/OAS for this year, in nominal dollars. Computed once and reused by
       // every tax pass below (previously duplicated in three places).
@@ -501,16 +511,6 @@ export function buildWithdrawalSchedule(params: {
       if (!isDepletionYear && applyCeiling && Number.isFinite(taxableIncomeCeiling) && rrspMandatory > 0) {
         // Estimate current taxable income BEFORE adding any RRSP/RRIF withdrawal.
         // (Uses v2 tax engine + splitting optimizer; planning approximation.)
-        const pensionShingo0 = nominalFromRealBase({
-          amountReal: anchors.pensionShingo,
-          annualIndexRate: vars.pensionIndexRate,
-          yearsFromBaseline,
-        });
-        const pensionSarah0 = nominalFromRealBase({
-          amountReal: anchors.pensionSarah,
-          annualIndexRate: vars.pensionIndexRate,
-          yearsFromBaseline,
-        });
 
         const baseTax = computeHouseholdTax({
           taxYear: year,
@@ -520,7 +520,7 @@ export function buildWithdrawalSchedule(params: {
             age: ageShingo,
             incomes: {
               employment: 0,
-              pensionDb: pensionShingo0,
+              pensionDb: pensionShingoNominal,
               rrspWithdrawal: 0,
               rrifWithdrawal: 0,
               lifWithdrawal: withdrawals.lira,
@@ -534,7 +534,7 @@ export function buildWithdrawalSchedule(params: {
             age: ageSarah,
             incomes: {
               employment: 0,
-              pensionDb: pensionSarah0,
+              pensionDb: pensionSarahNominal,
               rrspWithdrawal: 0,
               rrifWithdrawal: 0,
               lifWithdrawal: 0,
@@ -592,16 +592,6 @@ export function buildWithdrawalSchedule(params: {
       let afterTaxCashAvailable = 0;
 
       const computeTax = () => {
-        const pensionShingo = nominalFromRealBase({
-          amountReal: anchors.pensionShingo,
-          annualIndexRate: vars.pensionIndexRate,
-          yearsFromBaseline,
-        });
-        const pensionSarah = nominalFromRealBase({
-          amountReal: anchors.pensionSarah,
-          annualIndexRate: vars.pensionIndexRate,
-          yearsFromBaseline,
-        });
 
         const res = computeHouseholdTax({
           taxYear: year,
@@ -611,7 +601,7 @@ export function buildWithdrawalSchedule(params: {
             age: ageShingo,
             incomes: {
               employment: 0,
-              pensionDb: pensionShingo,
+              pensionDb: pensionShingoNominal,
               rrspWithdrawal: withdrawals.fhsa * 0.5, // FHSA treated as RRSP-like taxable
               rrifWithdrawal: withdrawals.rrsp * 0.5,
               lifWithdrawal: withdrawals.lira,
@@ -625,7 +615,7 @@ export function buildWithdrawalSchedule(params: {
             age: ageSarah,
             incomes: {
               employment: 0,
-              pensionDb: pensionSarah,
+              pensionDb: pensionSarahNominal,
               rrspWithdrawal: withdrawals.fhsa * 0.5,
               rrifWithdrawal: withdrawals.rrsp * 0.5,
               lifWithdrawal: 0,

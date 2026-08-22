@@ -219,7 +219,19 @@ export type Variables = {
   // Expectations
   expectedNominalReturn: number; // e.g. 0.07
   expectedInflation: number; // e.g. 0.02
-  pensionIndexRate: number; // e.g. 0.02 (annual indexation rate for DB pensions)
+  /**
+   * Post-retirement indexation of DB pensions — how the cheque grows once it is
+   * being paid. NOT the salary-escalation assumption a pension calculator uses
+   * to project the starting amount; those are different numbers and conflating
+   * them silently inflates income for the whole plan.
+   *
+   * Kept as the fallback for either spouse when no per-person rate is set.
+   */
+  pensionIndexRate: number;
+
+  /** Per-person overrides. Many Canadian DB plans index conditionally or not at all. */
+  pensionIndexRateShingo?: number;
+  pensionIndexRateSarah?: number;
 
   // Contributions
   monthly: MonthlyContributions;
@@ -301,7 +313,19 @@ export const DEFAULT_VARIABLES: Variables = {
 
   expectedNominalReturn: 0.07,
   expectedInflation: 0.03,
-  pensionIndexRate: 0.02, // Shingo's PENCAN pension indexes at 2% annually
+  pensionIndexRate: 0.02, // fallback only
+
+  // Shingo's PENCAN pension is NOT indexed — the cheque is fixed for life and
+  // its purchasing power erodes with inflation. (The 2% previously used here
+  // came from PENCAN's "2% Annual Salary Increase", which projects the starting
+  // amount; it says nothing about indexation after retirement.)
+  pensionIndexRateShingo: 0,
+
+  // UNVERIFIED: Sarah's plan indexation has not been confirmed. Left at 2% so
+  // this change does not silently move her numbers. Canadian DB indexation is
+  // often conditional on plan funding rather than guaranteed — check her plan
+  // booklet or annual statement and set the real figure.
+  pensionIndexRateSarah: 0.02,
 
   // From your screenshot: monthly investments
   monthly: {
