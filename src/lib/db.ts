@@ -5,6 +5,7 @@ import type { Anchors, Variables } from "../planDefaults";
 
 type DbPlan = {
   id: string;
+  settings?: Partial<Variables> | null;
   baseline_year: number;
   target_retirement_year: number;
   location: string;
@@ -129,7 +130,14 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
     cppShingoAt70Monthly: (benefit(shingo.id, "cpp")?.annual_amount ?? 0) / 12,
   };
 
+  // Settings stored as a JSON blob. Applied FIRST so the normalised columns
+  // below always win -- they are the authoritative copy for anything that has
+  // a real column.
+  const settings = (plan.settings ?? {}) as Partial<Variables>;
+
   const varsOverrides: PlanVarsOverrides = {
+    ...settings,
+    ...(settings.withdrawals ? { withdrawals: { ...settings.withdrawals } } : {}),
     retirementYear: plan.target_retirement_year,
     shingoRetireAge: shingo.retire_age,
     sarahRetireAge: sarah.retire_age,
@@ -168,6 +176,7 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
       noGo: phases.find((p) => p.phase === "no_go")?.annual_amount ?? 75000,
     },
     withdrawals: {
+      ...(settings.withdrawals ?? {}),
       cppShingoAnnual: benefit(shingo.id, "cpp")?.annual_amount ?? 0,
       cppSarahAnnual: benefit(sarah.id, "cpp")?.annual_amount ?? 0,
       oasShingoAnnual: benefit(shingo.id, "oas")?.annual_amount ?? 0,
@@ -211,6 +220,13 @@ export async function savePlan(
       baseline_year: anchors.baselineYear,
       location: anchors.location,
       balances_as_of: vars.balancesAsOf ?? null,
+      // Everything without a column of its own. Pension adjustments, earned
+      // income, per-person indexation, FHSA inputs, phase ages, tax toggles and
+      // the whole withdrawal strategy used to exist only in code defaults and
+      // browser localStorage -- so they never followed the user to another
+      // device, and a code change to a default could be silently overridden or
+      // silently ignored depending on which it was.
+      settings: settingsBlobFrom(vars),
     }).eq("id", planId),
 
     // Members
@@ -314,6 +330,32 @@ export async function savePlan(
 export type PlanVarsOverrides = Partial<Omit<Variables, "withdrawals">> & {
   withdrawals?: Partial<Variables["withdrawals"]>;
 };
+
+/**
+ * Settings that live in normalised columns and tables, and must therefore NOT
+ * be duplicated into plans.settings. Writing them in both places invites the
+ * two copies to disagree, which is the failure this whole mechanism exists to
+ * prevent.
+ */
+const NORMALISED_KEYS = [
+  "retirementYear", "shingoRetireAge", "sarahRetireAge", "cppStartAge", "oasStartAge",
+  "expectedNominalReturn", "expectedInflation", "cpiMultiplier",
+  "balances", "balancesAsOf",
+  "tfsaRoomShingo", "tfsaRoomSarah", "rrspRoomShingo", "rrspRoomSarah",
+  "monthly", "spending",
+] as const;
+
+/** Everything else -- the settings the database had no home for until now. */
+function settingsBlobFrom(vars: Variables): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...vars };
+  for (const k of NORMALISED_KEYS) delete out[k];
+  // CPP/OAS amounts live in plan_benefits; the rest of `withdrawals` does not.
+  const w = { ...vars.withdrawals } as Record<string, unknown>;
+  delete w.cppShingoAnnual; delete w.cppSarahAnnual;
+  delete w.oasShingoAnnual; delete w.oasSarahAnnual;
+  out.withdrawals = w;
+  return out;
+}
 
 export type PublicRules = {
   tfsaLimitsByYear: Record<string, number>;
