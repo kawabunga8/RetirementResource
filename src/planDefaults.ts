@@ -267,7 +267,33 @@ export const DEFAULT_ANCHORS: Anchors = {
   shingoBirthYear: 1969,
   sarahBirthYear: 1971,
 
-  pensionShingo: 33374.27, // Updated from PENCAN projection (Sept 2025)
+  /**
+   * PENCAN (Christian Education Pension Plan), 60% Joint & Survivor.
+   *
+   * Formula, per the 2025 Annual Status Letter, for service after 01/09/2010:
+   *   adjusted credited service x best-5-year average earnings x 1.90%
+   *   = 16.8967 x $103,957.60 x 1.90% = $33,374.27 as "Life Only"
+   *
+   * 60% J&S is the plan's DEFAULT for a participant with an eligible spouse,
+   * and pays $30,967.99 to Shingo plus $18,580.79 to Sarah for life if he dies
+   * first. The Life Only figure of $33,374.27 previously used here pays her
+   * nothing, and is not what the plan would apply by default.
+   *
+   * Basis: PENCAN's own 2% annual salary increase assumption, retirement
+   * 02/01/2036 at age 67. Actual salary growth has run ~6%/yr (2023-2025),
+   * which would raise this to roughly $37,500 -- deliberately NOT used, since
+   * the plan freezes pensionable earnings at 31/08/2030 and the recent trend
+   * may not hold. This is the conservative figure.
+   *
+   * NOT indexed after retirement — see pensionIndexRateShingo.
+   */
+  pensionShingo: 30967.99,
+  /**
+   * UNVERIFIED. Unlike Shingo's, this figure has no supporting document on file
+   * — no plan name, formula, survivor election or indexation basis. Whether it
+   * is a Life Only or joint-and-survivor amount is unknown, and
+   * pensionIndexRateSarah is a guess. Worth the same scrutiny his has had.
+   */
   pensionSarah: 38400,
 
   cppShingoAt70Monthly: 1700,
