@@ -256,12 +256,45 @@ export async function savePlan(
       { plan_id: planId, member_id: sarah.id,  account_type: "fhsa",           balance: vars.balances.fhsaSarah,     contribution_room: 0,                    monthly_contribution: vars.monthly.fhsaSarah, as_of_date: vars.balancesAsOf },
       { plan_id: planId, member_id: shingo.id, account_type: "rrsp",           balance: vars.balances.rrspShingo,    contribution_room: vars.rrspRoomShingo,   monthly_contribution: vars.monthly.rrspShingo, as_of_date: vars.balancesAsOf },
       { plan_id: planId, member_id: sarah.id,  account_type: "rrsp",           balance: vars.balances.rrspSarah,     contribution_room: vars.rrspRoomSarah,    monthly_contribution: vars.monthly.rrspSarah, as_of_date: vars.balancesAsOf },
-      { plan_id: planId, member_id: shingo.id, account_type: "tfsa",           balance: vars.balances.tfsaShingo,    contribution_room: vars.tfsaRoomShingo,   monthly_contribution: 0, as_of_date: vars.balancesAsOf },
-      { plan_id: planId, member_id: sarah.id,  account_type: "tfsa",           balance: vars.balances.tfsaSarah,     contribution_room: vars.tfsaRoomSarah,    monthly_contribution: 0, as_of_date: vars.balancesAsOf },
+      { plan_id: planId, member_id: shingo.id, account_type: "tfsa",           balance: vars.balances.tfsaShingo,    contribution_room: vars.tfsaRoomShingo,   monthly_contribution: (vars.monthly.tfsaTotal ?? 0) / 2, as_of_date: vars.balancesAsOf },
+      { plan_id: planId, member_id: sarah.id,  account_type: "tfsa",           balance: vars.balances.tfsaSarah,     contribution_room: vars.tfsaRoomSarah,    monthly_contribution: (vars.monthly.tfsaTotal ?? 0) / 2, as_of_date: vars.balancesAsOf },
       { plan_id: planId, member_id: shingo.id, account_type: "lira",           balance: vars.balances.liraShingo,    contribution_room: 0,                    monthly_contribution: 0, as_of_date: vars.balancesAsOf },
-      { plan_id: planId, member_id: null,      account_type: "non_registered", balance: vars.balances.nonRegistered, contribution_room: 0,                    monthly_contribution: 0, as_of_date: vars.balancesAsOf },
     ], { onConflict: "plan_id,member_id,account_type" }),
   ]);
+
+  // The non-registered account is handled separately and deliberately.
+  //
+  // Its member_id is NULL, and Postgres treats NULLs as DISTINCT in a unique
+  // constraint -- so `ON CONFLICT (plan_id, member_id, account_type)` never
+  // matched it and every save inserted another row. loadPlan then picked
+  // whichever duplicate came back first, which is why the balance could differ
+  // from what was last entered.
+  //
+  // Update the existing row by primary key if there is one; insert only if not.
+  const { data: existingNonReg } = await supabase
+    .from("plan_accounts")
+    .select("id")
+    .eq("plan_id", planId)
+    .is("member_id", null)
+    .eq("account_type", "non_registered")
+    .order("as_of_date", { ascending: false })
+    .limit(1);
+
+  const nonRegRow = {
+    plan_id: planId,
+    member_id: null,
+    account_type: "non_registered",
+    balance: vars.balances.nonRegistered,
+    contribution_room: 0,
+    monthly_contribution: 0,
+    as_of_date: vars.balancesAsOf,
+  };
+
+  if (existingNonReg?.length) {
+    await supabase.from("plan_accounts").update(nonRegRow).eq("id", existingNonReg[0].id);
+  } else {
+    await supabase.from("plan_accounts").insert(nonRegRow);
+  }
 }
 
 // ─── Load public rules ────────────────────────────────────────────────────────
