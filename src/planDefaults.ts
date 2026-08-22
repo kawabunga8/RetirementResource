@@ -323,10 +323,17 @@ export const DEFAULT_VARIABLES: Variables = {
   rrspDollarLimit: 33810,
   rrspDollarLimitYear: 2026,
 
-  // PLACEHOLDER: both members have DB pensions, so their real PA is likely
-  // $10k-$20k each. Replace with the "Pension adjustment" box (box 52) from
-  // your latest T4, or the RRSP room figure on your CRA Notice of Assessment.
-  pensionAdjustmentShingo: 0,
+  // Shingo: box 52 of his 2025 T4. Paired with earnedIncomeShingo above, both
+  // 2025 figures, this gives $1,471/yr of new room -- against $17,746/yr if the
+  // PA were left at zero. His $120,125 of carried-forward room absorbs most of
+  // the difference. Series on file: 2023 $14,428, 2024 $15,333, 2025 $16,275.
+  pensionAdjustmentShingo: 16275,
+
+  // PLACEHOLDER: Sarah's own T4 box 52, still needed. This one matters more
+  // than Shingo's: she starts with about half his carried-forward room
+  // ($63,252), so a PA near his exhausts it in 2033 and costs roughly $53,000
+  // of contributions by retirement. At a PA of $10,000 there is no impact at
+  // all. Do not assume it matches his.
   pensionAdjustmentSarah: 0,
 
   nonRegTaxDragRate: 0.0075,
