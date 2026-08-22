@@ -342,15 +342,19 @@ export const DEFAULT_VARIABLES: Variables = {
   // ($63,252), so a PA near his exhausts it in 2033 and costs roughly $53,000
   // of contributions by retirement. At a PA of $10,000 there is no impact at
   // all. Do not assume it matches his.
-  // ESTIMATE, not her actual T4 box 52 — still worth replacing with the real
-  // figure. BC Teachers' accrues about 2% a year, so 9 x (2% x $94,582) - 600
-  // gives roughly $16,425, close to Shingo's actual $16,275.
+  // Sarah's actual 2025 T4 box 52. (An earlier estimate of $16,425, derived
+  // from her 2023 pensionable salary at a 2% accrual, was 23% too low.)
   //
-  // This leaves her about $600/yr of new RRSP room (18% of salary almost
-  // exactly cancels the PA at a 2% accrual). Against $63,252 of carried-forward
-  // room and $700/mo of planned contributions, her room runs out in the early
-  // 2030s — the effect a PA of 0 was hiding entirely.
-  pensionAdjustmentSarah: 16425,
+  // This exceeds 18% of her documented $94,582 salary, so her new RRSP room
+  // clamps to $0. Note the PA implies pensionable earnings nearer $122,000 at
+  // BC Teachers' 2% accrual, which does not square with the 2023 statement —
+  // worth checking her 2025 T4 box 14. It barely matters either way: the room
+  // is $0 at $94,582 and $600/yr at $122,000, a $6,000 spread over ten years,
+  // and earnedIncomeSarah feeds nothing but this calculation.
+  //
+  // What does matter: her $63,252 of carried-forward room now has essentially
+  // nothing topping it up, against $700/mo of planned RRSP contributions.
+  pensionAdjustmentSarah: 21353,
 
   nonRegTaxDragRate: 0.0075,
 
