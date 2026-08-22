@@ -289,12 +289,19 @@ export const DEFAULT_ANCHORS: Anchors = {
    */
   pensionShingo: 30967.99,
   /**
-   * UNVERIFIED. Unlike Shingo's, this figure has no supporting document on file
-   * — no plan name, formula, survivor election or indexation basis. Whether it
-   * is a Life Only or joint-and-survivor amount is unknown, and
-   * pensionIndexRateSarah is a guess. Worth the same scrutiny his has had.
+   * BC Teachers' Pension Plan, from her 2023 Member's Benefit Statement.
+   * Unreduced at age 65, effective 01/07/2036: $3,170/mo = $38,040/yr as
+   * "Single Life Guaranteed 10 Years". The $38,400 previously here was close
+   * but had no document behind it.
+   *
+   * The statement's other quoted form, 100% Joint Life, pays $2,903/mo =
+   * $34,836/yr and continues in full to Shingo for life. Which form she elects
+   * is still an open decision — see the pension fields in the Withdrawals tab.
+   *
+   * Assumes she keeps working as in the past year through to 65, which is the
+   * basis the statement itself uses.
    */
-  pensionSarah: 38400,
+  pensionSarah: 38040,
 
   cppShingoAt70Monthly: 1700,
 };
@@ -317,7 +324,8 @@ export const DEFAULT_VARIABLES: Variables = {
   // model holds them flat. That is defensible only because the PA is held flat
   // too, and the two largely cancel; do not inflate one without the other.
   earnedIncomeShingo: 98591,
-  earnedIncomeSarah: 100000,
+  // Her 2023 pensionable salary, from the Teachers' Pension Plan statement.
+  earnedIncomeSarah: 94582,
 
   // CRA RRSP dollar limit for 2026.
   rrspDollarLimit: 33810,
@@ -334,7 +342,15 @@ export const DEFAULT_VARIABLES: Variables = {
   // ($63,252), so a PA near his exhausts it in 2033 and costs roughly $53,000
   // of contributions by retirement. At a PA of $10,000 there is no impact at
   // all. Do not assume it matches his.
-  pensionAdjustmentSarah: 0,
+  // ESTIMATE, not her actual T4 box 52 — still worth replacing with the real
+  // figure. BC Teachers' accrues about 2% a year, so 9 x (2% x $94,582) - 600
+  // gives roughly $16,425, close to Shingo's actual $16,275.
+  //
+  // This leaves her about $600/yr of new RRSP room (18% of salary almost
+  // exactly cancels the PA at a 2% accrual). Against $63,252 of carried-forward
+  // room and $700/mo of planned contributions, her room runs out in the early
+  // 2030s — the effect a PA of 0 was hiding entirely.
+  pensionAdjustmentSarah: 16425,
 
   nonRegTaxDragRate: 0.0075,
 
@@ -354,10 +370,12 @@ export const DEFAULT_VARIABLES: Variables = {
   // amount; it says nothing about indexation after retirement.)
   pensionIndexRateShingo: 0,
 
-  // UNVERIFIED: Sarah's plan indexation has not been confirmed. Left at 2% so
-  // this change does not silently move her numbers. Canadian DB indexation is
-  // often conditional on plan funding rather than guaranteed — check her plan
-  // booklet or annual statement and set the real figure.
+  // BC Teachers' cost-of-living adjustments are CONDITIONAL, not guaranteed.
+  // Her statement: "Cost-of-living adjustments are not guaranteed; they depend
+  // on the availability of funds in the inflation adjustment account."
+  // The plan has historically paid close to full CPI, so 2% is a fair central
+  // estimate — but it is an estimate, and 0% is a real downside scenario worth
+  // testing with the indexation field in the Withdrawals tab.
   pensionIndexRateSarah: 0.02,
 
   // From your screenshot: monthly investments
