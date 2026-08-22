@@ -49,6 +49,12 @@ export type WithdrawalDebug = {
    * reading withdrawals.rrsp would double-count the overlay it just applied.
    */
   rrspBeforeOverlay: number;
+  /**
+   * RRSP still sitting there at the start of the depletion year after the
+   * levelling solver has done its best. Anything materially above zero means
+   * that year absorbs a lump, spiking its tax and OAS clawback.
+   */
+  rrspLeftAtDepletion: number;
 
   // Mandatory / glidepath
   lifMinRequired: number;
@@ -793,6 +799,7 @@ export function buildWithdrawalSchedule(params: {
           startBalances,
           extraRrifPlanned: extraThisYear,
           rrspBeforeOverlay,
+          rrspLeftAtDepletion: 0, // filled in after refinement converges
         },
       });
     }
@@ -894,19 +901,38 @@ export function buildWithdrawalSchedule(params: {
    * ample; the loop exits as soon as the leftover is immaterial.
    */
   const LEVELLING_TOLERANCE = 1000; // dollars of RRSP left at the depletion year
-  const MAX_REFINEMENTS = 4;
+  const MAX_REFINEMENTS = 8;
 
+  const leftoverAt = (rs: WithdrawalScheduleRow[]) => {
+    const dep = rs.find((r) => r.ageShingo >= depleteAge);
+    return dep ? Math.max(0, dep.debug.startBalances.rrsp) : 0;
+  };
+
+  // Keep the BEST attempt rather than the last. Refinement is a fixed-point
+  // iteration, not a monotone descent -- a later round can overshoot, and
+  // returning whatever happened to come last would then be worse than a round
+  // already computed.
   let rows = pass1;
+  let best = pass1;
+  let bestLeftover = leftoverAt(pass1);
+
   for (let round = 0; round < MAX_REFINEMENTS; round++) {
     const plan = solveExtraPlan(rows);
     if (!plan) break;
 
-    const next = simulate(plan);
-    rows = next;
+    rows = simulate(plan);
 
-    const dep = next.find((r) => r.ageShingo >= depleteAge);
-    if (!dep || dep.debug.startBalances.rrsp <= LEVELLING_TOLERANCE) break;
+    const leftover = leftoverAt(rows);
+    if (leftover < bestLeftover) {
+      best = rows;
+      bestLeftover = leftover;
+    }
+    if (bestLeftover <= LEVELLING_TOLERANCE) break;
   }
 
-  return rows;
+  // Record how well it converged, so an unlevelled schedule is visible rather
+  // than something a reader has to spot in the numbers.
+  for (const r of best) r.debug.rrspLeftAtDepletion = bestLeftover;
+
+  return best;
 }

@@ -3426,6 +3426,58 @@ return {
             </Field>
           </div>
 
+          <h3 style={{ marginTop: 14 }}>Employer pensions</h3>
+          <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
+            Annual amount at retirement, and how it grows once it is being paid.
+            Indexation is <strong>not</strong> the salary-increase assumption a pension
+            calculator uses to project the starting amount — enter 0 for a plan that
+            pays a fixed cheque for life.
+          </div>
+          <div className="selectRow">
+            <Field label="Pension Shingo ($/yr)">
+              <input
+                className="moneyInputMd"
+                type="number"
+                value={anchors.pensionShingo}
+                onChange={(e) =>
+                  setAnchors((a) => ({ ...a, pensionShingo: num(e.target.value) }))
+                }
+              />
+            </Field>
+            <Field label="Indexation Shingo (0.02 = 2%/yr)">
+              <input
+                className="moneyInputMd"
+                type="number"
+                step="0.005"
+                value={vars.pensionIndexRateShingo ?? vars.pensionIndexRate}
+                onChange={(e) =>
+                  setVars((v) => ({ ...v, pensionIndexRateShingo: num(e.target.value) }))
+                }
+              />
+            </Field>
+            <Field label="Pension Sarah ($/yr)">
+              <input
+                className="moneyInputMd"
+                type="number"
+                value={anchors.pensionSarah}
+                onChange={(e) =>
+                  setAnchors((a) => ({ ...a, pensionSarah: num(e.target.value) }))
+                }
+              />
+            </Field>
+            <Field label="Indexation Sarah (0.02 = 2%/yr)">
+              <input
+                className="moneyInputMd"
+                type="number"
+                step="0.005"
+                value={vars.pensionIndexRateSarah ?? vars.pensionIndexRate}
+                onChange={(e) =>
+                  setVars((v) => ({ ...v, pensionIndexRateSarah: num(e.target.value) }))
+                }
+              />
+            </Field>
+          </div>
+
           <h3 style={{ marginTop: 14 }}>Benefits (annual placeholders)</h3>
           <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
             Enter the amounts payable <strong>at age 70</strong>. If you choose an earlier
@@ -3687,6 +3739,16 @@ return {
                     </tbody>
                   </table>
                 </div>
+
+                {(model.schedule[0]?.debug.rrspLeftAtDepletion ?? 0) > 1000 && (
+                  <div style={{ marginTop: 10, padding: 10, borderRadius: 10, fontSize: 12, background: "#fef3c7", border: "1px solid #fcd34d" }}>
+                    <strong>Auto-level could not fully level this plan.</strong>{" "}
+                    About ${money(Math.round(model.schedule[0]!.debug.rrspLeftAtDepletion))} of
+                    RRSP is still left at the depletion year, so that year takes a lump and
+                    pays more tax and OAS clawback than the years around it. Try a later
+                    “RRIF deplete by age”, or set per-year Extra RRSP amounts.
+                  </div>
+                )}
 
                 {last ? (
                   <div style={{ marginTop: 10, padding: 10, border: "1px solid #e5e7eb", background: "#f8fafc", borderRadius: 10, fontSize: 12 }}>

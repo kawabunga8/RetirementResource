@@ -53,7 +53,7 @@ type DbBenefit = {
 export type LoadedPlan = {
   planId: string;
   anchors: Anchors;
-  varsOverrides: Partial<Variables>;
+  varsOverrides: PlanVarsOverrides;
 };
 
 export async function loadPlan(): Promise<LoadedPlan | null> {
@@ -129,7 +129,7 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
     cppShingoAt70Monthly: (benefit(shingo.id, "cpp")?.annual_amount ?? 0) / 12,
   };
 
-  const varsOverrides: Partial<Variables> = {
+  const varsOverrides: PlanVarsOverrides = {
     retirementYear: plan.target_retirement_year,
     shingoRetireAge: shingo.retire_age,
     sarahRetireAge: sarah.retire_age,
@@ -172,7 +172,7 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
       cppSarahAnnual: benefit(sarah.id, "cpp")?.annual_amount ?? 0,
       oasShingoAnnual: benefit(shingo.id, "oas")?.annual_amount ?? 0,
       oasSarahAnnual: benefit(sarah.id, "oas")?.annual_amount ?? 0,
-    } as Variables["withdrawals"],
+    },
   };
 
   return { planId: plan.id, anchors, varsOverrides };
@@ -265,6 +265,22 @@ export async function savePlan(
 }
 
 // ─── Load public rules ────────────────────────────────────────────────────────
+
+/**
+ * What a saved plan overrides. `withdrawals` is a DEEP partial: the database
+ * supplies only the CPP/OAS amounts, and every other withdrawal setting must
+ * fall through to the defaults.
+ *
+ * This used to be `Partial<Variables>`, which types `withdrawals` as the FULL
+ * object when present -- so the loader cast four fields with
+ * `as Variables["withdrawals"]` and claimed they were all of them. Harmless
+ * only because App.tsx happens to merge field-by-field; anyone writing the
+ * natural `...ov` would silently blank rrifDepleteByAge, lifMode and the rest
+ * with no type error.
+ */
+export type PlanVarsOverrides = Partial<Omit<Variables, "withdrawals">> & {
+  withdrawals?: Partial<Variables["withdrawals"]>;
+};
 
 export type PublicRules = {
   tfsaLimitsByYear: Record<string, number>;
