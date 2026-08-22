@@ -189,15 +189,27 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
 
 // ─── Save plan ────────────────────────────────────────────────────────────────
 
+/** What went wrong during a save, if anything. Empty array means all good. */
+export type SaveError = { what: string; message: string };
+
+/**
+ * Persist the plan.
+ *
+ * Every statement's error is checked and returned. The Supabase client resolves
+ * with `{ data, error }` rather than throwing, so a failing statement inside a
+ * Promise.all is invisible unless someone looks -- and nobody did. That is how
+ * account balances silently stopped saving while the plan's balances_as_of date
+ * kept advancing: the upsert was failing and the plain update next to it was
+ * not.
+ */
 export async function savePlan(
   planId: string,
   anchors: Anchors,
   vars: Variables
-): Promise<void> {
+): Promise<SaveError[]> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    console.error("savePlan: no user logged in");
-    return;
+    return [{ what: "auth", message: "no user logged in" }];
   }
 
   // Fetch member IDs
@@ -209,11 +221,14 @@ export async function savePlan(
   const shingo = members?.find((m) => m.name === "Shingo");
   const sarah = members?.find((m) => m.name === "Sarah");
   if (!shingo || !sarah) {
-    console.error("savePlan: members not found", { shingo, sarah });
-    return;
+    return [{ what: "plan_members", message: "members not found for this plan" }];
   }
 
-  await Promise.all([
+  const labels = ["plans", "plan_members (Shingo)", "plan_members (Sarah)",
+                  "plan_assumptions", "plan_spending_phases", "plan_benefits",
+                  "plan_accounts"];
+
+  const results = await Promise.all([
     // Plan top-level
     supabase.from("plans").update({
       target_retirement_year: anchors.targetRetirementYear,
@@ -278,6 +293,12 @@ export async function savePlan(
     ], { onConflict: "plan_id,member_id,account_type" }),
   ]);
 
+  const errors: SaveError[] = [];
+  results.forEach((r, i) => {
+    const err = (r as { error?: { message?: string } | null })?.error;
+    if (err) errors.push({ what: labels[i] ?? `statement ${i}`, message: err.message ?? String(err) });
+  });
+
   // The non-registered account is handled separately and deliberately.
   //
   // Its member_id is NULL, and Postgres treats NULLs as DISTINCT in a unique
@@ -306,11 +327,18 @@ export async function savePlan(
     as_of_date: vars.balancesAsOf,
   };
 
-  if (existingNonReg?.length) {
-    await supabase.from("plan_accounts").update(nonRegRow).eq("id", existingNonReg[0].id);
-  } else {
-    await supabase.from("plan_accounts").insert(nonRegRow);
+  const nonRegRes = existingNonReg?.length
+    ? await supabase.from("plan_accounts").update(nonRegRow).eq("id", existingNonReg[0].id)
+    : await supabase.from("plan_accounts").insert(nonRegRow);
+
+  if (nonRegRes.error) {
+    errors.push({ what: "plan_accounts (non-registered)", message: nonRegRes.error.message });
   }
+
+  if (errors.length) {
+    console.error("savePlan failed:", errors);
+  }
+  return errors;
 }
 
 // ─── Load public rules ────────────────────────────────────────────────────────

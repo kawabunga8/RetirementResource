@@ -568,6 +568,7 @@ export default function App() {
     return DEFAULT_VARIABLES;
   });
   const [dbLoading, setDbLoading] = useState(true);
+  const [saveErrors, setSaveErrors] = useState<{ what: string; message: string }[]>([]);
   const planIdRef = useRef<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedSnapshotRef = useRef<{ balances: Variables["balances"]; asOf: string } | null>(null);
@@ -642,7 +643,9 @@ export default function App() {
     }
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      savePlan(planIdRef.current!, anchors, vars);
+      // savePlan reports rather than throws; an unwatched failure is how the
+      // account balances quietly stopped saving.
+      savePlan(planIdRef.current!, anchors, vars).then(setSaveErrors);
     }, 1000);
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
@@ -1045,6 +1048,18 @@ return {
           </button>
         </div>
       </nav>
+
+      {saveErrors.length > 0 && (
+        <div style={{ margin: "0 0 12px", padding: "10px 12px", borderRadius: 10, fontSize: 13, background: "#fee2e2", border: "1px solid #fca5a5" }}>
+          <strong>Your changes are not being saved.</strong>{" "}
+          {saveErrors.length === 1 ? "One statement failed" : `${saveErrors.length} statements failed`}:
+          <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+            {saveErrors.map((e, i) => (
+              <li key={i}><code>{e.what}</code> — {e.message}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16 }}>
         {page === "overview" && (
