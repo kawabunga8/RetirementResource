@@ -657,7 +657,8 @@ export default function App() {
 
   const [settingsPanel, setSettingsPanel] = useState<
 
-    "order" | "accounts" | "lif" | "caps" | "room" | null
+    "order" | "accounts" | "lif" | "caps" | "room"
+    | "fhsa" | "monthly" | "pensions" | "benefits" | null
 
   >(null);
 
@@ -1171,10 +1172,25 @@ return {
               />
             </Field>
           </div>
-        </section>
 
-        <section className="card">
-          <h2>FHSA caps (facts / rules)</h2>
+          <div className="settingsRow">
+            <SettingsButton
+              label="FHSA caps & contributions"
+              summary={`$${money(vars.fhsa.lifetimeCap)} lifetime cap · room left: Shingo $${money(
+                Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedShingo)
+              )}, Sarah $${money(
+                Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah)
+              )}`}
+              onClick={() => setSettingsPanel("fhsa")}
+            />
+          </div>
+
+          <Modal
+            open={settingsPanel === "fhsa"}
+            title="FHSA caps & contributions"
+            description="Statutory FHSA limits and how much each of you has already put in. When the FHSA is capped, the model redirects that monthly amount into the same person's RRSP."
+            onClose={closeSettingsPanel}
+          >
           <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
             FHSA contributions are capped at <strong>$8,000/year</strong> and <strong>$40,000 lifetime</strong> (per person).
             Growth does not count toward the contribution cap. When FHSA is capped, this model redirects
@@ -1238,7 +1254,9 @@ return {
             {" "} | Remaining FHSA room (Sarah):{" "}
             <strong>${moneyY(Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah), anchors.baselineYear)}</strong>
           </div>
+          </Modal>
         </section>
+
 
         <section id="retirement-balances" className="card">
           <h2>Starting balances at retirement (projected)</h2>
@@ -2092,7 +2110,26 @@ return {
                   </Field>
                 </div>
 
-                <h3 style={{ marginTop: 14 }}>Current monthly contributions (editable)</h3>
+                <div className="settingsRow">
+                  <SettingsButton
+                    label="Monthly contributions"
+                    summary={`$${money(
+                      (vars.monthly.fhsaShingo +
+                        vars.monthly.fhsaSarah +
+                        vars.monthly.rrspShingo +
+                        vars.monthly.rrspSarah +
+                        vars.monthly.tfsaTotal) * 12
+                    )}/yr household`}
+                    onClick={() => setSettingsPanel("monthly")}
+                  />
+                </div>
+
+                <Modal
+                  open={settingsPanel === "monthly"}
+                  title="Monthly contributions"
+                  description="What goes in each month, per account. Change these when your payroll or automatic transfers change."
+                  onClose={closeSettingsPanel}
+                >
                 <div className="tightGrid">
                   <Field label="FHSA Shingo ($/mo)">
                     <input
@@ -2163,6 +2200,8 @@ return {
                   RRSP Sarah <strong>${moneyY(vars.monthly.rrspSarah * 12, yearForDollars)}</strong>,
                   TFSA household <strong>${moneyY(vars.monthly.tfsaTotal * 12, yearForDollars)}</strong>
                 </div>
+                </Modal>
+
 
                 <h3 style={{ marginTop: 14 }}>Current totals</h3>
                 <ul style={{ marginTop: 8 }}>
@@ -3526,7 +3565,31 @@ return {
           </Modal>
 
 
-          <h3 style={{ marginTop: 14 }}>Employer pensions</h3>
+          <div className="settingsRow">
+            <SettingsButton
+              label="Employer pensions"
+              summary={`Shingo $${money(anchors.pensionShingo)}/yr · Sarah $${money(
+                anchors.pensionSarah
+              )}/yr`}
+              onClick={() => setSettingsPanel("pensions")}
+            />
+            <SettingsButton
+              label="CPP & OAS"
+              summary={`CPP $${money(
+                vars.withdrawals.cppShingoAnnual + vars.withdrawals.cppSarahAnnual
+              )} · OAS $${money(
+                vars.withdrawals.oasShingoAnnual + vars.withdrawals.oasSarahAnnual
+              )} household at 70`}
+              onClick={() => setSettingsPanel("benefits")}
+            />
+          </div>
+
+          <Modal
+            open={settingsPanel === "pensions"}
+            title="Employer pensions"
+            description="Annual amount at retirement, and how it grows once being paid."
+            onClose={closeSettingsPanel}
+          >
           <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
             Annual amount at retirement, and how it grows once it is being paid.
             Indexation is <strong>not</strong> the salary-increase assumption a pension
@@ -3577,8 +3640,15 @@ return {
               />
             </Field>
           </div>
+          </Modal>
 
-          <h3 style={{ marginTop: 14 }}>Benefits (annual placeholders)</h3>
+
+          <Modal
+            open={settingsPanel === "benefits"}
+            title="CPP & OAS"
+            description="Amounts payable at age 70. Change these when a Service Canada statement arrives, not while planning — the model derives every other start age from them."
+            onClose={closeSettingsPanel}
+          >
           <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>
             Enter the amounts payable <strong>at age 70</strong>. If you choose an earlier
             start age, the model applies the real actuarial reduction
@@ -3650,6 +3720,8 @@ return {
               />
             </Field>
           </div>
+          </Modal>
+
 
           <h3 style={{ marginTop: 14 }}>Schedule</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start", marginTop: 6 }}>
