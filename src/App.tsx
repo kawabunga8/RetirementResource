@@ -654,7 +654,7 @@ export default function App() {
     };
   }, [anchors, vars, dbLoading, user]);
 
-  const [page, setPage] = useState<"overview" | "current" | "tax" | "taxBrackets" | "withdrawals">("overview");
+  const [page, setPage] = useState<"overview" | "current" | "tax" | "withdrawals">("overview");
 
   const [settingsPanel, setSettingsPanel] = useState<
 
@@ -668,9 +668,6 @@ export default function App() {
   const [suggestedRrifDepleteByAge, setSuggestedRrifDepleteByAge] = useState<number | null>(null);
   const [suggestedRrifInfo, setSuggestedRrifInfo] = useState<string>("");
 
-  const [bracketsPerson, setBracketsPerson] = useState<"Shingo" | "Sarah">("Shingo");
-  const [bracketsUseTestIncome, setBracketsUseTestIncome] = useState(false);
-  const [bracketsTestIncome, setBracketsTestIncome] = useState(0);
   const [currentSnapshotYear, setCurrentSnapshotYear] = useState(() => new Date().getFullYear());
 
   const adjustDollars = (amountNominal: number, year: number) => {
@@ -815,6 +812,85 @@ return {
       schedule,
     };
   }, [vars, anchors, baselineTotal, monthlyTotal]);
+
+  // One place that turns "year Y of the plan" into a set of tax inputs.
+  //
+  // This logic existed twice -- once on the Tax tab, once on Tax Brackets --
+  // byte-for-byte identical apart from indentation. Two copies of a rule about
+  // money is two chances to fix only one of them.
+  const applyTaxYearFromSchedule = (year: number) => {
+    setVars((v) => {
+      const yearsFromBaseline = year - anchors.baselineYear;
+      const indexRate = v.expectedInflation * v.cpiMultiplier;
+
+      const indexNominal = (amountReal: number) =>
+        v.dollarsMode === "real"
+          ? amountReal
+          : amountReal * Math.pow(1 + indexRate, Math.max(0, yearsFromBaseline));
+
+      const inRetirement = year >= v.retirementYear;
+      const schedRow = inRetirement ? model.schedule.find((r) => r.year === year) : undefined;
+
+      const pensionShingo = indexNominal(anchors.pensionShingo);
+      const pensionSarah = indexNominal(anchors.pensionSarah);
+
+      const ageShingo = year - anchors.shingoBirthYear;
+      const ageSarah = year - anchors.sarahBirthYear;
+
+      const cppShingo = ageShingo >= v.cppStartAge ? indexNominal(v.withdrawals.cppShingoAnnual) : 0;
+      const cppSarah = ageSarah >= v.cppStartAge ? indexNominal(v.withdrawals.cppSarahAnnual) : 0;
+      const oasShingo = ageShingo >= v.oasStartAge ? indexNominal(v.withdrawals.oasShingoAnnual) : 0;
+      const oasSarah = ageSarah >= v.oasStartAge ? indexNominal(v.withdrawals.oasSarahAnnual) : 0;
+
+      const rrifHousehold = schedRow ? schedRow.withdrawals.rrsp : 0;
+      const lifShingo = schedRow ? schedRow.withdrawals.lira : 0;
+      const tfsaHousehold = schedRow ? schedRow.withdrawals.tfsa : 0;
+
+      // Split household withdrawals in proportion to who owns the balance,
+      // not 50/50. RRSPs are registered per person and tax is assessed per
+      // person, so halving a withdrawal between unequal accounts reports
+      // income against a plan that does not hold it. Falls back to an even
+      // split only when both balances are zero and there is nothing to weight.
+      const share = (a: number, b: number) => {
+        const total = a + b;
+        return total > 0 ? a / total : 0.5;
+      };
+      const rrspShare = share(v.balances.rrspShingo, v.balances.rrspSarah);
+      const tfsaShare = share(v.balances.tfsaShingo, v.balances.tfsaSarah);
+
+      return {
+        ...v,
+        tax: {
+          ...v.tax,
+          taxYear: year,
+
+          shingoEmployment: inRetirement ? 0 : v.tax.workingIncomeShingo,
+          sarahEmployment: inRetirement ? 0 : v.tax.workingIncomeSarah,
+
+          shingoPensionDb: inRetirement ? pensionShingo : 0,
+          sarahPensionDb: inRetirement ? pensionSarah : 0,
+
+          shingoCpp: inRetirement ? cppShingo : 0,
+          sarahCpp: inRetirement ? cppSarah : 0,
+          shingoOas: inRetirement ? oasShingo : 0,
+          sarahOas: inRetirement ? oasSarah : 0,
+
+          shingoRrif: inRetirement ? rrifHousehold * rrspShare : 0,
+          sarahRrif: inRetirement ? rrifHousehold * (1 - rrspShare) : 0,
+
+          // The LIRA/LIF is Shingo's alone.
+          shingoLif: inRetirement ? lifShingo : 0,
+          sarahLif: 0,
+
+          shingoRrsp: 0,
+          sarahRrsp: 0,
+
+          shingoTfsa: inRetirement ? tfsaHousehold * tfsaShare : 0,
+          sarahTfsa: inRetirement ? tfsaHousehold * (1 - tfsaShare) : 0,
+        },
+      };
+    });
+  };
 
   const orderOptions: WithdrawalOrder[] = [
     "fhsa",
@@ -1016,7 +1092,6 @@ return {
               { id: "overview",     label: "Overview" },
               { id: "current",      label: "Current" },
               { id: "tax",          label: "Tax" },
-              { id: "taxBrackets",  label: "Tax Brackets" },
               { id: "withdrawals",  label: "Withdrawals" },
             ] as { id: typeof page; label: string }[]
           ).map(({ id, label }) => (
@@ -2279,67 +2354,7 @@ return {
                       className="ageInput"
                       type="number"
                       value={vars.tax.taxYear}
-                      onChange={(e) => {
-                        const year = num(e.target.value);
-                        setVars((v) => {
-                          const yearsFromBaseline = year - anchors.baselineYear;
-                          const indexRate = v.expectedInflation * v.cpiMultiplier;
-
-                          const indexNominal = (amountReal: number) =>
-                            v.dollarsMode === "real"
-                              ? amountReal
-                              : amountReal * Math.pow(1 + indexRate, Math.max(0, yearsFromBaseline));
-
-                          const inRetirement = year >= v.retirementYear;
-                          const schedRow = inRetirement ? model.schedule.find((r) => r.year === year) : undefined;
-
-                          const pensionShingo = indexNominal(anchors.pensionShingo);
-                          const pensionSarah = indexNominal(anchors.pensionSarah);
-
-                          const ageShingo = year - anchors.shingoBirthYear;
-                          const ageSarah = year - anchors.sarahBirthYear;
-
-                          const cppShingo = ageShingo >= v.cppStartAge ? indexNominal(v.withdrawals.cppShingoAnnual) : 0;
-                          const cppSarah = ageSarah >= v.cppStartAge ? indexNominal(v.withdrawals.cppSarahAnnual) : 0;
-                          const oasShingo = ageShingo >= v.oasStartAge ? indexNominal(v.withdrawals.oasShingoAnnual) : 0;
-                          const oasSarah = ageSarah >= v.oasStartAge ? indexNominal(v.withdrawals.oasSarahAnnual) : 0;
-
-                          const rrifHousehold = schedRow ? schedRow.withdrawals.rrsp : 0;
-                          const lifShingo = schedRow ? schedRow.withdrawals.lira : 0;
-                          const tfsaHousehold = schedRow ? schedRow.withdrawals.tfsa : 0;
-
-                          return {
-                            ...v,
-                            tax: {
-                              ...v.tax,
-                              taxYear: year,
-
-                              shingoEmployment: inRetirement ? 0 : v.tax.workingIncomeShingo,
-                              sarahEmployment: inRetirement ? 0 : v.tax.workingIncomeSarah,
-
-                              shingoPensionDb: inRetirement ? pensionShingo : 0,
-                              sarahPensionDb: inRetirement ? pensionSarah : 0,
-
-                              shingoCpp: inRetirement ? cppShingo : 0,
-                              sarahCpp: inRetirement ? cppSarah : 0,
-                              shingoOas: inRetirement ? oasShingo : 0,
-                              sarahOas: inRetirement ? oasSarah : 0,
-
-                              shingoRrif: inRetirement ? rrifHousehold / 2 : 0,
-                              sarahRrif: inRetirement ? rrifHousehold / 2 : 0,
-
-                              shingoLif: inRetirement ? lifShingo : 0,
-                              sarahLif: 0,
-
-                              shingoRrsp: 0,
-                              sarahRrsp: 0,
-
-                              shingoTfsa: inRetirement ? tfsaHousehold / 2 : 0,
-                              sarahTfsa: inRetirement ? tfsaHousehold / 2 : 0,
-                            },
-                          };
-                        });
-                      }}
+                      onChange={(e) => applyTaxYearFromSchedule(num(e.target.value))}
                       style={{ maxWidth: 110 }}
                     />
                   </Field>
@@ -2518,6 +2533,125 @@ return {
                   ) : null}
                 </div>
 
+
+                <h3 style={{ marginTop: 14 }}>Where this lands in the brackets</h3>
+                {(() => {
+                  const bt = getBracketTableForYear({
+                    taxYear: vars.tax.taxYear,
+                    annualInflation: vars.expectedInflation,
+                  });
+                  const FED = bt.federal.brackets;
+                  const BC = bt.bc.brackets;
+                  const bracketNote =
+                    bt.baseYear === vars.tax.taxYear
+                      ? `Using ${vars.tax.taxYear} tables.`
+                      : `Thresholds inflated from ${bt.baseYear} using expected inflation; rates assumed constant.`;
+
+            const findBracket = (income: number, brackets: Array<{ upTo: number; rate: number }>) => {
+              const x = Math.max(0, income);
+              let prev = 0;
+              for (let i = 0; i < brackets.length; i++) {
+                const b = brackets[i];
+                if (x <= b.upTo) {
+                  return {
+                    index: i,
+                    rate: b.rate,
+                    from: prev,
+                    to: b.upTo,
+                    nextTo: brackets[i + 1]?.upTo ?? Infinity,
+                  };
+                }
+                prev = b.upTo;
+              }
+              const last = brackets[brackets.length - 1];
+              return { index: brackets.length - 1, rate: last.rate, from: prev, to: Infinity, nextTo: Infinity };
+            };
+
+            const renderBar = (title: string, brackets: Array<{ upTo: number; rate: number }>, activeIdx: number, palette: string[]) => {
+              const finiteMax = Math.max(...brackets.filter((b) => Number.isFinite(b.upTo)).map((b) => b.upTo));
+              const max = finiteMax;
+              let prev = 0;
+              return (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>{title}</div>
+                  <div style={{ display: "flex", width: "100%", border: "1px solid #e5e7eb", borderRadius: 10, overflow: "hidden", height: 28 }}>
+                    {brackets.map((b, i) => {
+                      const to = Number.isFinite(b.upTo) ? b.upTo : max;
+                      const w = ((to - prev) / max) * 100;
+                      const from = prev;
+                      prev = Number.isFinite(b.upTo) ? b.upTo : prev;
+                      const bg = palette[i % palette.length];
+                      return (
+                        <div
+                          key={`${title}-${i}`}
+                          title={`${moneyY(from, vars.tax.taxYear)} – ${Number.isFinite(b.upTo) ? moneyY(b.upTo, vars.tax.taxYear) : "∞"} @ ${(b.rate * 100).toFixed(2)}%`}
+                          style={{
+                            width: `${Math.max(2, w)}%`,
+                            background: bg,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 11,
+                            color: "#0f172a",
+                            fontWeight: i === activeIdx ? 700 : 500,
+                            outline: i === activeIdx ? "2px solid #0f172a" : "none",
+                            outlineOffset: -2,
+                          }}
+                        >
+                          {(b.rate * 100).toFixed(1)}%
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            };
+
+                  return (
+                    <>
+                      <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>{bracketNote}</div>
+                      {([
+                        { label: "Shingo", r: res.spouseA },
+                        { label: "Sarah", r: res.spouseB },
+                      ] as const).map(({ label, r }) => {
+                        const income = r.taxableIncome;
+                        const fedB = findBracket(income, FED);
+                        const bcB = findBracket(income, BC);
+                        const marginal = fedB.rate + bcB.rate;
+                        const effective = income > 0 ? r.totalTax / income : 0;
+                        const roomToNext = Math.min(
+                          Number.isFinite(fedB.to) ? Math.max(0, fedB.to - income) : Infinity,
+                          Number.isFinite(bcB.to) ? Math.max(0, bcB.to - income) : Infinity
+                        );
+                        return (
+                          <div key={label} style={{ marginTop: 16 }}>
+                            <h4 style={{ margin: "0 0 2px 0" }}>
+                              {label} — taxable income ${moneyY(income, vars.tax.taxYear)}
+                            </h4>
+                            {renderBar(`${label} · Federal`, FED, fedB.index, ["#bae6fd", "#93c5fd", "#a7f3d0", "#fde68a", "#fecaca"])}
+                            {renderBar(`${label} · BC`, BC, bcB.index, ["#ddd6fe", "#c4b5fd", "#a5b4fc", "#fbcfe8", "#bbf7d0", "#fed7aa", "#bae6fd"])}
+                            <ul style={{ marginTop: 8, marginBottom: 0 }}>
+                              <li>
+                                Marginal rate: <strong>{(marginal * 100).toFixed(2)}%</strong> (Fed{" "}
+                                {(fedB.rate * 100).toFixed(2)}% + BC {(bcB.rate * 100).toFixed(2)}%)
+                              </li>
+                              <li>
+                                Effective rate: <strong>{(effective * 100).toFixed(2)}%</strong>
+                              </li>
+                              <li>
+                                Room to next bracket:{" "}
+                                <strong>
+                                  {roomToNext === Infinity ? "—" : `$${moneyY(roomToNext, vars.tax.taxYear)}`}
+                                </strong>
+                              </li>
+                            </ul>
+                          </div>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
+
                 <details style={{ marginTop: 12 }}>
                   <summary style={{ cursor: "pointer" }}>Debug</summary>
                   <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, background: "#f8fafc", border: "1px solid #e5e7eb", padding: 10, borderRadius: 10, marginTop: 8 }}>
@@ -2560,324 +2694,6 @@ return {
                       />
                     </Field>
                   </div>
-                </details>
-              </>
-            );
-          })()}
-        </section>
-        )}
-
-        {page === "taxBrackets" && (
-        <section id="taxBrackets" className="card">
-          <h2>Tax brackets ({vars.tax.taxYear})</h2>
-
-          <div className="selectRow" style={{ marginTop: 8 }}>
-            <Field label="Tax year">
-              {(() => {
-                const scheduleYears = model.schedule.map((r) => r.year);
-                const firstYear = Math.min(anchors.baselineYear, ...scheduleYears);
-                const lastYear = Math.max(anchors.baselineYear, ...scheduleYears);
-                const years: number[] = [];
-                for (let y = firstYear; y <= lastYear; y++) years.push(y);
-
-                const setYear = (year: number) => {
-                  setVars((v) => {
-                    const yearsFromBaseline = year - anchors.baselineYear;
-                    const indexRate = v.expectedInflation * v.cpiMultiplier;
-
-                    const indexNominal = (amountReal: number) =>
-                      v.dollarsMode === "real"
-                        ? amountReal
-                        : amountReal * Math.pow(1 + indexRate, Math.max(0, yearsFromBaseline));
-
-                    const inRetirement = year >= v.retirementYear;
-                    const schedRow = inRetirement ? model.schedule.find((r) => r.year === year) : undefined;
-
-                    const pensionShingo = indexNominal(anchors.pensionShingo);
-                    const pensionSarah = indexNominal(anchors.pensionSarah);
-
-                    const ageShingo = year - anchors.shingoBirthYear;
-                    const ageSarah = year - anchors.sarahBirthYear;
-
-                    const cppShingo = ageShingo >= v.cppStartAge ? indexNominal(v.withdrawals.cppShingoAnnual) : 0;
-                    const cppSarah = ageSarah >= v.cppStartAge ? indexNominal(v.withdrawals.cppSarahAnnual) : 0;
-                    const oasShingo = ageShingo >= v.oasStartAge ? indexNominal(v.withdrawals.oasShingoAnnual) : 0;
-                    const oasSarah = ageSarah >= v.oasStartAge ? indexNominal(v.withdrawals.oasSarahAnnual) : 0;
-
-                    const rrifHousehold = schedRow ? schedRow.withdrawals.rrsp : 0;
-                    const lifShingo = schedRow ? schedRow.withdrawals.lira : 0;
-                    const tfsaHousehold = schedRow ? schedRow.withdrawals.tfsa : 0;
-
-                    return {
-                      ...v,
-                      tax: {
-                        ...v.tax,
-                        taxYear: year,
-
-                        shingoEmployment: inRetirement ? 0 : v.tax.workingIncomeShingo,
-                        sarahEmployment: inRetirement ? 0 : v.tax.workingIncomeSarah,
-
-                        shingoPensionDb: inRetirement ? pensionShingo : 0,
-                        sarahPensionDb: inRetirement ? pensionSarah : 0,
-
-                        shingoCpp: inRetirement ? cppShingo : 0,
-                        sarahCpp: inRetirement ? cppSarah : 0,
-                        shingoOas: inRetirement ? oasShingo : 0,
-                        sarahOas: inRetirement ? oasSarah : 0,
-
-                        shingoRrif: inRetirement ? rrifHousehold / 2 : 0,
-                        sarahRrif: inRetirement ? rrifHousehold / 2 : 0,
-
-                        shingoLif: inRetirement ? lifShingo : 0,
-                        sarahLif: 0,
-
-                        shingoRrsp: 0,
-                        sarahRrsp: 0,
-
-                        shingoTfsa: inRetirement ? tfsaHousehold / 2 : 0,
-                        sarahTfsa: inRetirement ? tfsaHousehold / 2 : 0,
-                      },
-                    };
-                  });
-                };
-
-                return (
-                  <select
-                    className="ageInput"
-                    value={vars.tax.taxYear}
-                    onChange={(e) => setYear(num(e.target.value))}
-                    style={{ minWidth: 120, width: 120 }}
-                  >
-                    {years.map((y) => (
-                      <option key={y} value={y}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
-                );
-              })()}
-            </Field>
-          </div>
-
-          {(() => {
-            const bt = getBracketTableForYear({
-              taxYear: vars.tax.taxYear,
-              annualInflation: vars.expectedInflation,
-            });
-
-            const FED = bt.federal.brackets;
-            const BC = bt.bc.brackets;
-
-            const bracketNote = bt.baseYear === vars.tax.taxYear
-              ? `Using ${vars.tax.taxYear} tables.`
-              : `Thresholds inflated from ${bt.baseYear} using expected inflation; rates assumed constant.`;
-
-            // state managed at App() level
-
-            const shingoAge = vars.tax.taxYear - anchors.shingoBirthYear;
-            const sarahAge = vars.tax.taxYear - anchors.sarahBirthYear;
-
-            const res = computeHouseholdTax({
-              taxYear: vars.tax.taxYear,
-              spouseA: {
-                name: "Shingo",
-                age: shingoAge,
-                incomes: {
-                  employment: vars.tax.shingoEmployment,
-                  pensionDb: vars.tax.shingoPensionDb,
-                  rrspWithdrawal: vars.tax.shingoRrsp,
-                  rrifWithdrawal: vars.tax.shingoRrif,
-                  lifWithdrawal: vars.tax.shingoLif,
-                  cpp: vars.tax.shingoCpp,
-                  oas: vars.tax.shingoOas,
-                  tfsaWithdrawal: vars.tax.shingoTfsa,
-                },
-              },
-              spouseB: {
-                name: "Sarah",
-                age: sarahAge,
-                incomes: {
-                  employment: vars.tax.sarahEmployment,
-                  pensionDb: vars.tax.sarahPensionDb,
-                  rrspWithdrawal: vars.tax.sarahRrsp,
-                  rrifWithdrawal: vars.tax.sarahRrif,
-                  lifWithdrawal: vars.tax.sarahLif,
-                  cpp: vars.tax.sarahCpp,
-                  oas: vars.tax.sarahOas,
-                  tfsaWithdrawal: vars.tax.sarahTfsa,
-                },
-              },
-              credits: {
-                useBpa: vars.tax.useBpa,
-                useAgeAmount: vars.tax.useAgeAmount,
-                usePensionCredit: vars.tax.usePensionCredit,
-              },
-              pensionSplitting: {
-                enabled: vars.tax.enablePensionSplitting,
-                optimize: true,
-                step: 250,
-              },
-            });
-
-            const personRes = bracketsPerson === "Shingo" ? res.spouseA : res.spouseB;
-            const income = bracketsUseTestIncome ? bracketsTestIncome : personRes.taxableIncome;
-
-            const findBracket = (income: number, brackets: Array<{ upTo: number; rate: number }>) => {
-              const x = Math.max(0, income);
-              let prev = 0;
-              for (let i = 0; i < brackets.length; i++) {
-                const b = brackets[i];
-                if (x <= b.upTo) {
-                  return {
-                    index: i,
-                    rate: b.rate,
-                    from: prev,
-                    to: b.upTo,
-                    nextTo: brackets[i + 1]?.upTo ?? Infinity,
-                  };
-                }
-                prev = b.upTo;
-              }
-              const last = brackets[brackets.length - 1];
-              return { index: brackets.length - 1, rate: last.rate, from: prev, to: Infinity, nextTo: Infinity };
-            };
-
-            const fedB = findBracket(income, FED);
-            const bcB = findBracket(income, BC);
-            const marginal = fedB.rate + bcB.rate;
-
-            // Effective rate: when using test income, recompute tax on that income
-            // (personRes.totalTax is based on plan inputs, not the test income slider).
-            const effective = (() => {
-              if (income <= 0) return 0;
-              if (!bracketsUseTestIncome) return personRes.totalTax / income;
-              // Run the tax engine on just the test income for this person.
-              const zeroIncomes = { employment: 0, pensionDb: 0, rrspWithdrawal: 0, rrifWithdrawal: 0, lifWithdrawal: 0, cpp: 0, oas: 0, tfsaWithdrawal: 0 };
-              const testRes = computeHouseholdTax({
-                taxYear: vars.tax.taxYear,
-                spouseA: { name: "test", age: personRes.age, incomes: { ...zeroIncomes, employment: income } },
-                spouseB: { name: "other", age: 40, incomes: zeroIncomes },
-                credits: { useBpa: true, useAgeAmount: vars.tax.useAgeAmount, usePensionCredit: false },
-                pensionSplitting: { enabled: false, optimize: false, step: 100 },
-              });
-              return testRes.spouseA.totalTax / income;
-            })();
-            const roomToNextFed = Number.isFinite(fedB.to) ? Math.max(0, fedB.to - income) : Infinity;
-            const roomToNextBc = Number.isFinite(bcB.to) ? Math.max(0, bcB.to - income) : Infinity;
-            const roomToNext = Math.min(roomToNextFed, roomToNextBc);
-
-            const renderBar = (title: string, brackets: Array<{ upTo: number; rate: number }>, activeIdx: number, palette: string[]) => {
-              const finiteMax = Math.max(...brackets.filter((b) => Number.isFinite(b.upTo)).map((b) => b.upTo));
-              const max = finiteMax;
-              let prev = 0;
-              return (
-                <div style={{ marginTop: 10 }}>
-                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>{title}</div>
-                  <div style={{ display: "flex", width: "100%", border: "1px solid #e5e7eb", borderRadius: 10, overflow: "hidden", height: 28 }}>
-                    {brackets.map((b, i) => {
-                      const to = Number.isFinite(b.upTo) ? b.upTo : max;
-                      const w = ((to - prev) / max) * 100;
-                      const from = prev;
-                      prev = Number.isFinite(b.upTo) ? b.upTo : prev;
-                      const bg = palette[i % palette.length];
-                      return (
-                        <div
-                          key={`${title}-${i}`}
-                          title={`${moneyY(from, vars.tax.taxYear)} – ${Number.isFinite(b.upTo) ? moneyY(b.upTo, vars.tax.taxYear) : "∞"} @ ${(b.rate * 100).toFixed(2)}%`}
-                          style={{
-                            width: `${Math.max(2, w)}%`,
-                            background: bg,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: 11,
-                            color: "#0f172a",
-                            fontWeight: i === activeIdx ? 700 : 500,
-                            outline: i === activeIdx ? "2px solid #0f172a" : "none",
-                            outlineOffset: -2,
-                          }}
-                        >
-                          {(b.rate * 100).toFixed(1)}%
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            };
-
-            return (
-              <>
-                <div style={{ fontSize: 12, opacity: 0.75, marginTop: 2 }}>
-                  {bracketNote}
-                </div>
-
-                <div className="selectRow">
-                  <Field label="Person">
-                    <select
-                      className="yesNoSelect"
-                      value={bracketsPerson}
-                      onChange={(e) => setBracketsPerson(e.target.value as "Shingo" | "Sarah")}
-                    >
-                      <option value="Shingo">Shingo</option>
-                      <option value="Sarah">Sarah</option>
-                    </select>
-                  </Field>
-
-                  <Field label="Use test income?">
-                    <select
-                      className="yesNoSelect"
-                      value={bracketsUseTestIncome ? "yes" : "no"}
-                      onChange={(e) => {
-                        const on = e.target.value === "yes";
-                        setBracketsUseTestIncome(on);
-                        if (on && bracketsTestIncome <= 0) setBracketsTestIncome(Math.round(income));
-                      }}
-                    >
-                      <option value="no">No</option>
-                      <option value="yes">Yes</option>
-                    </select>
-                  </Field>
-
-                  {bracketsUseTestIncome ? (
-                    <Field label={`Test income (${moneyY(bracketsTestIncome, vars.tax.taxYear)})`}>
-                      <input
-                        type="range"
-                        min={0}
-                        max={260000}
-                        step={500}
-                        value={bracketsTestIncome}
-                        onChange={(e) => setBracketsTestIncome(num(e.target.value))}
-                      />
-                    </Field>
-                  ) : null}
-
-                  <div style={{ fontSize: 12, opacity: 0.75, alignSelf: "end" }}>
-                    Income shown: <strong>${moneyY(income, vars.tax.taxYear)}</strong>
-                  </div>
-                </div>
-
-                {renderBar("Federal", FED, fedB.index, ["#bae6fd", "#93c5fd", "#a7f3d0", "#fde68a", "#fecaca"])}
-                {renderBar("BC", BC, bcB.index, ["#ddd6fe", "#c4b5fd", "#a5b4fc", "#fbcfe8", "#bbf7d0", "#fed7aa", "#bae6fd"])}
-
-                <h3 style={{ marginTop: 14 }}>Key metrics</h3>
-                <ul style={{ marginTop: 8 }}>
-                  <li>
-                    Marginal rate: <strong>{(marginal * 100).toFixed(2)}%</strong> (Fed {(fedB.rate * 100).toFixed(2)}% + BC {(bcB.rate * 100).toFixed(2)}%)
-                  </li>
-                  <li>
-                    Effective rate: <strong>{(effective * 100).toFixed(2)}%</strong>
-                  </li>
-                  <li>
-                    Room to next bracket: <strong>{roomToNext === Infinity ? "—" : moneyY(roomToNext, vars.tax.taxYear)}</strong>
-                  </li>
-                </ul>
-
-                <details style={{ marginTop: 12 }}>
-                  <summary style={{ cursor: "pointer" }}>Debug (from tax v2)</summary>
-                  <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, background: "#f8fafc", border: "1px solid #e5e7eb", padding: 10, borderRadius: 10, marginTop: 8 }}>
-                    {JSON.stringify(res.debug, null, 2)}
-                  </pre>
                 </details>
               </>
             );
