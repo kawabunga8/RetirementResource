@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { supabase } from "./lib/supabase";
 import { Modal, SettingsButton } from "./Modal";
+import { PercentInput } from "./PercentInput";
 import {
   DEFAULT_ANCHORS,
   DEFAULT_VARIABLES,
@@ -1133,41 +1134,28 @@ return {
                 }
               />
             </Field>
-            <Field label="Non-registered tax drag (e.g. 0.0075 = 0.75%/yr)">
-              <input
-                type="number"
-                step="0.0005"
+            <Field label="Non-registered tax drag (%/yr)">
+              <PercentInput
                 value={vars.nonRegTaxDragRate ?? 0}
-                onChange={(e) =>
-                  setVars((v) => ({ ...v, nonRegTaxDragRate: num(e.target.value) }))
+                step={0.05}
+                onChange={(rate) =>
+                  setVars((v) => ({ ...v, nonRegTaxDragRate: rate }))
                 }
               />
             </Field>
-            <Field label="Expected nominal return (e.g. 0.07 = 7%)">
-              <input
-                type="number"
-                step="0.001"
+            <Field label="Expected nominal return (%/yr)">
+              <PercentInput
                 value={vars.expectedNominalReturn}
-                style={{ maxWidth: 90 }}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    expectedNominalReturn: num(e.target.value),
-                  }))
+                onChange={(rate) =>
+                  setVars((v) => ({ ...v, expectedNominalReturn: rate }))
                 }
               />
             </Field>
-            <Field label="Expected inflation (e.g. 0.02 = 2%)">
-              <input
-                type="number"
-                step="0.001"
+            <Field label="Expected inflation (%/yr)">
+              <PercentInput
                 value={vars.expectedInflation}
-                style={{ maxWidth: 90 }}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    expectedInflation: num(e.target.value),
-                  }))
+                onChange={(rate) =>
+                  setVars((v) => ({ ...v, expectedInflation: rate }))
                 }
               />
             </Field>
