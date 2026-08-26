@@ -149,6 +149,41 @@ function indexThreshold(threshold: number, fromYear: number, toYear: number, ann
 }
 
 /**
+ * British Columbia paused indexation of its personal income tax brackets AND
+ * its non-refundable credit amounts at 2026 levels for the 2027 through 2030
+ * taxation years (Budget 2026). Indexation resumes in 2031, from the frozen
+ * 2026 level rather than from where an uninterrupted series would have reached.
+ *
+ * This matters more than four years of inflation suggests. The freeze is not
+ * repaid later, so every year from 2031 to the end of a plan carries the same
+ * shortfall -- roughly 8% of a threshold at 2% inflation, permanently. Indexing
+ * straight through overstates BC thresholds for the whole remaining horizon and
+ * quietly understates BC tax in every one of those years.
+ */
+export const BC_INDEXATION_PAUSE = { firstYear: 2027, lastYear: 2030 } as const;
+
+/**
+ * Years of indexation actually applied to a BC amount between two years, with
+ * the frozen taxation years removed. Each frozen year is one step that never
+ * happened.
+ */
+export function bcIndexedYears(fromYear: number, toYear: number): number {
+  const span = Math.max(0, toYear - fromYear);
+  if (span === 0) return 0;
+  let frozen = 0;
+  for (let y = fromYear + 1; y <= toYear; y++) {
+    if (y >= BC_INDEXATION_PAUSE.firstYear && y <= BC_INDEXATION_PAUSE.lastYear) frozen++;
+  }
+  return Math.max(0, span - frozen);
+}
+
+function indexBcThreshold(threshold: number, fromYear: number, toYear: number, annualInflation: number) {
+  if (!Number.isFinite(threshold) || threshold === Infinity) return threshold;
+  const growth = Math.pow(1 + Math.max(0, annualInflation), bcIndexedYears(fromYear, toYear));
+  return threshold * growth;
+}
+
+/**
  * Default indexation rate used when a caller does not supply one.
  * CRA indexes brackets and most credit amounts to CPI every year; assuming 0%
  * silently bakes decades of bracket creep into any long-range projection.
@@ -177,6 +212,11 @@ export function getIndexedTaxTables(taxYear: number, annualInflation: number): T
   const idxBrackets = (brackets: Bracket[]) =>
     brackets.map((b) => ({ upTo: idx(b.upTo), rate: b.rate }));
 
+  // BC indexes on its own schedule -- see BC_INDEXATION_PAUSE.
+  const idxBc = (v: number) => indexBcThreshold(v, base.year, taxYear, annualInflation);
+  const idxBcBrackets = (brackets: Bracket[]) =>
+    brackets.map((b) => ({ upTo: idxBc(b.upTo), rate: b.rate }));
+
   return {
     year: taxYear,
     federal: {
@@ -190,10 +230,10 @@ export function getIndexedTaxTables(taxYear: number, annualInflation: number): T
     },
     bc: {
       ...base.bc,
-      brackets: idxBrackets(base.bc.brackets),
-      bpa: idx(base.bc.bpa),
-      ageAmountMax: idx(base.bc.ageAmountMax),
-      ageAmountThreshold: idx(base.bc.ageAmountThreshold),
+      brackets: idxBcBrackets(base.bc.brackets),
+      bpa: idxBc(base.bc.bpa),
+      ageAmountMax: idxBc(base.bc.ageAmountMax),
+      ageAmountThreshold: idxBc(base.bc.ageAmountThreshold),
       // pensionCreditBase intentionally NOT indexed
     },
   };
@@ -217,6 +257,12 @@ export function getBracketTableForYear(params: {
       rate: b.rate,
     }));
 
+  const inflateBc = (brackets: Bracket[]) =>
+    brackets.map((b) => ({
+      upTo: indexBcThreshold(b.upTo, base.year, params.taxYear, params.annualInflation),
+      rate: b.rate,
+    }));
+
   return {
     baseYear: base.year,
     taxYear: params.taxYear,
@@ -224,7 +270,7 @@ export function getBracketTableForYear(params: {
       brackets: inflate(base.federal.brackets),
     },
     bc: {
-      brackets: inflate(base.bc.brackets),
+      brackets: inflateBc(base.bc.brackets),
     },
   };
 }

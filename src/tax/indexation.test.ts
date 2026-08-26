@@ -35,7 +35,13 @@ describe("tax table indexation", () => {
     expect(indexed.federal.ageAmountMax).toBeCloseTo(base.federal.ageAmountMax * growth, 4);
     expect(indexed.federal.ageAmountThreshold).toBeCloseTo(base.federal.ageAmountThreshold * growth, 4);
     expect(indexed.federal.oasClawbackThreshold).toBeCloseTo(base.federal.oasClawbackThreshold * growth, 4);
-    expect(indexed.bc.brackets[0]!.upTo).toBeCloseTo(base.bc.brackets[0]!.upTo * growth, 4);
+
+    // BC is NOT federal here. Its indexation is paused for 2027-2030, so by 2036
+    // only six of the ten years have been applied. See BC_INDEXATION_PAUSE.
+    expect(indexed.bc.brackets[0]!.upTo).toBeCloseTo(
+      base.bc.brackets[0]!.upTo * Math.pow(1.02, 6),
+      4
+    );
   });
 
   it("does NOT index the pension income amount (fixed at $2,000 / $1,000 in law)", () => {
@@ -75,6 +81,8 @@ describe("effective tax rate is stable in real terms", () => {
   };
 
   it("does not drift once the unindexed pension credit is excluded", () => {
+    // Federal only. BC's 2027-2030 freeze is a real-terms tax increase by
+    // design, so a BC-inclusive rate legitimately drifts and is covered below.
     const rate = (year: number) => {
       const nominal = 90_000 * Math.pow(1.03, year - 2026);
       const res = computeHouseholdTax({
@@ -87,9 +95,37 @@ describe("effective tax rate is stable in real terms", () => {
         credits: { useBpa: true, useAgeAmount: true, usePensionCredit: false },
         pensionSplitting: NO_SPLIT,
       });
-      return res.household.totalTax / nominal;
+      return Math.max(0, res.spouseA.federalTaxBeforeCredits - res.spouseA.credits.fed.total);
     };
-    expect(Math.abs(rate(2056) - rate(2026))).toBeLessThan(1e-9);
+    const realFederal = (year: number) =>
+      rate(year) / (90_000 * Math.pow(1.03, year - 2026));
+    expect(Math.abs(realFederal(2056) - realFederal(2026))).toBeLessThan(1e-9);
+  });
+
+  it("BC's paused indexation raises the real BC rate, and never gives it back", () => {
+    const bcRealRate = (year: number) => {
+      const nominal = 90_000 * Math.pow(1.03, year - 2026);
+      const res = computeHouseholdTax({
+        taxYear: year,
+        annualInflation: 0.03,
+        spouseA: { name: "A", age: 70, incomes: { ...NONE, rrifWithdrawal: nominal } },
+        spouseB: { name: "B", age: 70, incomes: { ...NONE } },
+        credits: { useBpa: true, useAgeAmount: true, usePensionCredit: false },
+        pensionSplitting: NO_SPLIT,
+      });
+      return Math.max(0, res.spouseA.bcTaxBeforeCredits - res.spouseA.credits.bc.total) / nominal;
+    };
+
+    const before = bcRealRate(2026);
+    const duringPause = bcRealRate(2030);
+    const longAfter = bcRealRate(2056);
+
+    // Real BC rate climbs through the freeze ...
+    expect(duringPause).toBeGreaterThan(before);
+    // ... and the gap persists a quarter-century later, because indexation
+    // resumes from the frozen level rather than catching up.
+    expect(longAfter).toBeGreaterThan(before);
+    expect(Math.abs(longAfter - duringPause)).toBeLessThan(0.01);
   });
 
   it("drifts only slightly with the pension credit on, because that credit is fixed in law", () => {
