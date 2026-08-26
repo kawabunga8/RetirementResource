@@ -362,9 +362,19 @@ function buildAccumulationSchedule(params: {
     const overflowSa = params.monthlyFhsaSarah - fhsaContribSa;
     if (overflowSa > 0) rrspContribSa += overflowSa;
 
-    // Enforce RRSP room. If room is exhausted, contributions pause (no overflow routing).
+    // Enforce RRSP room. Anything that will not fit carries on down the chain
+    // rather than disappearing: FHSA -> RRSP -> TFSA -> non-registered.
+    //
+    // This used to stop here ("contributions pause"), which meant a person
+    // whose RRSP room ran out simply stopped saving in the model. Sarah's
+    // pension adjustment exhausts her room in 2033, so the plan showed her
+    // contributing nothing at all for the last two and a half years before
+    // retirement -- about $37,200 of intended saving deleted rather than
+    // redirected. Nobody stops saving because a registered account is full.
     const rrspSAllowed = Math.min(rrspContribS, rrspRoomS);
     const rrspSaAllowed = Math.min(rrspContribSa, rrspRoomSa);
+    let overflowToTfsaS = rrspContribS - rrspSAllowed;
+    let overflowToTfsaSa = rrspContribSa - rrspSaAllowed;
     rrspContribS = rrspSAllowed;
     rrspContribSa = rrspSaAllowed;
 
@@ -379,9 +389,14 @@ function buildAccumulationSchedule(params: {
     rrspRoomS -= rrspContribS;
     rrspRoomSa -= rrspContribSa;
 
-    // TFSA contributions (planned), capped by TFSA room. If room is exhausted, contributions pause.
-    const tfsaSAllowed = Math.min(tfsaEachPlanned, tfsaRoomS);
-    const tfsaSaAllowed = Math.min(tfsaEachPlanned, tfsaRoomSa);
+    // TFSA contributions: the planned amount plus whatever the RRSP could not
+    // take, still capped by each person's own TFSA room.
+    const tfsaWantedS = tfsaEachPlanned + overflowToTfsaS;
+    const tfsaWantedSa = tfsaEachPlanned + overflowToTfsaSa;
+    const tfsaSAllowed = Math.min(tfsaWantedS, tfsaRoomS);
+    const tfsaSaAllowed = Math.min(tfsaWantedSa, tfsaRoomSa);
+    overflowToTfsaS = 0;
+    overflowToTfsaSa = 0;
 
     tfsaS += tfsaSAllowed;
     tfsaSa += tfsaSaAllowed;
@@ -389,6 +404,11 @@ function buildAccumulationSchedule(params: {
     tfsaRoomS -= tfsaSAllowed;
     tfsaRoomSa -= tfsaSaAllowed;
     tfsaAnnualActual += tfsaSAllowed + tfsaSaAllowed;
+
+    // Last stop. Non-registered has no contribution limit, so nothing is lost.
+    // It grows at the drag-reduced rate below, which is the honest cost of
+    // having run out of shelter.
+    nonReg += (tfsaWantedS - tfsaSAllowed) + (tfsaWantedSa - tfsaSaAllowed);
 
     // update cap trackers
     fhsaAnnualUsedS += fhsaContribS;
