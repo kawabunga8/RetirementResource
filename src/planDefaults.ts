@@ -289,19 +289,33 @@ export const DEFAULT_ANCHORS: Anchors = {
    */
   pensionShingo: 30967.99,
   /**
-   * BC Teachers' Pension Plan, from her 2023 Member's Benefit Statement.
-   * Unreduced at age 65, effective 01/07/2036: $3,170/mo = $38,040/yr as
-   * "Single Life Guaranteed 10 Years". The $38,400 previously here was close
-   * but had no document behind it.
+   * BC Teachers' Pension Plan, from her 2025 Member's Benefit Statement.
+   * Unreduced at age 65, effective 01/07/2036: $3,562/mo = $42,744/yr as
+   * "Single Life Guaranteed 10 Years".
    *
-   * The statement's other quoted form, 100% Joint Life, pays $2,903/mo =
-   * $34,836/yr and continues in full to Shingo for life. Which form she elects
-   * is still an open decision — see the pension fields in the Withdrawals tab.
+   * Was $38,040, from the 2023 statement ($3,170/mo). The 2025 statement runs
+   * $4,704/yr higher almost entirely because her five-year highest average
+   * salary rose from $7,310/mo to $7,993/mo. Across the 2017, 2023 and 2025
+   * statements the age-65 estimate has held at ~44% of that average, so this
+   * forecast tracks her pay rather than drifting -- expect it to keep moving
+   * with her salary and to need refreshing each statement year.
+   *
+   * The statement's other quoted form, 100% Joint Life, pays $3,282/mo =
+   * $39,384/yr (was $2,903/mo on the 2023 statement) and continues in full to
+   * Shingo for life. Which form she elects is still an open decision -- see the
+   * pension fields in the Withdrawals tab. Two things bear on it: the election
+   * is effectively irrevocable (60 days after the pension is granted it is
+   * final, and as a married member her statutory floor is a 60% joint life
+   * pension), and this field currently holds her SINGLE life figure while
+   * pensionShingo above holds his 60% J&S figure -- the two spouses are modelled
+   * on different survivor conventions. Decide deliberately, don't inherit it.
    *
    * Assumes she keeps working as in the past year through to 65, which is the
-   * basis the statement itself uses.
+   * basis the statement itself uses. That assumption survived 2025: she was
+   * credited a full 10.00 months of pensionable service despite a
+   * contribution-free leave covering roughly half the year.
    */
-  pensionSarah: 38040,
+  pensionSarah: 42744,
 
   cppShingoAt70Monthly: 1700,
 };
@@ -324,8 +338,12 @@ export const DEFAULT_VARIABLES: Variables = {
   // model holds them flat. That is defensible only because the PA is held flat
   // too, and the two largely cancel; do not inflate one without the other.
   earnedIncomeShingo: 98591,
-  // Her 2023 pensionable salary, from the Teachers' Pension Plan statement.
-  earnedIncomeSarah: 94582,
+  // Her 2025 pensionable salary, from the Teachers' Pension Plan statement
+  // (was $94,582, the 2023 figure). This is the salary the PLAN credits, not
+  // what she was paid: 2025 included a contribution-free leave, so her T4 box
+  // 14 is lower than this. Feeds nothing but the RRSP room calculation, which
+  // clamps to $0 either way -- see pensionAdjustmentSarah.
+  earnedIncomeSarah: 96087,
 
   // CRA RRSP dollar limit for 2026.
   rrspDollarLimit: 33810,
@@ -337,20 +355,29 @@ export const DEFAULT_VARIABLES: Variables = {
   // the difference. Series on file: 2023 $14,428, 2024 $15,333, 2025 $16,275.
   pensionAdjustmentShingo: 16275,
 
-  // PLACEHOLDER: Sarah's own T4 box 52, still needed. This one matters more
-  // than Shingo's: she starts with about half his carried-forward room
-  // ($63,252), so a PA near his exhausts it in 2033 and costs roughly $53,000
-  // of contributions by retirement. At a PA of $10,000 there is no impact at
-  // all. Do not assume it matches his.
-  // Sarah's actual 2025 T4 box 52. (An earlier estimate of $16,425, derived
-  // from her 2023 pensionable salary at a 2% accrual, was 23% too low.)
+  // Sarah's actual 2025 T4 box 52, kept as reported. Her new RRSP room clamps
+  // to $0, which is the conservative read and the one to plan on.
   //
-  // This exceeds 18% of her documented $94,582 salary, so her new RRSP room
-  // clamps to $0. Note the PA implies pensionable earnings nearer $122,000 at
-  // BC Teachers' 2% accrual, which does not square with the 2023 statement —
-  // worth checking her 2025 T4 box 14. It barely matters either way: the room
-  // is $0 at $94,582 and $600/yr at $122,000, a $6,000 spread over ten years,
-  // and earnedIncomeSarah feeds nothing but this calculation.
+  // The "does not square with the statement" note that used to sit here is
+  // resolved, and the resolution is the opposite of what it suggested. BC
+  // Teachers' accrual is 1.90%, not the 2% used to derive the old $122,000
+  // figure. PA = 9 x 0.019 x E - 600, so $21,353 implies pensionable earnings
+  // of $128,380 -- further from her documented $96,087, not closer. The formula
+  // PA on that salary would be $15,831.
+  //
+  // The gap is a leave-year reporting artifact, not evidence of higher
+  // earnings. She was on a contribution-free leave for roughly half of 2025:
+  // member contributions came in at $5,037 against the 11.17% rate's $10,733
+  // (46.9% of a full year) while pensionable service was still credited in
+  // full -- the signature of an approved LTD/salary-indemnity leave, under
+  // which the plan accrues service without contributions. Checking box 14 will
+  // NOT reconcile it: her 2025 employment income is lower than $96,087, not
+  // higher, and salary-indemnity benefits may not sit on the district's T4 at
+  // all. Do not re-derive her earnings from this number.
+  //
+  // The ambiguity is cheap either way, as previously noted: $0/yr of new room
+  // as reported vs $1,465/yr at the formula PA -- about $14,650 over ten years
+  // against $63,252 of carried-forward room.
   //
   // What does matter: her $63,252 of carried-forward room now has essentially
   // nothing topping it up, against $700/mo of planned RRSP contributions.
@@ -444,9 +471,15 @@ export const DEFAULT_VARIABLES: Variables = {
     // placeholders (we’ll compute these from rules later; for now editable)
     // Defaults are placeholders; adjust to your Service Canada estimates.
     cppShingoAnnual: DEFAULT_ANCHORS.cppShingoAt70Monthly * 12,
-    // KNOWN PLACEHOLDER: Sarah's real CPP estimate is not yet on file — this
-    // just copies Shingo's figure as a stand-in. Replace with her own
-    // Service Canada "estimate of monthly CPP retirement pension" once available.
+    // KNOWN PLACEHOLDER: Sarah's real CPP estimate is not yet on file -- this
+    // just copies Shingo's figure as a stand-in. Replace with her own Service
+    // Canada "estimate of monthly CPP retirement pension" once available.
+    //
+    // Now known to be biased HIGH rather than merely uncertain: her 2025 leave
+    // was contribution-free, leaving a gap in her CPP contributory record. The
+    // disability drop-out provision may exclude those months if she qualifies,
+    // but "same as Shingo" is wrong in a knowable direction. Highest-priority
+    // input to replace after the pension figures above.
     cppSarahAnnual: DEFAULT_ANCHORS.cppShingoAt70Monthly * 12,
     // Rough OAS-at-70 placeholder (annual). Replace with your preferred assumption.
     oasShingoAnnual: 11000,
@@ -466,8 +499,10 @@ export const DEFAULT_VARIABLES: Variables = {
     shingoEmployment: 0,
     sarahEmployment: 0,
 
-    shingoPensionDb: 31345,
-    sarahPensionDb: 38400,
+    // Bound to the anchors so these cannot drift apart again; the Tax tab was
+    // estimating against $31,345 / $38,400 while the engine used the anchors.
+    shingoPensionDb: DEFAULT_ANCHORS.pensionShingo,
+    sarahPensionDb: DEFAULT_ANCHORS.pensionSarah,
 
     shingoRrif: 0,
     sarahRrif: 0,
