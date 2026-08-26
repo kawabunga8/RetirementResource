@@ -2337,6 +2337,11 @@ return {
                 optimize: true,
                 step: 250,
               },
+              // Without this the engine falls back to DEFAULT_TAX_INDEXATION
+              // while the bracket chart directly below uses your own expected
+              // inflation -- two different bracket tables on one screen, and a
+              // splitting optimum solved against thresholds nobody is looking at.
+              annualInflation: vars.expectedInflation,
             });
 
             const showLine = (label: string, value: number) => (
