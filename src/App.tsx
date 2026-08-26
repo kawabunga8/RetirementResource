@@ -3595,14 +3595,12 @@ return {
                 }
               />
             </Field>
-            <Field label="Indexation Shingo (0.02 = 2%/yr)">
-              <input
-                className="moneyInputMd"
-                type="number"
-                step="0.005"
+            <Field label="Indexation Shingo (%/yr)">
+              <PercentInput
                 value={vars.pensionIndexRateShingo ?? vars.pensionIndexRate}
-                onChange={(e) =>
-                  setVars((v) => ({ ...v, pensionIndexRateShingo: num(e.target.value) }))
+                step={0.25}
+                onChange={(rate) =>
+                  setVars((v) => ({ ...v, pensionIndexRateShingo: rate }))
                 }
               />
             </Field>
@@ -3616,14 +3614,12 @@ return {
                 }
               />
             </Field>
-            <Field label="Indexation Sarah (0.02 = 2%/yr)">
-              <input
-                className="moneyInputMd"
-                type="number"
-                step="0.005"
+            <Field label="Indexation Sarah (%/yr)">
+              <PercentInput
                 value={vars.pensionIndexRateSarah ?? vars.pensionIndexRate}
-                onChange={(e) =>
-                  setVars((v) => ({ ...v, pensionIndexRateSarah: num(e.target.value) }))
+                step={0.25}
+                onChange={(rate) =>
+                  setVars((v) => ({ ...v, pensionIndexRateSarah: rate }))
                 }
               />
             </Field>
