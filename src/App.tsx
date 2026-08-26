@@ -3539,43 +3539,6 @@ return {
               Show full schedule
             </label>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <button
-              className="btnSmall"
-              type="button"
-              onClick={() => {
-                // Build a clean schedule with no overrides and front-load=0 to get the
-                // binary-search even glidepath, then average the overlay values across
-                // all pre-depletion years and write that level amount into rrspExtraByYear.
-                const flatVars: Variables = {
-                  ...vars,
-                  withdrawals: { ...vars.withdrawals, rrifFrontLoad: 0, rrspExtraByYear: {} },
-                };
-                const sched = buildWithdrawalSchedule({
-                  vars: flatVars,
-                  anchors,
-                  retirementYear: vars.retirementYear,
-                  retirementBalances: model.retirementBalances,
-                });
-                const depletionAge = vars.withdrawals.rrifDepleteByAge;
-                const glideRows = sched.filter(
-                  (r) => r.year >= vars.retirementYear && r.ageShingo < depletionAge
-                );
-                const extras = glideRows.map((r) => Math.max(0, r.debug.extraRrifPlanned));
-                const total = extras.reduce((a, b) => a + b, 0);
-                if (glideRows.length === 0 || total <= 0) return;
-                const levelAmount = Math.round(total / glideRows.length);
-                const overrides: Record<string, number> = {};
-                for (const r of glideRows) {
-                  overrides[String(r.year)] = levelAmount;
-                }
-                setVars((v) => ({
-                  ...v,
-                  withdrawals: { ...v.withdrawals, rrspExtraByYear: overrides },
-                }));
-              }}
-            >
-              Auto-level RRSP
-            </button>
             {Object.keys(vars.withdrawals.rrspExtraByYear ?? {}).length > 0 && (
               <button
                 className="btnSmall"
@@ -3719,7 +3682,7 @@ return {
 
                 {(model.schedule[0]?.debug.rrspLeftAtDepletion ?? 0) > 1000 && (
                   <div style={{ marginTop: 10, padding: 10, borderRadius: 10, fontSize: 12, background: "#fef3c7", border: "1px solid #fcd34d" }}>
-                    <strong>Auto-level could not fully level this plan.</strong>{" "}
+                    <strong>This plan cannot be fully levelled by your target age.</strong>{" "}
                     About ${money(Math.round(model.schedule[0]!.debug.rrspLeftAtDepletion))} of
                     RRSP is still left at the depletion year, so that year takes a lump and
                     pays more tax and OAS clawback than the years around it. Try a later
