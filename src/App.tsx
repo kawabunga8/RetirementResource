@@ -657,7 +657,7 @@ export default function App() {
 
   const [settingsPanel, setSettingsPanel] = useState<
 
-    "order" | "accounts" | "lif" | "caps" | null
+    "order" | "accounts" | "lif" | "caps" | "room" | null
 
   >(null);
 
@@ -1791,7 +1791,22 @@ return {
                   );
                 })()}
 
-                <h3 style={{ marginTop: 14 }}>Contribution room (editable)</h3>
+                <div className="settingsRow">
+                  <SettingsButton
+                    label="Contribution room"
+                    summary={`RRSP $${money(vars.rrspRoomShingo + vars.rrspRoomSarah)} · TFSA $${money(
+                      vars.tfsaRoomShingo + vars.tfsaRoomSarah
+                    )} household`}
+                    onClick={() => setSettingsPanel("room")}
+                  />
+                </div>
+
+                <Modal
+                  open={settingsPanel === "room"}
+                  title="Contribution room"
+                  description="How much room each of you has left, and the figures that generate new room each year. These come off your Notice of Assessment and T4 — they change once a year, not once a session."
+                  onClose={closeSettingsPanel}
+                >
                 <div className="tightGrid">
                   <Field label="TFSA room Shingo (as of 2026, $)">
                     <input
@@ -1913,6 +1928,8 @@ return {
                     />
                   </Field>
                 </div>
+                </Modal>
+
 
                 <h3 style={{ marginTop: 14 }}>Current balances {showingSavedSnapshot ? "(last saved)" : "(editable)"}</h3>
                 <div style={{ marginBottom: 10 }}>
