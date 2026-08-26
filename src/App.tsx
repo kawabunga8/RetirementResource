@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { supabase } from "./lib/supabase";
+import { Modal, SettingsButton } from "./Modal";
 import {
   DEFAULT_ANCHORS,
   DEFAULT_VARIABLES,
@@ -653,6 +654,14 @@ export default function App() {
   }, [anchors, vars, dbLoading, user]);
 
   const [page, setPage] = useState<"overview" | "current" | "tax" | "taxBrackets" | "withdrawals">("overview");
+
+  const [settingsPanel, setSettingsPanel] = useState<
+
+    "order" | "accounts" | "lif" | "caps" | null
+
+  >(null);
+
+  const closeSettingsPanel = useCallback(() => setSettingsPanel(null), []);
   const [showFullSchedule, setShowFullSchedule] = useState(false);
   const [suggestedRrifDepleteByAge, setSuggestedRrifDepleteByAge] = useState<number | null>(null);
   const [suggestedRrifInfo, setSuggestedRrifInfo] = useState<string>("");
@@ -2952,6 +2961,45 @@ return {
               </select>
             </Field>
 
+          </div>
+
+          <div className="settingsRow">
+            <SettingsButton
+              label="Drawdown order"
+              summary={vars.withdrawals.order.join(" → ")}
+              onClick={() => setSettingsPanel("order")}
+            />
+            <SettingsButton
+              label="Account handling"
+              summary={`${
+                vars.withdrawals.rollFhsaIntoRrspAtRetirement
+                  ? "FHSA rolls into RRSP"
+                  : "FHSA kept separate"
+              } · TFSA room $${money(vars.withdrawals.tfsaRoomAtRetirement)}`}
+              onClick={() => setSettingsPanel("accounts")}
+            />
+            <SettingsButton
+              label="LIF / RRIF settings"
+              summary={`LIF ${vars.withdrawals.lifMode} · RRIF depleted by ${vars.withdrawals.rrifDepleteByAge}`}
+              onClick={() => setSettingsPanel("lif")}
+            />
+            <SettingsButton
+              label="Withdrawal caps"
+              summary={(() => {
+                const set = Object.values(vars.withdrawals.caps).filter((c) => c > 0).length;
+                return set === 0 ? "None — no account is capped" : `${set} of 5 capped`;
+              })()}
+              onClick={() => setSettingsPanel("caps")}
+            />
+          </div>
+
+          <Modal
+            open={settingsPanel === "order"}
+            title="Drawdown order"
+            description="Which account is drawn down first when a year needs more cash than income provides. Choosing an account for one slot pushes the others down."
+            onClose={closeSettingsPanel}
+          >
+            <div className="selectRow">
             <Field label="Drawdown priority #1">
               <select
                 className="prioritySelect"
@@ -3083,9 +3131,15 @@ return {
                 ))}
               </select>
             </Field>
-          </div>
+            </div>
+          </Modal>
 
-          <h3 style={{ marginTop: 14 }}>Retirement account handling</h3>
+          <Modal
+            open={settingsPanel === "accounts"}
+            title="Account handling"
+            description="What happens to the FHSA at retirement, and where surplus cash goes once it has been withdrawn."
+            onClose={closeSettingsPanel}
+          >
           <div className="selectRow">
             <Field label="FHSA → RRSP handling">
               <div style={{ fontSize: 12, opacity: 0.75, marginTop: 0, marginBottom: 6 }}>
@@ -3109,7 +3163,7 @@ return {
               </select>
             </Field>
 
-            <Field label="TFSA room @ retirement (household, $)\n(used for surplus routing)">
+            <Field label={"TFSA room @ retirement (household, $)\n(used for surplus routing)"}>
               <input
                 className="moneyInputLg"
                 type="number"
@@ -3126,7 +3180,7 @@ return {
               />
             </Field>
 
-            <Field label="New TFSA room per year\n(household, $/yr)">
+            <Field label={"New TFSA room per year\n(household, $/yr)"}>
               <input
                 className="moneyInputSm"
                 type="number"
@@ -3148,8 +3202,14 @@ return {
               until this room is used up, then routed to Non-registered.
             </div>
           </div>
+          </Modal>
 
-          <h3 style={{ marginTop: 14 }}>LIF withdrawal setting (BC)</h3>
+          <Modal
+            open={settingsPanel === "lif"}
+            title="LIF / RRIF settings"
+            description="BC LIF withdrawal mode and how aggressively the RRIF is drawn down. These change the shape of the withdrawal curve, not the totals available."
+            onClose={closeSettingsPanel}
+          >
           <div className="selectRow">
             <Field
               label={`LIF mode (current: ${
@@ -3310,7 +3370,7 @@ return {
               />
             </Field>
 
-            <Field label="Avoid OAS clawback\n(shift RRSP→TFSA/NonReg)">
+            <Field label={"Avoid OAS clawback\n(shift RRSP→TFSA/NonReg)"}>
               <select
                 className="yesNoSelect"
                 value={vars.withdrawals.avoidOasClawback ? "yes" : "no"}
@@ -3329,7 +3389,7 @@ return {
               </select>
             </Field>
 
-            <Field label="Force LIF withdrawals\n(starting at retirement)">
+            <Field label={"Force LIF withdrawals\n(starting at retirement)"}>
               <select
                 className="yesNoSelect"
                 value={vars.withdrawals.forceLifFromRetirement ? "yes" : "no"}
@@ -3353,8 +3413,14 @@ return {
               LIF mode (min/mid/max). Surplus is invested TFSA→NonReg.
             </div>
           </div>
+          </Modal>
 
-          <h3 style={{ marginTop: 14 }}>Withdrawal caps (annual, $; 0 = no cap)</h3>
+          <Modal
+            open={settingsPanel === "caps"}
+            title="Withdrawal caps"
+            description="A yearly ceiling on what may come out of each account, in dollars. Leave a cap at 0 to place no limit on that account."
+            onClose={closeSettingsPanel}
+          >
           <div className="selectRow">
             <Field label="FHSA cap">
               <input
@@ -3440,6 +3506,8 @@ return {
               />
             </Field>
           </div>
+          </Modal>
+
 
           <h3 style={{ marginTop: 14 }}>Employer pensions</h3>
           <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>

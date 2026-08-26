@@ -239,3 +239,124 @@ h3 {
 ul {
   margin: 0;
 }
+
+/* ── Settings buttons + modal ──────────────────────────────────────────── */
+
+.settingsRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.settingsBtn {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  text-align: left;
+  padding: 9px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  min-width: 190px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.settingsBtn:hover {
+  border-color: #f97316;
+  background: #fff7ed;
+}
+
+.settingsBtn:focus-visible {
+  outline: 2px solid #f97316;
+  outline-offset: 2px;
+}
+
+.settingsBtnLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.settingsBtnSummary {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.25;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+
+.modalPanel {
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.3);
+  width: min(760px, 100%);
+  max-height: min(85vh, 900px);
+  display: flex;
+  flex-direction: column;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.modalTitle {
+  margin: 0;
+  font-size: 16px;
+}
+
+.modalDescription {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.4;
+  max-width: 60ch;
+}
+
+.modalClose {
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: #94a3b8;
+  padding: 2px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.modalClose:hover {
+  background: #f1f5f9;
+  color: #1e293b;
+}
+
+.modalBody {
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+
+.modalBody h3 {
+  margin-top: 0;
+}
+
+.modalFooter {
+  padding: 12px 20px 16px;
+  border-top: 1px solid #f1f5f9;
+  display: flex;
+  justify-content: flex-end;
+}
