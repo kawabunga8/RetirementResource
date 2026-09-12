@@ -188,6 +188,12 @@ export type Variables = {
   // Working-year assumptions (for new RRSP room creation)
   earnedIncomeShingo: number; // $/yr
   earnedIncomeSarah: number; // $/yr
+  // Year the earned income and pension adjustment figures are from.
+  earnedIncomeYear: number;
+
+  // Annual raise in working years, for both spouses. Grows earned income and
+  // pension adjustment together (RRSP room), and working income (refunds, Tax tab).
+  incomeGrowthRate: number; // e.g. 0.02
 
   // New RRSP room each year = min(18% of earned income, rrspDollarLimit) - pension adjustment.
   // The dollar limit is indexed forward from rrspDollarLimitYear at expectedInflation.
@@ -334,9 +340,9 @@ export const DEFAULT_VARIABLES: Variables = {
   // accrual rate derived from his 2023 Notice of Assessment. Paired with the
   // 2025 PA below so the two are from the same year -- mixing years is what
   // made the old $100,000 / $16,275 pairing overstate new room.
-  // Note: earnings have grown ~6.0%/yr (2023 $87,800 -> 2025 $98,591). This
-  // model holds them flat. That is defensible only because the PA is held flat
-  // too, and the two largely cancel; do not inflate one without the other.
+  // Note: earnings have grown ~6.0%/yr (2023 $87,800 -> 2025 $98,591). The
+  // model grows them at incomeGrowthRate (2%), and grows the PA at the same
+  // rate: the two largely cancel, so never inflate one without the other.
   earnedIncomeShingo: 98591,
   // Her 2025 pensionable salary, from the Teachers' Pension Plan statement
   // (was $94,582, the 2023 figure). This is the salary the PLAN credits, not
@@ -344,6 +350,9 @@ export const DEFAULT_VARIABLES: Variables = {
   // 14 is lower than this. Feeds nothing but the RRSP room calculation, which
   // clamps to $0 either way -- see pensionAdjustmentSarah.
   earnedIncomeSarah: 96087,
+  earnedIncomeYear: 2025,
+
+  incomeGrowthRate: 0.02,
 
   // CRA RRSP dollar limit for 2026.
   rrspDollarLimit: 33810,

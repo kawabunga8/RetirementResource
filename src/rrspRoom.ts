@@ -7,6 +7,8 @@
  * the plan's inflation assumption. The pension adjustment matters a great deal
  * for members of a defined-benefit plan -- it typically consumes most of the 18%.
  */
+import { incomeGrowthFactor } from "./incomeGrowth";
+
 export const RRSP_ROOM_RATE = 0.18;
 
 export function newRrspRoomForYear(params: {
@@ -16,6 +18,9 @@ export function newRrspRoomForYear(params: {
   rrspDollarLimit: number;
   rrspDollarLimitYear: number;
   annualInflation: number;
+  /** Year earnedIncome and pensionAdjustment are from. Omit to use them as given. */
+  incomeAsOfYear?: number;
+  incomeGrowthRate?: number;
 }) {
   const limit =
     Math.max(0, params.rrspDollarLimit) *
@@ -23,6 +28,17 @@ export function newRrspRoomForYear(params: {
       1 + Math.max(0, params.annualInflation),
       Math.max(0, params.year - params.rrspDollarLimitYear)
     );
-  const earned = Math.max(0, params.earnedIncome) * RRSP_ROOM_RATE;
-  return Math.max(0, Math.min(earned, limit) - Math.max(0, params.pensionAdjustment));
+  // Room created on 1 January is earned on the PRIOR year's income. Income and
+  // pension adjustment grow together: a DB plan's PA is a fixed share of
+  // pensionable earnings, so raising one without the other overstates room.
+  const growth =
+    params.incomeAsOfYear == null
+      ? 1
+      : incomeGrowthFactor({
+          asOfYear: params.incomeAsOfYear,
+          year: params.year - 1,
+          growthRate: params.incomeGrowthRate ?? 0,
+        });
+  const earned = Math.max(0, params.earnedIncome) * growth * RRSP_ROOM_RATE;
+  return Math.max(0, Math.min(earned, limit) - Math.max(0, params.pensionAdjustment) * growth);
 }

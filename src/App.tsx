@@ -21,6 +21,7 @@ import { computeHouseholdTax } from "./tax/v2";
 import { newRrspRoomForYear } from "./rrspRoom";
 import { getBracketTableForYear } from "./tax/tables";
 import { buildWithdrawalSchedule } from "./withdrawals/engine";
+import { incomeGrowthFactor } from "./incomeGrowth";
 
 function Field({
   label,
@@ -216,6 +217,9 @@ function buildAccumulationSchedule(params: {
   // working income assumptions for new RRSP room
   earnedIncomeShingo: number;
   earnedIncomeSarah: number;
+  earnedIncomeYear: number;
+  // annual raise in working years (earned income, PA and working income)
+  incomeGrowthRate: number;
   // RRSP annual dollar limit (indexed forward) and pension adjustments
   rrspDollarLimit: number;
   rrspDollarLimitYear: number;
@@ -324,6 +328,8 @@ function buildAccumulationSchedule(params: {
           rrspDollarLimit: params.rrspDollarLimit,
           rrspDollarLimitYear: params.rrspDollarLimitYear,
           annualInflation: params.annualInflation,
+          incomeAsOfYear: params.earnedIncomeYear,
+          incomeGrowthRate: params.incomeGrowthRate,
         };
         rrspRoomS += newRrspRoomForYear({
           ...common,
@@ -438,15 +444,21 @@ function buildAccumulationSchedule(params: {
       // Actual TFSA contributions for the year (room-limited), not the plan.
 
       const suppressRefund = params.tfsaIncludesRefund && year === balancesAsOfYear;
+      // Working income is a baseline-year figure; this year's pay includes the raises since.
+      const raise = incomeGrowthFactor({
+        asOfYear: params.baselineYear,
+        year,
+        growthRate: params.incomeGrowthRate,
+      });
       const estRefundToTfsa = !suppressRefund
         ? estimateTaxSavingsFromDeduction({
-            income: params.incomeShingo,
+            income: params.incomeShingo * raise,
             deduction: rrspAnnualS + fhsaAnnualS,
             taxYear: year,
             annualInflation: params.annualInflation,
           }) +
           estimateTaxSavingsFromDeduction({
-            income: params.incomeSarah,
+            income: params.incomeSarah * raise,
             deduction: rrspAnnualSa + fhsaAnnualSa,
             taxYear: year,
             annualInflation: params.annualInflation,
@@ -758,6 +770,8 @@ export default function App() {
       rrspRoomSarah: vars.rrspRoomSarah,
       earnedIncomeShingo: vars.earnedIncomeShingo,
       earnedIncomeSarah: vars.earnedIncomeSarah,
+      earnedIncomeYear: vars.earnedIncomeYear ?? 2025,
+      incomeGrowthRate: vars.incomeGrowthRate ?? 0.02,
       rrspDollarLimit: vars.rrspDollarLimit ?? 33810,
       rrspDollarLimitYear: vars.rrspDollarLimitYear ?? 2026,
       pensionAdjustmentShingo: vars.pensionAdjustmentShingo ?? 0,
@@ -849,6 +863,12 @@ return {
           : amountReal * Math.pow(1 + indexRate, Math.max(0, yearsFromBaseline));
 
       const inRetirement = year >= v.retirementYear;
+      // Working income is a baseline-year figure; grow it to the year being taxed.
+      const raise = incomeGrowthFactor({
+        asOfYear: anchors.baselineYear,
+        year,
+        growthRate: v.incomeGrowthRate ?? 0.02,
+      });
       const schedRow = inRetirement ? model.schedule.find((r) => r.year === year) : undefined;
 
       const pensionShingo = indexNominal(anchors.pensionShingo);
@@ -884,8 +904,8 @@ return {
           ...v.tax,
           taxYear: year,
 
-          shingoEmployment: inRetirement ? 0 : v.tax.workingIncomeShingo,
-          sarahEmployment: inRetirement ? 0 : v.tax.workingIncomeSarah,
+          shingoEmployment: inRetirement ? 0 : v.tax.workingIncomeShingo * raise,
+          sarahEmployment: inRetirement ? 0 : v.tax.workingIncomeSarah * raise,
 
           shingoPensionDb: inRetirement ? pensionShingo : 0,
           sarahPensionDb: inRetirement ? pensionSarah : 0,
@@ -1742,6 +1762,8 @@ return {
 
                         const rrspRoomArgs = {
                           year: thisYear,
+                          incomeAsOfYear: vars.earnedIncomeYear ?? 2025,
+                          incomeGrowthRate: vars.incomeGrowthRate ?? 0.02,
                           rrspDollarLimit: vars.rrspDollarLimit ?? 33810,
                           rrspDollarLimitYear: vars.rrspDollarLimitYear ?? 2026,
                           annualInflation: vars.expectedInflation,
@@ -1821,6 +1843,8 @@ return {
 
                     const rrspRoomArgs = {
                       year,
+                      incomeAsOfYear: vars.earnedIncomeYear ?? 2025,
+                      incomeGrowthRate: vars.incomeGrowthRate ?? 0.02,
                       rrspDollarLimit: vars.rrspDollarLimit ?? 33810,
                       rrspDollarLimitYear: vars.rrspDollarLimitYear ?? 2026,
                       annualInflation: vars.expectedInflation,
@@ -2026,6 +2050,13 @@ return {
                           earnedIncomeSarah: num(e.target.value),
                         }))
                       }
+                    />
+                  </Field>
+                  <Field label="Income growth (per year)
+(working years, both)">
+                    <PercentInput
+                      value={vars.incomeGrowthRate ?? 0.02}
+                      onChange={(rate) => setVars((v) => ({ ...v, incomeGrowthRate: rate }))}
                     />
                   </Field>
                 </div>
