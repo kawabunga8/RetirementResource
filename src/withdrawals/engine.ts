@@ -334,6 +334,10 @@ const FHSA_SHINGO_START_YEAR = 2024;
 const FHSA_MAX_YEARS = 15;
 const FHSA_SHINGO_FORCE_ROLL_YEAR = FHSA_SHINGO_START_YEAR + FHSA_MAX_YEARS; // 2039
 
+// Share of the retirement year spent retired. Both spouses retire in July, so
+// income and spending in that year cover July-December only.
+const RETIREMENT_YEAR_FRACTION = 0.5;
+
 export function buildWithdrawalSchedule(params: {
   vars: Variables;
   anchors: Anchors;
@@ -408,8 +412,15 @@ export function buildWithdrawalSchedule(params: {
             ? "Slow-Go"
             : "No-Go";
 
+      // Both retire in July, so the retirement year holds only the months from
+      // July on: salary pays for January-June, and pensions/CPP/OAS pay for
+      // July-December. Scaling income alone would leave a full year of spending
+      // to be funded from six months of income -- an RRSP draw that never happens.
+      const yearFraction = i === 0 ? RETIREMENT_YEAR_FRACTION : 1;
+
       const targetAfterTaxReal =
-        phase === "Go-Go" ? vars.spending.goGo : phase === "Slow-Go" ? vars.spending.slowGo : vars.spending.noGo;
+        yearFraction *
+        (phase === "Go-Go" ? vars.spending.goGo : phase === "Slow-Go" ? vars.spending.slowGo : vars.spending.noGo);
 
       const yearsFromBaseline = year - anchors.baselineYear;
       // Spending targets are defined as REAL (today dollars). Convert using FULL inflation (not partial CPI).
@@ -419,12 +430,12 @@ export function buildWithdrawalSchedule(params: {
         yearsFromBaseline,
       });
 
-      const pensionShingoNominal = nominalFromRealBase({
+      const pensionShingoNominal = yearFraction * nominalFromRealBase({
         amountReal: anchors.pensionShingo,
         annualIndexRate: pensionIndexShingo,
         yearsFromBaseline,
       });
-      const pensionSarahNominal = nominalFromRealBase({
+      const pensionSarahNominal = yearFraction * nominalFromRealBase({
         amountReal: anchors.pensionSarah,
         annualIndexRate: pensionIndexSarah,
         yearsFromBaseline,
@@ -435,7 +446,7 @@ export function buildWithdrawalSchedule(params: {
       // every tax pass below (previously duplicated in three places).
       const benefitNominal = (amountReal: number, hasStarted: boolean) =>
         hasStarted
-          ? nominalFromRealBase({ amountReal, annualIndexRate: indexRate, yearsFromBaseline })
+          ? yearFraction * nominalFromRealBase({ amountReal, annualIndexRate: indexRate, yearsFromBaseline })
           : 0;
 
       const cppShingoNominal = benefitNominal(cppShingoReal, ageShingo >= cppStartAge);

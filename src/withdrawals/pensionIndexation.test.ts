@@ -15,7 +15,8 @@ function run(overrides: Partial<Variables>) {
 describe("each pension indexes at its own rate", () => {
   it("holds an unindexed pension flat in nominal terms", () => {
     const rows = run({ pensionIndexRateShingo: 0, pensionIndexRateSarah: 0 });
-    const first = rows[0]!.guaranteedIncome;
+    // rows[0] is the half retirement year; compare full years.
+    const first = rows[1]!.guaranteedIncome;
     const last = rows[rows.length - 1]!.guaranteedIncome;
     // Both flat => the cheque never changes, however many years pass.
     expect(last).toBeCloseTo(first, 4);
@@ -23,7 +24,7 @@ describe("each pension indexes at its own rate", () => {
 
   it("grows an indexed pension at its stated rate", () => {
     const rows = run({ pensionIndexRateShingo: 0.02, pensionIndexRateSarah: 0.02 });
-    const a = rows[0]!;
+    const a = rows[1]!; // rows[0] is the half retirement year
     const b = rows[rows.length - 1]!;
     expect(b.guaranteedIncome / a.guaranteedIncome).toBeCloseTo(
       Math.pow(1.02, b.year - a.year), 4
