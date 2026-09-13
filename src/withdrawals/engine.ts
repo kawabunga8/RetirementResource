@@ -6,6 +6,7 @@ import {
   effectiveOasStartAge,
 } from "../benefits";
 import type { Anchors, LifMode, Variables, WithdrawalOrder } from "../planDefaults";
+import { projectedPensionSarah } from "../planDefaults";
 
 export type RetirementBalances = {
   fhsa: number;
@@ -352,6 +353,11 @@ export function buildWithdrawalSchedule(params: {
   // that is not.
   const pensionIndexShingo = vars.pensionIndexRateShingo ?? vars.pensionIndexRate;
   const pensionIndexSarah = vars.pensionIndexRateSarah ?? vars.pensionIndexRate;
+  // Her statement assumes no raises; lift it for salary growth to retirement.
+  const pensionSarahBase = projectedPensionSarah(anchors, {
+    retirementYear: params.retirementYear,
+    incomeGrowthRate: vars.incomeGrowthRate,
+  });
 
   const retireAgeShingo = vars.shingoRetireAge;
   const retireAgeSarah = vars.sarahRetireAge;
@@ -436,7 +442,7 @@ export function buildWithdrawalSchedule(params: {
         yearsFromBaseline,
       });
       const pensionSarahNominal = yearFraction * nominalFromRealBase({
-        amountReal: anchors.pensionSarah,
+        amountReal: pensionSarahBase,
         annualIndexRate: pensionIndexSarah,
         yearsFromBaseline,
       });

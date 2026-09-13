@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { buildWithdrawalSchedule } from "./engine";
-import { DEFAULT_ANCHORS, DEFAULT_VARIABLES, type Variables } from "../planDefaults";
+import { DEFAULT_ANCHORS, DEFAULT_VARIABLES, projectedPensionSarah, type Variables } from "../planDefaults";
+
+// Her statement figure, lifted for salary raises to retirement.
+const SARAH = projectedPensionSarah(DEFAULT_ANCHORS, DEFAULT_VARIABLES);
 
 const BAL = { fhsa: 0, rrsp: 640_000, tfsa: 300_000, lira: 520_000, nonRegistered: 40_000 };
 
@@ -47,7 +50,7 @@ describe("each pension indexes at its own rate", () => {
     const years = last.year - DEFAULT_ANCHORS.baselineYear;
     const expected =
       DEFAULT_ANCHORS.pensionShingo +
-      DEFAULT_ANCHORS.pensionSarah * Math.pow(1.02, years);
+      SARAH * Math.pow(1.02, years);
     expect(last.guaranteedIncome).toBeCloseTo(expected, 2);
   });
 
@@ -60,7 +63,7 @@ describe("each pension indexes at its own rate", () => {
     const last = rows[rows.length - 1]!;
     const years = last.year - DEFAULT_ANCHORS.baselineYear;
     const expected =
-      (DEFAULT_ANCHORS.pensionShingo + DEFAULT_ANCHORS.pensionSarah) * Math.pow(1.015, years);
+      (DEFAULT_ANCHORS.pensionShingo + SARAH) * Math.pow(1.015, years);
     expect(last.guaranteedIncome).toBeCloseTo(expected, 2);
   });
 

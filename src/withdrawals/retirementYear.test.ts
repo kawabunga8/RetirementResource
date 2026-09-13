@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { buildWithdrawalSchedule } from "./engine";
-import { DEFAULT_ANCHORS, DEFAULT_VARIABLES, type Variables } from "../planDefaults";
+import { DEFAULT_ANCHORS, DEFAULT_VARIABLES, projectedPensionSarah, type Variables } from "../planDefaults";
+
+const PENSIONS = DEFAULT_ANCHORS.pensionShingo + projectedPensionSarah(DEFAULT_ANCHORS, DEFAULT_VARIABLES);
 
 const BAL = { fhsa: 0, rrsp: 640_000, tfsa: 300_000, lira: 520_000, nonRegistered: 40_000 };
 
@@ -23,9 +25,7 @@ function run(overrides: Partial<Variables>) {
 describe("the retirement year is half a year (both retire in July)", () => {
   it("pays half a year of pension", () => {
     const [first, second] = run({});
-    expect(first!.guaranteedIncome).toBeCloseTo(
-      (DEFAULT_ANCHORS.pensionShingo + DEFAULT_ANCHORS.pensionSarah) / 2, 2
-    );
+    expect(first!.guaranteedIncome).toBeCloseTo(PENSIONS / 2, 2);
     expect(first!.guaranteedIncome).toBeCloseTo(second!.guaranteedIncome / 2, 2);
   });
 
@@ -46,9 +46,7 @@ describe("the retirement year is half a year (both retire in July)", () => {
   it("leaves every later year whole", () => {
     const rows = run({});
     for (const r of rows.slice(1)) {
-      expect(r.guaranteedIncome).toBeCloseTo(
-        DEFAULT_ANCHORS.pensionShingo + DEFAULT_ANCHORS.pensionSarah, 2
-      );
+      expect(r.guaranteedIncome).toBeCloseTo(PENSIONS, 2);
     }
   });
 });

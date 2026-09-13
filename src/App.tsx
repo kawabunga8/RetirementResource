@@ -6,6 +6,8 @@ import { PercentInput } from "./PercentInput";
 import {
   DEFAULT_ANCHORS,
   DEFAULT_VARIABLES,
+  PENSION_SARAH_STATEMENT_YEAR,
+  projectedPensionSarah,
   type Anchors,
   type AccountBalances,
   type MonthlyContributions,
@@ -872,7 +874,7 @@ return {
       const schedRow = inRetirement ? model.schedule.find((r) => r.year === year) : undefined;
 
       const pensionShingo = indexNominal(anchors.pensionShingo);
-      const pensionSarah = indexNominal(anchors.pensionSarah);
+      const pensionSarah = indexNominal(projectedPensionSarah(anchors, v));
 
       const ageShingo = year - anchors.shingoBirthYear;
       const ageSarah = year - anchors.sarahBirthYear;
@@ -3429,8 +3431,8 @@ return {
             <SettingsButton
               label="Employer pensions"
               summary={`Shingo $${money(anchors.pensionShingo)}/yr · Sarah $${money(
-                anchors.pensionSarah
-              )}/yr`}
+                projectedPensionSarah(anchors, vars)
+              )}/yr with raises`}
               onClick={() => setSettingsPanel("pensions")}
             />
             <SettingsButton
@@ -3476,7 +3478,10 @@ return {
                 }
               />
             </Field>
-            <Field label="Pension Sarah ($/yr)">
+            <Field
+              label={`Pension Sarah ($/yr, ${PENSION_SARAH_STATEMENT_YEAR} statement)
+$${money(projectedPensionSarah(anchors, vars))} with raises`}
+            >
               <input
                 className="moneyInputMd"
                 type="number"

@@ -1,3 +1,5 @@
+import { pensionRaiseFactor } from "./incomeGrowth";
+
 export type PhaseSpending = {
   goGo: number;
   slowGo: number;
@@ -264,6 +266,33 @@ export type Variables = {
   tfsaIncludesRefund: boolean;
 };
 
+/** Annual salary raise assumed in working years. */
+export const DEFAULT_INCOME_GROWTH_RATE = 0.02;
+
+/** Year of the Teachers' Pension Plan statement that `pensionSarah` is taken from. */
+export const PENSION_SARAH_STATEMENT_YEAR = 2025;
+
+/**
+ * Sarah's pension as the plan uses it: the statement figure, lifted for salary
+ * raises between the statement and retirement. Her statement assumes her pay
+ * never rises; TPP pays on the best five-year average salary, so raises flow
+ * straight through. (Shingo's PENCAN figure already assumes 2% raises, so it
+ * is used as quoted.)
+ */
+export function projectedPensionSarah(
+  anchors: Pick<Anchors, "pensionSarah">,
+  vars: Pick<Variables, "retirementYear" | "incomeGrowthRate">
+) {
+  return (
+    anchors.pensionSarah *
+    pensionRaiseFactor({
+      statementYear: PENSION_SARAH_STATEMENT_YEAR,
+      retirementYear: vars.retirementYear,
+      growthRate: vars.incomeGrowthRate ?? DEFAULT_INCOME_GROWTH_RATE,
+    })
+  );
+}
+
 // From your notes: Jan 2026 snapshot
 export const DEFAULT_ANCHORS: Anchors = {
   location: "British Columbia, Canada",
@@ -321,6 +350,9 @@ export const DEFAULT_ANCHORS: Anchors = {
    * credited a full 10.00 months of pensionable service despite a
    * contribution-free leave covering roughly half the year.
    */
+  //
+  // Stored AS QUOTED. The statement holds her salary flat; the plan lifts this
+  // for raises through projectedPensionSarah (~$50,000 at 2%/yr to 2036).
   pensionSarah: 42744,
 
   cppShingoAt70Monthly: 1700,
@@ -352,7 +384,7 @@ export const DEFAULT_VARIABLES: Variables = {
   earnedIncomeSarah: 96087,
   earnedIncomeYear: 2025,
 
-  incomeGrowthRate: 0.02,
+  incomeGrowthRate: DEFAULT_INCOME_GROWTH_RATE,
 
   // CRA RRSP dollar limit for 2026.
   rrspDollarLimit: 33810,
@@ -511,7 +543,10 @@ export const DEFAULT_VARIABLES: Variables = {
     // Bound to the anchors so these cannot drift apart again; the Tax tab was
     // estimating against $31,345 / $38,400 while the engine used the anchors.
     shingoPensionDb: DEFAULT_ANCHORS.pensionShingo,
-    sarahPensionDb: DEFAULT_ANCHORS.pensionSarah,
+    sarahPensionDb: projectedPensionSarah(DEFAULT_ANCHORS, {
+      retirementYear: DEFAULT_ANCHORS.targetRetirementYear,
+      incomeGrowthRate: DEFAULT_INCOME_GROWTH_RATE,
+    }),
 
     shingoRrif: 0,
     sarahRrif: 0,
