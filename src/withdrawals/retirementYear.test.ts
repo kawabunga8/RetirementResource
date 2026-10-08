@@ -50,3 +50,42 @@ describe("the retirement year is half a year (both retire in July)", () => {
     }
   });
 });
+
+describe("the retirement year is consistent with being half a year", () => {
+  it("draws half a year of LIF", () => {
+    // It used to draw a full year's LIF in the half year.
+    const [first, second] = run({});
+    const ratio = first!.withdrawals.lira / second!.withdrawals.lira;
+    expect(ratio).toBeGreaterThan(0.4);
+    expect(ratio).toBeLessThan(0.6);
+    expect(first!.withdrawals.lira).toBeLessThanOrEqual(first!.debug.lifMaxAllowed + 1e-6);
+  });
+
+  it("taxes retirement income on top of the half-year of salary", () => {
+    const rows = run({});
+    const [first, second] = rows;
+    expect(first!.incomeDetail.employmentShingo).toBeGreaterThan(0);
+    expect(first!.debug.taxOnEmployment).toBeGreaterThan(0);
+    // No salary after the retirement year.
+    expect(second!.incomeDetail.employmentShingo).toBe(0);
+    expect(second!.debug.taxOnEmployment).toBe(0);
+  });
+
+  it("produces about half a full year's surplus, not more", () => {
+    // The old year 0 drew a full year of LIF and a full share of the RRSP
+    // levelling overlay against half a year of spending, which reported a
+    // first-year "surplus" larger than any full year's.
+    const rows = run({});
+    expect(rows[0]!.debug.surplusAfterTax).toBeLessThan(rows[1]!.debug.surplusAfterTax);
+  });
+});
+
+describe("OAS is 10% higher from age 75", () => {
+  it("steps up in the year each spouse turns 75", () => {
+    const rows = run({ oasStartAge: 70, cppStartAge: 70 });
+    const at74 = rows.find((r) => r.ageShingo === 74)!;
+    const at75 = rows.find((r) => r.ageShingo === 75)!;
+    // Flat dollars in this suite, so the only change is the age-75 increase.
+    expect(at75.incomeDetail.oasShingo / at74.incomeDetail.oasShingo).toBeCloseTo(1.1, 6);
+  });
+});

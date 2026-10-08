@@ -85,11 +85,11 @@ export type WithdrawalPlan = {
   rollFhsaIntoRrspAtRetirement: boolean;
 
   // Surplus routing (forced RRIF, etc.)
-  // How much TFSA contribution room you expect to have available at retirement (household).
+  // Household TFSA room at retirement. FALLBACK ONLY: the app passes the room
+  // the accumulation actually leaves, and new room each year follows the
+  // indexed TFSA limit (see tfsaRoom.ts). Kept for callers that run the
+  // withdrawal engine on its own, such as the tests.
   tfsaRoomAtRetirement: number;
-
-  // New TFSA room created each year during retirement (household)
-  tfsaNewRoomPerYear: number;
 
   // Annual caps (0 = no cap)
   // NOTE: LIRA/LIF is special: cap can be calculated from balance using lifMode.
@@ -265,6 +265,17 @@ export type Variables = {
   // When true, the accumulation model will not project additional refund→TFSA amounts.
   tfsaIncludesRefund: boolean;
 };
+
+/**
+ * Share of the retirement year spent retired. Both retire in July, so the
+ * retirement year is half working (salary, contributions) and half retired
+ * (pensions, withdrawals). The accumulation runs to the end of June and the
+ * withdrawal engine picks up from July.
+ */
+export const RETIREMENT_YEAR_FRACTION = 0.5;
+
+/** Months of the retirement year still worked. */
+export const WORKING_MONTHS_IN_RETIREMENT_YEAR = Math.round(12 * (1 - RETIREMENT_YEAR_FRACTION));
 
 /** Annual salary raise assumed in working years. */
 export const DEFAULT_INCOME_GROWTH_RATE = 0.02;
@@ -447,7 +458,9 @@ export const DEFAULT_VARIABLES: Variables = {
   // on the availability of funds in the inflation adjustment account."
   // The plan has historically paid close to full CPI, so 2% is a fair central
   // estimate — but it is an estimate, and 0% is a real downside scenario worth
-  // testing with the indexation field in the Withdrawals tab.
+  // testing with the indexation field in the Withdrawals tab. This rate is
+  // COLA only (from retirement on), so a 0% run is a clean no-COLA test: it no
+  // longer also strips out her working-year raises.
   pensionIndexRateSarah: 0.02,
 
   // From your screenshot: monthly investments
@@ -487,11 +500,8 @@ export const DEFAULT_VARIABLES: Variables = {
     rrifMinMultiplier: 1,
     rollFhsaIntoRrspAtRetirement: true,
 
-    // Default: projected household TFSA room at retirement.
-    // Based on Jan 1 2026 remaining room ($185,547.06) + 10 years of new room at ~$7,000/yr
-    // minus planned TFSA contributions ($80/mo).
+    // Fallback only -- the app computes this from the accumulation.
     tfsaRoomAtRetirement: 245947.06,
-    tfsaNewRoomPerYear: 14000,
     caps: {
       fhsa: 0,
       rrsp: 0,

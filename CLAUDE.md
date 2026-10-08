@@ -29,7 +29,7 @@ npm run update:public-rules  # Fetch TFSA limits from CRA (runs automatically be
 
 ### Calculation Layers
 
-1. **Contribution accumulation** (App.tsx) — Projects account growth to retirement
+1. **Contribution accumulation** (`src/accumulation.ts`) — Projects account growth month by month from today to the end of June of the retirement year. The Overview, the Current tab's snapshot and the withdrawal engine's starting balances and TFSA room all read this ONE schedule — never re-implement the loop in a component
 2. **Withdrawal schedule** (`src/withdrawals/engine.ts`) — Simulates annual retirement withdrawals
 3. **Household tax** (`src/tax/v2.ts`) — Federal + BC tax, credits, OAS clawback
 4. **Public rules** (`src/data/publicRules.ts`) — Auto-generated TFSA/FHSA limits (do not edit by hand)
@@ -38,7 +38,9 @@ npm run update:public-rules  # Fetch TFSA limits from CRA (runs automatically be
 
 ```
 src/
-├── App.tsx                  # Main app — monolithic component (~3,200 lines)
+├── App.tsx                  # Main app — monolithic component (~3,500 lines)
+├── accumulation.ts          # Working-years projection (rows carry start-of-year and end positions)
+├── tfsaRoom.ts              # TFSA limit for any year, indexed past the published table
 ├── planDefaults.ts          # Types + default values for anchors/variables
 ├── data/publicRules.ts      # Auto-generated TFSA/FHSA limits (via scripts/)
 ├── lib/
@@ -66,6 +68,14 @@ Credentials are in `.env.local` (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`).
 ## Scope
 
 Canada / British Columbia only: federal + BC tax brackets, RRIF factors, BC LIF rules, CPP/OAS modelling.
+
+## Modelling conventions
+
+- **Retirement year is half a year.** Both retire in July (`RETIREMENT_YEAR_FRACTION`). The accumulation saves through June; the engine's first row has half-year pensions, spending, LIF and growth, and its tax is the EXTRA tax on retirement income stacked on six months of salary (`debug.taxOnEmployment` is the salary's own tax).
+- **Returns are effective annual rates.** Monthly loops use `(1 + r)^(1/12) - 1`, never `r / 12`.
+- **Pension anchors are already starting cheques.** PENCAN's figure is projected to 2036; Sarah's is lifted for raises by `projectedPensionSarah`. `pensionIndexRate*` is COLA only and applies from the retirement year, never from the baseline year.
+- **OAS is 10% higher from age 75.**
+- **The Tax tab takes retirement-year incomes from the schedule row's `incomeDetail`**, so it taxes exactly what the engine pays.
 
 ## Notes
 

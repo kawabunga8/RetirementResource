@@ -45,9 +45,10 @@ describe("each pension indexes at its own rate", () => {
     expect(at(mixed)).toBeGreaterThan(at(bothOff));
     expect(at(mixed)).toBeLessThan(at(bothOn));
 
-    // Shingo's share stays flat; only Sarah's grows.
+    // Shingo's share stays flat; only Sarah's grows -- and only from
+    // retirement. Her base already includes the working-year raises.
     const last = mixed[mixed.length - 1]!;
-    const years = last.year - DEFAULT_ANCHORS.baselineYear;
+    const years = last.year - DEFAULT_VARIABLES.retirementYear;
     const expected =
       DEFAULT_ANCHORS.pensionShingo +
       SARAH * Math.pow(1.02, years);
@@ -61,10 +62,19 @@ describe("each pension indexes at its own rate", () => {
       pensionIndexRateSarah: undefined,
     });
     const last = rows[rows.length - 1]!;
-    const years = last.year - DEFAULT_ANCHORS.baselineYear;
+    const years = last.year - DEFAULT_VARIABLES.retirementYear;
     const expected =
       (DEFAULT_ANCHORS.pensionShingo + SARAH) * Math.pow(1.015, years);
     expect(last.guaranteedIncome).toBeCloseTo(expected, 2);
+  });
+
+  it("starts each pension at its quoted figure, indexing only after retirement", () => {
+    // Sarah's base is already lifted for ten years of raises. Indexing it from
+    // the baseline year as well counted those raises twice (~$61k, not ~$50k).
+    const [first, second] = run({ pensionIndexRateShingo: 0, pensionIndexRateSarah: 0.02 });
+    expect(first!.incomeDetail.pensionSarah).toBeCloseTo(SARAH / 2, 2); // half year
+    expect(second!.incomeDetail.pensionSarah).toBeCloseTo(SARAH * 1.02, 2);
+    expect(second!.incomeDetail.pensionShingo).toBeCloseTo(DEFAULT_ANCHORS.pensionShingo, 2);
   });
 
   it("ships with Shingo's pension unindexed", () => {

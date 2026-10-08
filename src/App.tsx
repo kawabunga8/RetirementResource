@@ -7,6 +7,7 @@ import {
   DEFAULT_ANCHORS,
   DEFAULT_VARIABLES,
   PENSION_SARAH_STATEMENT_YEAR,
+  WORKING_MONTHS_IN_RETIREMENT_YEAR,
   projectedPensionSarah,
   type Anchors,
   type AccountBalances,
@@ -18,12 +19,11 @@ import {
 import { loadPlan, savePlan, loadPublicRules } from "./lib/db";
 import { updateTfsaLimitsFromDb } from "./data/publicRules";
 import { updateRrifFactorsFromDb, updateBcLifMaxFromDb } from "./withdrawals/engine";
-import { TFSA_ANNUAL_LIMIT_BY_YEAR } from "./data/publicRules";
 import { computeHouseholdTax } from "./tax/v2";
-import { newRrspRoomForYear } from "./rrspRoom";
 import { getBracketTableForYear } from "./tax/tables";
 import { buildWithdrawalSchedule } from "./withdrawals/engine";
 import { incomeGrowthFactor } from "./incomeGrowth";
+import { buildAccumulationSchedule, calculateBalancesToDate, type AccumPosition, type AccumRow } from "./accumulation";
 
 function Field({
   label,
@@ -51,8 +51,9 @@ function num(v: string) {
 }
 
 function money(n: number) {
-  // Round UP to the nearest dollar
-  const rounded = Math.ceil(n);
+  // Nearest dollar. (This used to round UP, which turned $0.34 into "$1" and
+  // made totals disagree with their own parts.)
+  const rounded = Math.round(n);
   return rounded.toLocaleString(undefined, {
     maximumFractionDigits: 0,
     minimumFractionDigits: 0,
@@ -76,435 +77,12 @@ function sumMonthly(m: MonthlyContributions) {
   return m.tfsaTotal + m.fhsaShingo + m.fhsaSarah + m.rrspShingo + m.rrspSarah;
 }
 
-function calculateBalancesToDate(params: {
-  baselineYear: number;
-  baselineBalances: AccountBalances;
-  targetDateStr: string;
-  annualReturn: number;
-  fhsaContributedToDateShingo: number;
-  fhsaContributedToDateSarah: number;
-  fhsaAnnualLimit: number;
-  fhsaLifetimeCap: number;
-  monthlyFhsaShingo: number;
-  monthlyFhsaSarah: number;
-  monthlyRrspShingo: number;
-  monthlyRrspSarah: number;
-  monthlyTfsaTotal: number;
-  nonRegTaxDragRate: number;
-}): AccountBalances {
-  const targetDate = new Date(params.targetDateStr + "T00:00:00");
-  const targetYear = targetDate.getFullYear();
-  const targetMonth = targetDate.getMonth();
-
-  const monthsElapsed = Math.max(
-    0,
-    (targetYear - params.baselineYear) * 12 + targetMonth
-  );
-
-  const r = params.annualReturn / 12;
-
-  let fhsaS = params.baselineBalances.fhsaShingo;
-  let fhsaSa = params.baselineBalances.fhsaSarah;
-  let rrspS = params.baselineBalances.rrspShingo;
-  let rrspSa = params.baselineBalances.rrspSarah;
-  let tfsaS = params.baselineBalances.tfsaShingo;
-  let tfsaSa = params.baselineBalances.tfsaSarah;
-  let lira = params.baselineBalances.liraShingo;
-  let nonReg = params.baselineBalances.nonRegistered;
-
-  let roomFhsaS = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateShingo);
-  let roomFhsaSa = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateSarah);
-
-  let fhsaAnnualUsedS = 0;
-  let fhsaAnnualUsedSa = 0;
-
-  for (let m = 0; m < monthsElapsed; m++) {
-    if (m % 12 === 0) {
-      fhsaAnnualUsedS = 0;
-      fhsaAnnualUsedSa = 0;
-    }
-
-    const tfsaEach = params.monthlyTfsaTotal / 2;
-
-    let rrspContribS = params.monthlyRrspShingo;
-    let rrspContribSa = params.monthlyRrspSarah;
-
-    let fhsaContribS = params.monthlyFhsaShingo;
-    fhsaContribS = Math.min(fhsaContribS, Math.max(0, params.fhsaAnnualLimit - fhsaAnnualUsedS));
-    fhsaContribS = Math.min(fhsaContribS, roomFhsaS);
-    const overflowS = params.monthlyFhsaShingo - fhsaContribS;
-    if (overflowS > 0) rrspContribS += overflowS;
-
-    let fhsaContribSa = params.monthlyFhsaSarah;
-    fhsaContribSa = Math.min(fhsaContribSa, Math.max(0, params.fhsaAnnualLimit - fhsaAnnualUsedSa));
-    fhsaContribSa = Math.min(fhsaContribSa, roomFhsaSa);
-    const overflowSa = params.monthlyFhsaSarah - fhsaContribSa;
-    if (overflowSa > 0) rrspContribSa += overflowSa;
-
-    fhsaS += fhsaContribS;
-    fhsaSa += fhsaContribSa;
-    rrspS += rrspContribS;
-    rrspSa += rrspContribSa;
-    tfsaS += tfsaEach;
-    tfsaSa += tfsaEach;
-
-    fhsaAnnualUsedS += fhsaContribS;
-    fhsaAnnualUsedSa += fhsaContribSa;
-    roomFhsaS -= fhsaContribS;
-    roomFhsaSa -= fhsaContribSa;
-
-    fhsaS *= 1 + r;
-    fhsaSa *= 1 + r;
-    rrspS *= 1 + r;
-    rrspSa *= 1 + r;
-    tfsaS *= 1 + r;
-    tfsaSa *= 1 + r;
-    lira *= 1 + r;
-    // Non-registered growth is taxable as it is earned, so it compounds at a
-    // reduced rate. Registered accounts are unaffected.
-    nonReg *= 1 + Math.max(-1, r - Math.max(0, params.nonRegTaxDragRate) / 12);
-  }
-
-  return {
-    fhsaShingo: fhsaS,
-    fhsaSarah: fhsaSa,
-    rrspShingo: rrspS,
-    rrspSarah: rrspSa,
-    tfsaShingo: tfsaS,
-    tfsaSarah: tfsaSa,
-    liraShingo: lira,
-    nonRegistered: nonReg,
-  };
-}
 
 
 // (futureValueMonthly removed: all accounts now project through buildAccumulationSchedule)
 
 // (removed unused helper)
 
-type AccumRow = {
-  year: number;
-  fhsaContribShingo: number;
-  fhsaContribSarah: number;
-  rrspContribShingo: number;
-  rrspContribSarah: number;
-  tfsaContribTotal: number;
-  estRefundToTfsa: number;
-  endFhsaTotal: number;
-  endRrspTotal: number;
-  endTfsaTotal: number;
-  endLira: number;
-  endNonReg: number;
-  endTotal: number;
-};
-
-function buildAccumulationSchedule(params: {
-  baselineYear: number;
-  retirementYear: number;
-  annualReturn: number;
-  // starting balances
-  fhsaShingo: number;
-  fhsaSarah: number;
-  rrspShingo: number;
-  rrspSarah: number;
-  tfsaShingo: number;
-  tfsaSarah: number;
-  liraShingo: number;
-  nonRegistered: number;
-  // starting contribution room
-  tfsaRoomShingo: number;
-  tfsaRoomSarah: number;
-  rrspRoomShingo: number;
-  rrspRoomSarah: number;
-  // working income assumptions for new RRSP room
-  earnedIncomeShingo: number;
-  earnedIncomeSarah: number;
-  earnedIncomeYear: number;
-  // annual raise in working years (earned income, PA and working income)
-  incomeGrowthRate: number;
-  // RRSP annual dollar limit (indexed forward) and pension adjustments
-  rrspDollarLimit: number;
-  rrspDollarLimitYear: number;
-  pensionAdjustmentShingo: number;
-  pensionAdjustmentSarah: number;
-  // inflation, used to index the RRSP dollar limit forward
-  annualInflation: number;
-  // annual tax drag applied to non-registered growth
-  nonRegTaxDragRate: number;
-  // contributions
-  monthlyFhsaShingo: number;
-  monthlyFhsaSarah: number;
-  monthlyRrspShingo: number;
-  monthlyRrspSarah: number;
-  monthlyTfsaTotal: number;
-  // FHSA caps
-  fhsaAnnualLimit: number;
-  fhsaLifetimeCap: number;
-  fhsaContributedToDateShingo: number;
-  fhsaContributedToDateSarah: number;
-  // Refund is always projected into TFSA, except for the balancesAsOf year
-  // when tfsaIncludesRefund is true (balance already contains that deposit).
-  incomeShingo: number;
-  incomeSarah: number;
-  tfsaIncludesRefund: boolean;
-  // ISO date (YYYY-MM-DD): simulation starts from this month, skipping months
-  // already reflected in the starting balances. Defaults to Jan 1 of baselineYear.
-  balancesAsOf?: string;
-}): AccumRow[] {
-  const years = Math.max(0, params.retirementYear - params.baselineYear);
-  const totalMonths = years * 12;
-
-  // Months from Jan 1 of baselineYear to balancesAsOf (already in the balance snapshot).
-  const startMonth = (() => {
-    if (!params.balancesAsOf) return 0;
-    const d = new Date(params.balancesAsOf + "T00:00:00");
-    const elapsed = (d.getFullYear() - params.baselineYear) * 12 + d.getMonth();
-    return Math.max(0, Math.min(totalMonths, elapsed));
-  })();
-
-  // Year in which the balance snapshot was taken — refund suppressed for this year only.
-  const balancesAsOfYear = params.balancesAsOf
-    ? new Date(params.balancesAsOf + "T00:00:00").getFullYear()
-    : params.baselineYear;
-
-  const r = params.annualReturn / 12;
-
-  // balances
-  let fhsaS = params.fhsaShingo;
-  let fhsaSa = params.fhsaSarah;
-  let rrspS = params.rrspShingo;
-  let rrspSa = params.rrspSarah;
-  let tfsaS = params.tfsaShingo;
-  let tfsaSa = params.tfsaSarah;
-  let lira = params.liraShingo;
-  let nonReg = params.nonRegistered;
-
-  // contribution room trackers
-  let tfsaRoomS = Math.max(0, params.tfsaRoomShingo);
-  let tfsaRoomSa = Math.max(0, params.tfsaRoomSarah);
-  let rrspRoomS = Math.max(0, params.rrspRoomShingo);
-  let rrspRoomSa = Math.max(0, params.rrspRoomSarah);
-
-  // FHSA remaining contribution room (lifetime) from facts
-  let roomFhsaS = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateShingo);
-  let roomFhsaSa = Math.max(0, params.fhsaLifetimeCap - params.fhsaContributedToDateSarah);
-
-  // annual tracking (per calendar year)
-  let fhsaAnnualUsedS = 0;
-  let fhsaAnnualUsedSa = 0;
-  let rrspAnnualS = 0;
-  let rrspAnnualSa = 0;
-  let tfsaAnnualActual = 0;
-
-  const rows: AccumRow[] = [];
-
-  for (let m = 0; m < totalMonths - startMonth; m++) {
-    const absMonth = m + startMonth;
-    const yearIndex = Math.floor(absMonth / 12);
-    const year = params.baselineYear + yearIndex;
-    const monthInYear = absMonth % 12;
-
-    // reset annual used at Jan
-    if (monthInYear === 0) {
-      fhsaAnnualUsedS = 0;
-      fhsaAnnualUsedSa = 0;
-      rrspAnnualS = 0;
-      rrspAnnualSa = 0;
-      tfsaAnnualActual = 0;
-
-      // TFSA room increases each Jan 1 (excluding baseline snapshot year, since room is already provided as-of baseline).
-      if (year > params.baselineYear) {
-        const add = TFSA_ANNUAL_LIMIT_BY_YEAR[String(year) as keyof typeof TFSA_ANNUAL_LIMIT_BY_YEAR] ?? 0;
-        tfsaRoomS += add;
-        tfsaRoomSa += add;
-      }
-
-      // RRSP room increases each Jan 1. The real formula is
-      //   min(18% of prior-year earned income, the RRSP dollar limit)
-      //     minus last year's pension adjustment.
-      // The dollar limit is indexed to average wage growth; we approximate that
-      // with the plan's inflation assumption.
-      if (year > params.baselineYear) {
-        const common = {
-          year,
-          rrspDollarLimit: params.rrspDollarLimit,
-          rrspDollarLimitYear: params.rrspDollarLimitYear,
-          annualInflation: params.annualInflation,
-          incomeAsOfYear: params.earnedIncomeYear,
-          incomeGrowthRate: params.incomeGrowthRate,
-        };
-        rrspRoomS += newRrspRoomForYear({
-          ...common,
-          earnedIncome: params.earnedIncomeShingo,
-          pensionAdjustment: params.pensionAdjustmentShingo,
-        });
-        rrspRoomSa += newRrspRoomForYear({
-          ...common,
-          earnedIncome: params.earnedIncomeSarah,
-          pensionAdjustment: params.pensionAdjustmentSarah,
-        });
-      }
-    }
-
-    // planned TFSA split
-    const tfsaEachPlanned = params.monthlyTfsaTotal / 2;
-
-    // planned RRSP
-    let rrspContribS = params.monthlyRrspShingo;
-    let rrspContribSa = params.monthlyRrspSarah;
-
-    // FHSA Shingo with caps; overflow -> RRSP (same person)
-    let fhsaContribS = params.monthlyFhsaShingo;
-    fhsaContribS = Math.min(fhsaContribS, Math.max(0, params.fhsaAnnualLimit - fhsaAnnualUsedS));
-    fhsaContribS = Math.min(fhsaContribS, roomFhsaS);
-    const overflowS = params.monthlyFhsaShingo - fhsaContribS;
-    if (overflowS > 0) rrspContribS += overflowS;
-
-    // FHSA Sarah with caps; overflow -> RRSP (same person)
-    let fhsaContribSa = params.monthlyFhsaSarah;
-    fhsaContribSa = Math.min(
-      fhsaContribSa,
-      Math.max(0, params.fhsaAnnualLimit - fhsaAnnualUsedSa)
-    );
-    fhsaContribSa = Math.min(fhsaContribSa, roomFhsaSa);
-    const overflowSa = params.monthlyFhsaSarah - fhsaContribSa;
-    if (overflowSa > 0) rrspContribSa += overflowSa;
-
-    // Enforce RRSP room. Anything that will not fit carries on down the chain
-    // rather than disappearing: FHSA -> RRSP -> TFSA -> non-registered.
-    //
-    // This used to stop here ("contributions pause"), which meant a person
-    // whose RRSP room ran out simply stopped saving in the model. Sarah's
-    // pension adjustment exhausts her room in 2033, so the plan showed her
-    // contributing nothing at all for the last two and a half years before
-    // retirement -- about $37,200 of intended saving deleted rather than
-    // redirected. Nobody stops saving because a registered account is full.
-    const rrspSAllowed = Math.min(rrspContribS, rrspRoomS);
-    const rrspSaAllowed = Math.min(rrspContribSa, rrspRoomSa);
-    let overflowToTfsaS = rrspContribS - rrspSAllowed;
-    let overflowToTfsaSa = rrspContribSa - rrspSaAllowed;
-    rrspContribS = rrspSAllowed;
-    rrspContribSa = rrspSaAllowed;
-
-    // Apply contributions (FHSA + RRSP)
-    fhsaS += fhsaContribS;
-    fhsaSa += fhsaContribSa;
-    rrspS += rrspContribS;
-    rrspSa += rrspContribSa;
-    rrspAnnualS += rrspContribS;
-    rrspAnnualSa += rrspContribSa;
-
-    rrspRoomS -= rrspContribS;
-    rrspRoomSa -= rrspContribSa;
-
-    // TFSA contributions: the planned amount plus whatever the RRSP could not
-    // take, still capped by each person's own TFSA room.
-    const tfsaWantedS = tfsaEachPlanned + overflowToTfsaS;
-    const tfsaWantedSa = tfsaEachPlanned + overflowToTfsaSa;
-    const tfsaSAllowed = Math.min(tfsaWantedS, tfsaRoomS);
-    const tfsaSaAllowed = Math.min(tfsaWantedSa, tfsaRoomSa);
-    overflowToTfsaS = 0;
-    overflowToTfsaSa = 0;
-
-    tfsaS += tfsaSAllowed;
-    tfsaSa += tfsaSaAllowed;
-
-    tfsaRoomS -= tfsaSAllowed;
-    tfsaRoomSa -= tfsaSaAllowed;
-    tfsaAnnualActual += tfsaSAllowed + tfsaSaAllowed;
-
-    // Last stop. Non-registered has no contribution limit, so nothing is lost.
-    // It grows at the drag-reduced rate below, which is the honest cost of
-    // having run out of shelter.
-    nonReg += (tfsaWantedS - tfsaSAllowed) + (tfsaWantedSa - tfsaSaAllowed);
-
-    // update cap trackers
-    fhsaAnnualUsedS += fhsaContribS;
-    fhsaAnnualUsedSa += fhsaContribSa;
-    roomFhsaS -= fhsaContribS;
-    roomFhsaSa -= fhsaContribSa;
-
-    // growth
-    fhsaS *= 1 + r;
-    fhsaSa *= 1 + r;
-    rrspS *= 1 + r;
-    rrspSa *= 1 + r;
-    tfsaS *= 1 + r;
-    tfsaSa *= 1 + r;
-    lira *= 1 + r;
-    // Non-registered growth is taxable as it is earned, so it compounds at a
-    // reduced rate. Registered accounts are unaffected.
-    nonReg *= 1 + Math.max(-1, r - Math.max(0, params.nonRegTaxDragRate) / 12);
-
-    // record end-of-year snapshot
-    const endOfYear = monthInYear === 11;
-    if (endOfYear) {
-      // Estimate annual refund from RRSP+FHSA deductions and deposit into TFSA once per year.
-      // (v1: uses the simple tax estimator; no credits.)
-      const fhsaAnnualS = fhsaAnnualUsedS;
-      const fhsaAnnualSa = fhsaAnnualUsedSa;
-      // Actual TFSA contributions for the year (room-limited), not the plan.
-
-      const suppressRefund = params.tfsaIncludesRefund && year === balancesAsOfYear;
-      // Working income is a baseline-year figure; this year's pay includes the raises since.
-      const raise = incomeGrowthFactor({
-        asOfYear: params.baselineYear,
-        year,
-        growthRate: params.incomeGrowthRate,
-      });
-      const estRefundToTfsa = !suppressRefund
-        ? estimateTaxSavingsFromDeduction({
-            income: params.incomeShingo * raise,
-            deduction: rrspAnnualS + fhsaAnnualS,
-            taxYear: year,
-            annualInflation: params.annualInflation,
-          }) +
-          estimateTaxSavingsFromDeduction({
-            income: params.incomeSarah * raise,
-            deduction: rrspAnnualSa + fhsaAnnualSa,
-            taxYear: year,
-            annualInflation: params.annualInflation,
-          })
-        : 0;
-
-      // Deposit refund into TFSA (split 50/50) but respect TFSA room.
-      // If TFSA room is exhausted, the refund is not invested (paused) in this simplified model.
-      if (estRefundToTfsa > 0) {
-        const each = estRefundToTfsa / 2;
-        const addS = Math.min(each, tfsaRoomS);
-        const addSa = Math.min(each, tfsaRoomSa);
-        tfsaS += addS;
-        tfsaSa += addSa;
-        tfsaRoomS -= addS;
-        tfsaRoomSa -= addSa;
-      }
-
-      const endFhsaTotal = fhsaS + fhsaSa;
-      const endRrspTotal = rrspS + rrspSa;
-      const endTfsaTotal = tfsaS + tfsaSa;
-      const endNonReg = nonReg;
-      const endTotal = endFhsaTotal + endRrspTotal + endTfsaTotal + lira + endNonReg;
-
-      rows.push({
-        year,
-        fhsaContribShingo: fhsaAnnualUsedS,
-        fhsaContribSarah: fhsaAnnualUsedSa,
-        rrspContribShingo: rrspAnnualS,
-        rrspContribSarah: rrspAnnualSa,
-        tfsaContribTotal: tfsaAnnualActual,
-        estRefundToTfsa,
-        endFhsaTotal,
-        endRrspTotal,
-        endTfsaTotal,
-        endLira: lira,
-        endNonReg,
-        endTotal,
-      });
-    }
-  }
-
-  return rows;
-}
 
 function toRealDollars(nominal: number, annualInflation: number, years: number) {
   if (years <= 0) return nominal;
@@ -526,50 +104,6 @@ function clamp01(n: number) {
   return Math.max(0, Math.min(1, n));
 }
 
-// (local progressiveTax removed: all tax now goes through the v2 engine)
-
-/**
- * Combined federal + BC tax on employment income for a single person, using the
- * SAME v2 engine (and the same year-indexed tables) as the rest of the model.
- *
- * This previously used a hardcoded copy of the 2024 brackets, which meant the
- * projected RRSP refund was computed at stale rates including the old 15%
- * bottom rate (now 14%).
- */
-function estimateTaxBCCanada(income: number, taxYear: number, annualInflation: number) {
-  const none = {
-    employment: 0, pensionDb: 0, rrspWithdrawal: 0, rrifWithdrawal: 0,
-    lifWithdrawal: 0, cpp: 0, oas: 0, tfsaWithdrawal: 0,
-  };
-  const res = computeHouseholdTax({
-    taxYear,
-    annualInflation,
-    // Working-age single filer: BPA only, no age amount, no pension credit.
-    spouseA: { name: "person", age: 45, incomes: { ...none, employment: Math.max(0, income) } },
-    spouseB: { name: "unused", age: 45, incomes: { ...none } },
-    credits: { useBpa: true, useAgeAmount: false, usePensionCredit: false },
-    pensionSplitting: { enabled: false, optimize: false, step: 100 },
-  });
-  return res.spouseA.totalTax;
-}
-
-function estimateTaxSavingsFromDeduction(params: {
-  income: number;
-  deduction: number;
-  taxYear: number;
-  annualInflation: number;
-}) {
-  const deduction = Math.max(0, params.deduction);
-  if (deduction <= 0) return 0;
-
-  const before = estimateTaxBCCanada(params.income, params.taxYear, params.annualInflation);
-  const after = estimateTaxBCCanada(
-    Math.max(0, params.income - deduction),
-    params.taxYear,
-    params.annualInflation
-  );
-  return Math.max(0, before - after);
-}
 
 export default function App() {
   const [user, setUser] = useState<{ id: string; email?: string } | null>(null);
@@ -793,9 +327,30 @@ export default function App() {
       incomeSarah: vars.tax.workingIncomeSarah,
       tfsaIncludesRefund: vars.tfsaIncludesRefund ?? false,
       balancesAsOf: todayStr,
+      workingMonthsInRetirementYear: WORKING_MONTHS_IN_RETIREMENT_YEAR,
     });
 
     const lastAccum = accumulationSchedule[accumulationSchedule.length - 1];
+
+    // Where things stand today: balances grown to today, room as entered.
+    const todayPosition: AccumPosition = {
+      balances: todayBalances,
+      room: {
+        tfsaShingo: Math.max(0, vars.tfsaRoomShingo),
+        tfsaSarah: Math.max(0, vars.tfsaRoomSarah),
+        rrspShingo: Math.max(0, vars.rrspRoomShingo),
+        rrspSarah: Math.max(0, vars.rrspRoomSarah),
+        fhsaShingo: Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedShingo),
+        fhsaSarah: Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah),
+      },
+    };
+
+    // TFSA room left on the day they retire, from the same simulation that
+    // used it up. (This was a hand-entered figure, last worked out for a
+    // January 2026 snapshot, so it drifted away from what the plan saved.)
+    const tfsaRoomAtRetirement = lastAccum
+      ? lastAccum.end.room.tfsaShingo + lastAccum.end.room.tfsaSarah
+      : vars.tfsaRoomShingo + vars.tfsaRoomSarah;
 
     // Non-registered comes from the same accumulation loop as every other
     // account. (It used to be projected separately with futureValueMonthly,
@@ -834,9 +389,10 @@ export default function App() {
       anchors,
       retirementYear: vars.retirementYear,
       retirementBalances,
+      tfsaRoomAtRetirement,
     });
 
-return {
+    return {
       yearsToRetirement,
       monthsToRetirement,
       baselineTotal,
@@ -845,6 +401,8 @@ return {
       retirementBalances,
       totalNominalAtRetirement,
       totalRealAtRetirement,
+      tfsaRoomAtRetirement,
+      todayPosition,
       schedule,
     };
   }, [vars, anchors, baselineTotal, monthlyTotal]);
@@ -873,16 +431,23 @@ return {
       });
       const schedRow = inRetirement ? model.schedule.find((r) => r.year === year) : undefined;
 
-      const pensionShingo = indexNominal(anchors.pensionShingo);
-      const pensionSarah = indexNominal(projectedPensionSarah(anchors, v));
+      // In retirement years, take each person's pension, CPP, OAS (and the
+      // retirement year's half-year of salary) straight from the withdrawal
+      // engine, so the Tax tab taxes exactly what the plan pays. The local
+      // estimates below are only a fallback for a year the schedule lacks;
+      // they used to be the only source, and indexed Shingo's fixed pension
+      // at CPI and Sarah's from 2026 rather than from retirement.
+      const d = schedRow?.incomeDetail;
+      const pensionShingo = d ? d.pensionShingo : anchors.pensionShingo;
+      const pensionSarah = d ? d.pensionSarah : projectedPensionSarah(anchors, v);
 
       const ageShingo = year - anchors.shingoBirthYear;
       const ageSarah = year - anchors.sarahBirthYear;
 
-      const cppShingo = ageShingo >= v.cppStartAge ? indexNominal(v.withdrawals.cppShingoAnnual) : 0;
-      const cppSarah = ageSarah >= v.cppStartAge ? indexNominal(v.withdrawals.cppSarahAnnual) : 0;
-      const oasShingo = ageShingo >= v.oasStartAge ? indexNominal(v.withdrawals.oasShingoAnnual) : 0;
-      const oasSarah = ageSarah >= v.oasStartAge ? indexNominal(v.withdrawals.oasSarahAnnual) : 0;
+      const cppShingo = d ? d.cppShingo : ageShingo >= v.cppStartAge ? indexNominal(v.withdrawals.cppShingoAnnual) : 0;
+      const cppSarah = d ? d.cppSarah : ageSarah >= v.cppStartAge ? indexNominal(v.withdrawals.cppSarahAnnual) : 0;
+      const oasShingo = d ? d.oasShingo : ageShingo >= v.oasStartAge ? indexNominal(v.withdrawals.oasShingoAnnual) : 0;
+      const oasSarah = d ? d.oasSarah : ageSarah >= v.oasStartAge ? indexNominal(v.withdrawals.oasSarahAnnual) : 0;
 
       const rrifHousehold = schedRow ? schedRow.withdrawals.rrsp : 0;
       const lifShingo = schedRow ? schedRow.withdrawals.lira : 0;
@@ -906,8 +471,8 @@ return {
           ...v.tax,
           taxYear: year,
 
-          shingoEmployment: inRetirement ? 0 : v.tax.workingIncomeShingo * raise,
-          sarahEmployment: inRetirement ? 0 : v.tax.workingIncomeSarah * raise,
+          shingoEmployment: inRetirement ? (d?.employmentShingo ?? 0) : v.tax.workingIncomeShingo * raise,
+          sarahEmployment: inRetirement ? (d?.employmentSarah ?? 0) : v.tax.workingIncomeSarah * raise,
 
           shingoPensionDb: inRetirement ? pensionShingo : 0,
           sarahPensionDb: inRetirement ? pensionSarah : 0,
@@ -1004,7 +569,12 @@ return {
   }
 
   const timelineStart = anchors.baselineYear;
-  const timelineEnd = anchors.shingoBirthYear + vars.phaseAges.endAge;
+  // The plan runs until the YOUNGER spouse reaches the end age, so it ends when
+  // Sarah turns 90, not Shingo. Read it off the schedule so the two can't drift.
+  const lastScheduleRow = model.schedule[model.schedule.length - 1];
+  const timelineEnd =
+    lastScheduleRow?.year ??
+    Math.max(anchors.shingoBirthYear, anchors.sarahBirthYear) + vars.phaseAges.endAge;
   const nowYear = new Date().getFullYear();
   const tlPct = (y: number) =>
     `${Math.max(0, Math.min(100, ((y - timelineStart) / (timelineEnd - timelineStart)) * 100)).toFixed(2)}%`;
@@ -1099,7 +669,9 @@ return {
           </div>
           <div style={{ position: "absolute", left: "100%", top: 14, transform: "translateX(-50%)", textAlign: "center", whiteSpace: "nowrap" }}>
             <div style={{ fontSize: 13, fontWeight: 600 }}>{timelineEnd}</div>
-            <div style={{ fontSize: 11, opacity: 0.75 }}>Plan ends</div>
+            <div style={{ fontSize: 11, opacity: 0.75 }}>
+              Plan ends{lastScheduleRow ? ` · Sarah ${lastScheduleRow.ageSarah}` : ""}
+            </div>
           </div>
         </div>
       </div>
@@ -1364,10 +936,11 @@ return {
 
 
         <section id="retirement-balances" className="card">
-          <h2>Starting balances at retirement (projected)</h2>
+          <h2>Starting balances at retirement (projected, 1 July {vars.retirementYear})</h2>
           <p style={{ marginTop: 0, opacity: 0.85, fontSize: 13 }}>
-            This is calculated by simulating contributions month-by-month from {anchors.baselineYear} to {vars.retirementYear},
-            including FHSA annual/lifetime caps and redirecting any capped FHSA contribution into RRSP.
+            This is calculated by simulating contributions month-by-month from today to the end of June {vars.retirementYear},
+            including FHSA annual/lifetime caps, redirecting capped FHSA contributions into RRSP, and anything the RRSP
+            can't take into TFSA, then non-registered.
           </p>
           <ul>
             <li>
@@ -1443,7 +1016,14 @@ return {
               <tbody>
                 {model.accumulationSchedule.map((r) => (
                   <tr key={r.year}>
-                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>{r.year}</td>
+                    <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" }}>
+                      {r.year}
+                      {r.months < 12 ? (
+                        <div style={{ fontSize: 11, opacity: 0.7 }}>
+                          {r.year === vars.retirementYear ? `Jan–${["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][r.months]}` : `last ${r.months} mo`}
+                        </div>
+                      ) : null}
+                    </td>
                     <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.fhsaContribShingo, r.year)}</td>
                     <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.fhsaContribSarah, r.year)}</td>
                     <td style={{ textAlign: "right", padding: "6px 8px", borderBottom: "1px solid #f1f5f9" }}>${moneyY(r.rrspContribShingo, r.year)}</td>
@@ -1722,188 +1302,89 @@ return {
                 </div>
 
                 {(() => {
-                  const year = currentSnapshotYear;
-                  const y0 = anchors.baselineYear;
-                  const monthsToYear = Math.max(0, (year - y0) * 12);
-                  const r = vars.expectedNominalReturn / 12;
+                  // Every figure here comes from the SAME accumulation the
+                  // Overview uses. This used to re-run its own copy of the
+                  // monthly loop, which had fallen behind it: no refunds into
+                  // the TFSA, no RRSP overflow, no new TFSA room after 2026,
+                  // and it started from 1 January even though the balances are
+                  // dated today. In 2036 it came out ~$66,000 below the Overview.
+                  const rows = model.accumulationSchedule;
+                  const lastRow = rows[rows.length - 1];
+                  const AT_RETIREMENT = 0;
 
-                  // balances
-                  let fhsaS = vars.balances.fhsaShingo;
-                  let fhsaSa = vars.balances.fhsaSarah;
-                  let rrspS = vars.balances.rrspShingo;
-                  let rrspSa = vars.balances.rrspSarah;
-                  let tfsaS = vars.balances.tfsaShingo;
-                  let tfsaSa = vars.balances.tfsaSarah;
-                  let lira = vars.balances.liraShingo;
-                  let nonReg = vars.balances.nonRegistered;
-
-                  // rooms
-                  let tfsaRoomS = Math.max(0, vars.tfsaRoomShingo);
-                  let tfsaRoomSa = Math.max(0, vars.tfsaRoomSarah);
-                  let rrspRoomS = Math.max(0, vars.rrspRoomShingo);
-                  let rrspRoomSa = Math.max(0, vars.rrspRoomSarah);
-
-                  let roomFhsaS = Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedShingo);
-                  let roomFhsaSa = Math.max(0, vars.fhsa.lifetimeCap - vars.fhsa.contributedSarah);
-
-                  let fhsaAnnualUsedS = 0;
-                  let fhsaAnnualUsedSa = 0;
-
-                  for (let m = 0; m < monthsToYear; m++) {
-                    const yearIndex = Math.floor(m / 12);
-                    const thisYear = y0 + yearIndex;
-
-                    if (m % 12 === 0) {
-                      fhsaAnnualUsedS = 0;
-                      fhsaAnnualUsedSa = 0;
-
-                      if (thisYear > y0) {
-                        const addTfsa = TFSA_ANNUAL_LIMIT_BY_YEAR[String(thisYear) as keyof typeof TFSA_ANNUAL_LIMIT_BY_YEAR] ?? 0;
-                        tfsaRoomS += addTfsa;
-                        tfsaRoomSa += addTfsa;
-
-                        const rrspRoomArgs = {
-                          year: thisYear,
-                          incomeAsOfYear: vars.earnedIncomeYear ?? 2025,
-                          incomeGrowthRate: vars.incomeGrowthRate ?? 0.02,
-                          rrspDollarLimit: vars.rrspDollarLimit ?? 33810,
-                          rrspDollarLimitYear: vars.rrspDollarLimitYear ?? 2026,
-                          annualInflation: vars.expectedInflation,
-                        };
-                        rrspRoomS += newRrspRoomForYear({
-                          ...rrspRoomArgs,
-                          earnedIncome: vars.earnedIncomeShingo,
-                          pensionAdjustment: vars.pensionAdjustmentShingo ?? 0,
-                        });
-                        rrspRoomSa += newRrspRoomForYear({
-                          ...rrspRoomArgs,
-                          earnedIncome: vars.earnedIncomeSarah,
-                          pensionAdjustment: vars.pensionAdjustmentSarah ?? 0,
-                        });
-                      }
+                  type Point = { key: number; label: string; note: string; dollarsYear: number; pos: AccumPosition };
+                  const points: Point[] = [
+                    {
+                      key: nowYear,
+                      label: "Today",
+                      note: `Today's estimate (${today.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}): your balances grown to today, and your room as entered.`,
+                      dollarsYear: nowYear,
+                      pos: model.todayPosition,
+                    },
+                  ];
+                  for (const r of rows) {
+                    if (r.year > nowYear && r.startOfYear) {
+                      points.push({
+                        key: r.year,
+                        label: `1 Jan ${r.year}`,
+                        note: `Estimate for 1 January ${r.year}: after that year's new TFSA and RRSP room is added, before any ${r.year} contributions.`,
+                        dollarsYear: r.year,
+                        pos: r.startOfYear,
+                      });
                     }
-
-                    const tfsaEachPlanned = vars.monthly.tfsaTotal / 2;
-
-                    let rrspContribS = vars.monthly.rrspShingo;
-                    let rrspContribSa = vars.monthly.rrspSarah;
-
-                    // FHSA with caps; overflow -> RRSP
-                    let fhsaContribS = vars.monthly.fhsaShingo;
-                    fhsaContribS = Math.min(fhsaContribS, Math.max(0, vars.fhsa.annualLimit - fhsaAnnualUsedS));
-                    fhsaContribS = Math.min(fhsaContribS, roomFhsaS);
-                    const overflowS = vars.monthly.fhsaShingo - fhsaContribS;
-                    if (overflowS > 0) rrspContribS += overflowS;
-
-                    let fhsaContribSa = vars.monthly.fhsaSarah;
-                    fhsaContribSa = Math.min(fhsaContribSa, Math.max(0, vars.fhsa.annualLimit - fhsaAnnualUsedSa));
-                    fhsaContribSa = Math.min(fhsaContribSa, roomFhsaSa);
-                    const overflowSa = vars.monthly.fhsaSarah - fhsaContribSa;
-                    if (overflowSa > 0) rrspContribSa += overflowSa;
-
-                    // enforce RRSP room
-                    rrspContribS = Math.min(rrspContribS, rrspRoomS);
-                    rrspContribSa = Math.min(rrspContribSa, rrspRoomSa);
-
-                    fhsaS += fhsaContribS;
-                    fhsaSa += fhsaContribSa;
-                    rrspS += rrspContribS;
-                    rrspSa += rrspContribSa;
-
-                    rrspRoomS -= rrspContribS;
-                    rrspRoomSa -= rrspContribSa;
-
-                    // enforce TFSA room
-                    const tfsaSAllowed = Math.min(tfsaEachPlanned, tfsaRoomS);
-                    const tfsaSaAllowed = Math.min(tfsaEachPlanned, tfsaRoomSa);
-                    tfsaS += tfsaSAllowed;
-                    tfsaSa += tfsaSaAllowed;
-                    tfsaRoomS -= tfsaSAllowed;
-                    tfsaRoomSa -= tfsaSaAllowed;
-
-                    fhsaAnnualUsedS += fhsaContribS;
-                    fhsaAnnualUsedSa += fhsaContribSa;
-                    roomFhsaS -= fhsaContribS;
-                    roomFhsaSa -= fhsaContribSa;
-
-                    // growth
-                    fhsaS *= 1 + r;
-                    fhsaSa *= 1 + r;
-                    rrspS *= 1 + r;
-                    rrspSa *= 1 + r;
-                    tfsaS *= 1 + r;
-                    tfsaSa *= 1 + r;
-                    lira *= 1 + r;
-                    nonReg *= 1 + r;
                   }
-
-                  // Add new room for the selected year (Jan 1 of that year)
-                  if (year > y0) {
-                    const addTfsa = TFSA_ANNUAL_LIMIT_BY_YEAR[String(year) as keyof typeof TFSA_ANNUAL_LIMIT_BY_YEAR] ?? 0;
-                    tfsaRoomS += addTfsa;
-                    tfsaRoomSa += addTfsa;
-
-                    const rrspRoomArgs = {
-                      year,
-                      incomeAsOfYear: vars.earnedIncomeYear ?? 2025,
-                      incomeGrowthRate: vars.incomeGrowthRate ?? 0.02,
-                      rrspDollarLimit: vars.rrspDollarLimit ?? 33810,
-                      rrspDollarLimitYear: vars.rrspDollarLimitYear ?? 2026,
-                      annualInflation: vars.expectedInflation,
-                    };
-                    rrspRoomS += newRrspRoomForYear({
-                      ...rrspRoomArgs,
-                      earnedIncome: vars.earnedIncomeShingo,
-                      pensionAdjustment: vars.pensionAdjustmentShingo ?? 0,
-                    });
-                    rrspRoomSa += newRrspRoomForYear({
-                      ...rrspRoomArgs,
-                      earnedIncome: vars.earnedIncomeSarah,
-                      pensionAdjustment: vars.pensionAdjustmentSarah ?? 0,
+                  if (lastRow) {
+                    points.push({
+                      key: AT_RETIREMENT,
+                      label: `Retirement (Jul ${vars.retirementYear})`,
+                      note: `At retirement, 1 July ${vars.retirementYear}: the balances the withdrawal plan starts from.`,
+                      dollarsYear: vars.retirementYear,
+                      pos: lastRow.end,
                     });
                   }
 
+                  const point = points.find((p) => p.key === currentSnapshotYear) ?? points[0]!;
+                  const b = point.pos.balances;
+                  const room = point.pos.room;
+                  const year = point.dollarsYear;
                   const totals = {
-                    fhsa: fhsaS + fhsaSa,
-                    rrsp: rrspS + rrspSa,
-                    tfsa: tfsaS + tfsaSa,
-                    lira,
-                    nonReg,
+                    fhsa: b.fhsaShingo + b.fhsaSarah,
+                    rrsp: b.rrspShingo + b.rrspSarah,
+                    tfsa: b.tfsaShingo + b.tfsaSarah,
+                    lira: b.liraShingo,
+                    nonReg: b.nonRegistered,
                   };
                   const grand = totals.fhsa + totals.rrsp + totals.tfsa + totals.lira + totals.nonReg;
-
-                  const years: number[] = [];
-                  for (let y = y0; y <= vars.retirementYear; y++) years.push(y);
 
                   return (
                     <div style={{ marginTop: 12, padding: 10, border: "1px solid #e5e7eb", background: "#f8fafc", borderRadius: 10 }}>
                       <div className="selectRow" style={{ marginTop: 0 }}>
-                        <Field label="Snapshot year">
+                        <Field label="Snapshot">
                           <select
                             className="ageInput"
-                            value={currentSnapshotYear}
+                            value={point.key}
                             onChange={(e) => setCurrentSnapshotYear(num(e.target.value))}
-                            style={{ minWidth: 120, width: 120 }}
+                            style={{ minWidth: 170, width: 170 }}
                           >
-                            {years.map((y) => (
-                              <option key={y} value={y}>
-                                {y}
+                            {points.map((p) => (
+                              <option key={p.key} value={p.key}>
+                                {p.label}
                               </option>
                             ))}
                           </select>
                         </Field>
                         <div style={{ fontSize: 12, opacity: 0.75, alignSelf: "end", paddingBottom: 2 }}>
-                          Balances + rooms shown as estimates at the start of {year} (includes new room added for {year}).
+                          {point.note}
                         </div>
                       </div>
 
                       <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 12, marginTop: 8 }}>
-                        <div>TFSA room S: <strong>${money(Math.round(tfsaRoomS))}</strong></div>
-                        <div>TFSA room Sa: <strong>${money(Math.round(tfsaRoomSa))}</strong></div>
-                        <div>RRSP room S: <strong>${money(Math.round(rrspRoomS))}</strong></div>
-                        <div>RRSP room Sa: <strong>${money(Math.round(rrspRoomSa))}</strong></div>
-                        <div>FHSA room S: <strong>${money(Math.round(roomFhsaS))}</strong></div>
-                        <div>FHSA room Sa: <strong>${money(Math.round(roomFhsaSa))}</strong></div>
+                        <div>TFSA room S: <strong>${moneyY(room.tfsaShingo, year)}</strong></div>
+                        <div>TFSA room Sa: <strong>${moneyY(room.tfsaSarah, year)}</strong></div>
+                        <div>RRSP room S: <strong>${moneyY(room.rrspShingo, year)}</strong></div>
+                        <div>RRSP room Sa: <strong>${moneyY(room.rrspSarah, year)}</strong></div>
+                        <div>FHSA room S: <strong>${moneyY(room.fhsaShingo, year)}</strong></div>
+                        <div>FHSA room Sa: <strong>${moneyY(room.fhsaSarah, year)}</strong></div>
                       </div>
 
                       <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 12, marginTop: 8 }}>
@@ -2893,7 +2374,7 @@ return {
                 vars.withdrawals.rollFhsaIntoRrspAtRetirement
                   ? "FHSA rolls into RRSP"
                   : "FHSA kept separate"
-              } · TFSA room $${money(vars.withdrawals.tfsaRoomAtRetirement)}`}
+              } · TFSA room $${money(model.tfsaRoomAtRetirement)}`}
               onClick={() => setSettingsPanel("accounts")}
             />
             <SettingsButton
@@ -3081,43 +2562,15 @@ return {
               </select>
             </Field>
 
-            <Field label={"TFSA room @ retirement (household, $)\n(used for surplus routing)"}>
-              <input
-                className="moneyInputLg"
-                type="number"
-                value={vars.withdrawals.tfsaRoomAtRetirement}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    withdrawals: {
-                      ...v.withdrawals,
-                      tfsaRoomAtRetirement: num(e.target.value),
-                    },
-                  }))
-                }
-              />
-            </Field>
-
-            <Field label={"New TFSA room per year\n(household, $/yr)"}>
-              <input
-                className="moneyInputSm"
-                type="number"
-                value={vars.withdrawals.tfsaNewRoomPerYear}
-                onChange={(e) =>
-                  setVars((v) => ({
-                    ...v,
-                    withdrawals: {
-                      ...v.withdrawals,
-                      tfsaNewRoomPerYear: num(e.target.value),
-                    },
-                  }))
-                }
-              />
-            </Field>
-
-            <div style={{ fontSize: 12, opacity: 0.75, alignSelf: "end" }}>
-              Surplus cash (e.g. from forced RRIF withdrawals) is invested into TFSA
-              until this room is used up, then routed to Non-registered.
+            <div style={{ fontSize: 13, alignSelf: "end", lineHeight: 1.5 }}>
+              TFSA room at retirement (household):{" "}
+              <strong>${moneyY(model.tfsaRoomAtRetirement, vars.retirementYear)}</strong>
+              <div style={{ fontSize: 12, opacity: 0.75 }}>
+                Worked out from your room today, the new room each January (the TFSA limit
+                indexed to inflation, rounded to $500 as CRA does) and everything the plan puts
+                in before you retire. Surplus cash in retirement goes into the TFSA until the
+                room is used up, then to non-registered. New room keeps arriving each January.
+              </div>
             </div>
           </div>
           </Modal>

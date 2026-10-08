@@ -33,7 +33,6 @@ describe("withdrawal engine (after-tax targets, tax v2)", () => {
       avoidOasClawback: false,
       forceLifFromRetirement: false,
       tfsaRoomAtRetirement: 0,
-      tfsaNewRoomPerYear: 0,
     };
 
     vars.spending = {
@@ -77,7 +76,6 @@ describe("withdrawal engine (after-tax targets, tax v2)", () => {
       forceLifFromRetirement: true,
       lifMode: "min",
       tfsaRoomAtRetirement: 50_000,
-      tfsaNewRoomPerYear: 0,
     };
 
     vars.spending = {
@@ -128,7 +126,6 @@ describe("withdrawal engine (after-tax targets, tax v2)", () => {
       avoidOasClawback: true,
       forceLifFromRetirement: false,
       tfsaRoomAtRetirement: 0,
-      tfsaNewRoomPerYear: 0,
       // Big benefits so the guardrail is relevant
       oasShingoAnnual: 11_000,
       oasSarahAnnual: 11_000,

@@ -6,7 +6,9 @@ import {
   effectiveOasStartAge,
 } from "../benefits";
 import type { Anchors, LifMode, Variables, WithdrawalOrder } from "../planDefaults";
-import { projectedPensionSarah } from "../planDefaults";
+import { projectedPensionSarah, RETIREMENT_YEAR_FRACTION } from "../planDefaults";
+import { incomeGrowthFactor } from "../incomeGrowth";
+import { tfsaLimitForYear } from "../tfsaRoom";
 
 export type RetirementBalances = {
   fhsa: number;
@@ -32,7 +34,15 @@ export type WithdrawalDebug = {
   // Tax outputs
   taxableIncomeShingo: number;
   taxableIncomeSarah: number;
+  /**
+   * Tax on this year's retirement income. In the retirement year that income
+   * sits on top of six months of salary, so this is the EXTRA tax the
+   * household pays because of it; the salary's own tax is paid out of the
+   * salary, as in every working year.
+   */
   tax: number;
+  /** Tax the retirement year's salary would attract on its own (0 in later years). */
+  taxOnEmployment: number;
   oasClawbackShingo: number;
   oasClawbackSarah: number;
 
@@ -71,6 +81,18 @@ export type WithdrawalDebug = {
   shortfallAfterTax: number;
 };
 
+/** Each spouse's non-withdrawal income for the year, nominal. */
+export type ScheduleIncomeDetail = {
+  employmentShingo: number;
+  employmentSarah: number;
+  pensionShingo: number;
+  pensionSarah: number;
+  cppShingo: number;
+  cppSarah: number;
+  oasShingo: number;
+  oasSarah: number;
+};
+
 export type WithdrawalScheduleRow = {
   year: number;
   ageShingo: number;
@@ -80,6 +102,8 @@ export type WithdrawalScheduleRow = {
   targetAfterTaxSpending: number; // nominal
   guaranteedIncome: number; // nominal
   benefitsIncome: number; // nominal
+  /** Who receives which pension, CPP, OAS and (retirement year) salary. */
+  incomeDetail: ScheduleIncomeDetail;
 
   withdrawals: WithdrawalSources;
 
@@ -335,15 +359,19 @@ const FHSA_SHINGO_START_YEAR = 2024;
 const FHSA_MAX_YEARS = 15;
 const FHSA_SHINGO_FORCE_ROLL_YEAR = FHSA_SHINGO_START_YEAR + FHSA_MAX_YEARS; // 2039
 
-// Share of the retirement year spent retired. Both spouses retire in July, so
-// income and spending in that year cover July-December only.
-const RETIREMENT_YEAR_FRACTION = 0.5;
+/** OAS rises 10% permanently from the year the recipient turns 75 (since July 2022). */
+const OAS_AGE_75_INCREASE = 0.1;
 
 export function buildWithdrawalSchedule(params: {
   vars: Variables;
   anchors: Anchors;
   retirementYear: number;
   retirementBalances: RetirementBalances;
+  /**
+   * Household TFSA room on the day retirement starts, from the accumulation.
+   * Omit to fall back to the hand-entered vars.withdrawals.tfsaRoomAtRetirement.
+   */
+  tfsaRoomAtRetirement?: number;
 }) {
   const { vars, anchors } = params;
 
@@ -381,7 +409,10 @@ export function buildWithdrawalSchedule(params: {
     const rows: WithdrawalScheduleRow[] = [];
 
     let balances: RetirementBalances = { ...params.retirementBalances };
-    let tfsaRoom = Math.max(0, vars.withdrawals.tfsaRoomAtRetirement);
+    let tfsaRoom = Math.max(
+      0,
+      params.tfsaRoomAtRetirement ?? vars.withdrawals.tfsaRoomAtRetirement
+    );
 
     for (let i = 0; i < yearsInPlan; i++) {
       const year = params.retirementYear + i;
@@ -405,8 +436,10 @@ export function buildWithdrawalSchedule(params: {
         };
       }
 
-      // TFSA room creation during retirement (household)
-      tfsaRoom += Math.max(0, vars.withdrawals.tfsaNewRoomPerYear);
+      // New TFSA room each 1 January, at the indexed annual limit for each of
+      // them. The retirement year's own room arrived in January, while they
+      // were still working, so it is already in the room carried in.
+      if (i > 0) tfsaRoom += 2 * tfsaLimitForYear(year, vars.expectedInflation);
 
       const ageShingo = retireAgeShingo + i;
       const ageSarah = retireAgeSarah + i;
@@ -436,15 +469,25 @@ export function buildWithdrawalSchedule(params: {
         yearsFromBaseline,
       });
 
+      // Both pension figures are already what the cheque will be when it
+      // starts: PENCAN's is projected to 2036 with raises, and Sarah's is her
+      // statement lifted for raises by projectedPensionSarah. Indexation (the
+      // COLA) therefore applies only from retirement on.
+      //
+      // This used to index from the baseline year, which grew Sarah's pension
+      // by another 2%/yr for the ten working years on top of the raise
+      // adjustment -- counting her raises twice and starting her pension at
+      // about $61,000 instead of $50,000.
+      const yearsRetired = year - params.retirementYear;
       const pensionShingoNominal = yearFraction * nominalFromRealBase({
         amountReal: anchors.pensionShingo,
         annualIndexRate: pensionIndexShingo,
-        yearsFromBaseline,
+        yearsFromBaseline: yearsRetired,
       });
       const pensionSarahNominal = yearFraction * nominalFromRealBase({
         amountReal: pensionSarahBase,
         annualIndexRate: pensionIndexSarah,
-        yearsFromBaseline,
+        yearsFromBaseline: yearsRetired,
       });
       const guaranteedIncome = pensionShingoNominal + pensionSarahNominal;
 
@@ -455,10 +498,50 @@ export function buildWithdrawalSchedule(params: {
           ? yearFraction * nominalFromRealBase({ amountReal, annualIndexRate: indexRate, yearsFromBaseline })
           : 0;
 
+      const oasAt = (age: number) => (age >= 75 ? 1 + OAS_AGE_75_INCREASE : 1);
       const cppShingoNominal = benefitNominal(cppShingoReal, ageShingo >= cppStartAge);
       const cppSarahNominal = benefitNominal(cppSarahReal, ageSarah >= cppStartAge);
-      const oasShingoNominal = benefitNominal(oasShingoReal, ageShingo >= oasStartAge);
-      const oasSarahNominal = benefitNominal(oasSarahReal, ageSarah >= oasStartAge);
+      const oasShingoNominal = oasAt(ageShingo) * benefitNominal(oasShingoReal, ageShingo >= oasStartAge);
+      const oasSarahNominal = oasAt(ageSarah) * benefitNominal(oasSarahReal, ageSarah >= oasStartAge);
+
+      // Salary for the months of the retirement year still worked. It funds
+      // January-June spending and saving itself (as in every working year), so
+      // it is not cash for the plan -- but the retirement income below is taxed
+      // on top of it, at their working-year marginal rates.
+      const workedShare = 1 - yearFraction;
+      const employmentNominal = (workingIncome: number) =>
+        workedShare > 0
+          ? workingIncome *
+            workedShare *
+            incomeGrowthFactor({
+              asOfYear: anchors.baselineYear,
+              year,
+              growthRate: vars.incomeGrowthRate ?? 0,
+            })
+          : 0;
+      const employmentShingo = employmentNominal(vars.tax.workingIncomeShingo);
+      const employmentSarah = employmentNominal(vars.tax.workingIncomeSarah);
+
+      const taxCredits = {
+        useBpa: vars.tax.useBpa,
+        useAgeAmount: vars.tax.useAgeAmount,
+        usePensionCredit: vars.tax.usePensionCredit,
+      };
+      const noIncome = {
+        employment: 0, pensionDb: 0, rrspWithdrawal: 0, rrifWithdrawal: 0,
+        lifWithdrawal: 0, cpp: 0, oas: 0, tfsaWithdrawal: 0,
+      };
+      const taxOnEmployment =
+        employmentShingo + employmentSarah > 0
+          ? computeHouseholdTax({
+              taxYear: year,
+              annualInflation: vars.expectedInflation,
+              spouseA: { name: "Shingo", age: ageShingo, incomes: { ...noIncome, employment: employmentShingo } },
+              spouseB: { name: "Sarah", age: ageSarah, incomes: { ...noIncome, employment: employmentSarah } },
+              credits: taxCredits,
+              pensionSplitting: { enabled: false, optimize: false, step: 500 },
+            }).household.totalTax
+          : 0;
 
       const benefitsIncome =
         cppShingoNominal + cppSarahNominal + oasShingoNominal + oasSarahNominal;
@@ -481,16 +564,19 @@ export function buildWithdrawalSchedule(params: {
       // first mandatory minimum falls in the year you turn 72. That is the law,
       // not a planning preference, so it applies regardless of the toggle.
       const lifMandatory = ageShingo >= MANDATORY_MIN_START_AGE;
+      // In the retirement year the LIF is open for six months, and BC prorates
+      // the first year's maximum by the months remaining; scale min and plan
+      // the same way so the half year is not funded with a full year's LIF.
       const lifMinRequired =
-        vars.withdrawals.forceLifFromRetirement || lifMandatory ? balances.lira * lifMinF : 0;
+        vars.withdrawals.forceLifFromRetirement || lifMandatory ? yearFraction * balances.lira * lifMinF : 0;
       // BC LIF maximum annual withdrawal is the greater of:
       // - the preceding year's investment return in the LIF (planning approx: prior balance * expectedNominalReturn)
       // - beginning-of-year balance × BC max percentage table
       const prevYearInvestmentReturn = i === 0 ? 0 : startBalances.lira * Math.max(0, vars.expectedNominalReturn);
-      const lifMaxAllowed = Math.max(prevYearInvestmentReturn, balances.lira * bcLifMaxPct(ageShingo));
+      const lifMaxAllowed = yearFraction * Math.max(prevYearInvestmentReturn, balances.lira * bcLifMaxPct(ageShingo));
 
       const lifPlanned = vars.withdrawals.forceLifFromRetirement
-        ? balances.lira * lifTargetFactor(ageShingo, vars.withdrawals.lifMode)
+        ? yearFraction * balances.lira * lifTargetFactor(ageShingo, vars.withdrawals.lifMode)
         : 0;
 
       // Always respect minimums, and never exceed the BC maximum.
@@ -542,7 +628,7 @@ export function buildWithdrawalSchedule(params: {
             name: "Shingo",
             age: ageShingo,
             incomes: {
-              employment: 0,
+              employment: employmentShingo,
               pensionDb: pensionShingoNominal,
               rrspWithdrawal: 0,
               rrifWithdrawal: 0,
@@ -556,7 +642,7 @@ export function buildWithdrawalSchedule(params: {
             name: "Sarah",
             age: ageSarah,
             incomes: {
-              employment: 0,
+              employment: employmentSarah,
               pensionDb: pensionSarahNominal,
               rrspWithdrawal: 0,
               rrifWithdrawal: 0,
@@ -623,7 +709,7 @@ export function buildWithdrawalSchedule(params: {
             name: "Shingo",
             age: ageShingo,
             incomes: {
-              employment: 0,
+              employment: employmentShingo,
               pensionDb: pensionShingoNominal,
               rrspWithdrawal: withdrawals.fhsa * 0.5, // FHSA treated as RRSP-like taxable
               rrifWithdrawal: withdrawals.rrsp * 0.5,
@@ -637,7 +723,7 @@ export function buildWithdrawalSchedule(params: {
             name: "Sarah",
             age: ageSarah,
             incomes: {
-              employment: 0,
+              employment: employmentSarah,
               pensionDb: pensionSarahNominal,
               rrspWithdrawal: withdrawals.fhsa * 0.5,
               rrifWithdrawal: withdrawals.rrsp * 0.5,
@@ -663,7 +749,7 @@ export function buildWithdrawalSchedule(params: {
         taxableIncomeSarah = res.spouseB.taxableIncome;
         oasClawbackShingo = res.spouseA.oasClawback;
         oasClawbackSarah = res.spouseB.oasClawback;
-        tax = res.household.totalTax;
+        tax = res.household.totalTax - taxOnEmployment;
 
         const cashIn = guaranteedIncome + benefitsIncome + sumWithdrawals(withdrawals);
         afterTaxCashAvailable = cashIn - tax;
@@ -770,15 +856,18 @@ export function buildWithdrawalSchedule(params: {
       // Apply growth at year-end
       // Non-registered growth is taxed as it is earned, so it compounds at a
       // reduced rate. Registered accounts grow untaxed.
+      // The retirement year's balances arrive on 1 July (the accumulation
+      // runs to the end of June), so they grow for half a year.
       const nonRegReturn =
         vars.expectedNominalReturn - Math.max(0, vars.nonRegTaxDragRate ?? 0);
+      const grow = (rate: number) => Math.pow(1 + Math.max(-1, rate), yearFraction);
 
       balances = {
-        fhsa: balances.fhsa * (1 + vars.expectedNominalReturn),
-        rrsp: balances.rrsp * (1 + vars.expectedNominalReturn),
-        tfsa: balances.tfsa * (1 + vars.expectedNominalReturn),
-        lira: balances.lira * (1 + vars.expectedNominalReturn),
-        nonRegistered: balances.nonRegistered * (1 + Math.max(-1, nonRegReturn)),
+        fhsa: balances.fhsa * grow(vars.expectedNominalReturn),
+        rrsp: balances.rrsp * grow(vars.expectedNominalReturn),
+        tfsa: balances.tfsa * grow(vars.expectedNominalReturn),
+        lira: balances.lira * grow(vars.expectedNominalReturn),
+        nonRegistered: balances.nonRegistered * grow(nonRegReturn),
       };
 
       rows.push({
@@ -789,6 +878,16 @@ export function buildWithdrawalSchedule(params: {
         targetAfterTaxSpending: targetAfterTaxNominal,
         guaranteedIncome,
         benefitsIncome,
+        incomeDetail: {
+          employmentShingo,
+          employmentSarah,
+          pensionShingo: pensionShingoNominal,
+          pensionSarah: pensionSarahNominal,
+          cppShingo: cppShingoNominal,
+          cppSarah: cppSarahNominal,
+          oasShingo: oasShingoNominal,
+          oasSarah: oasSarahNominal,
+        },
         withdrawals: { ...withdrawals },
         surplusInvestedToTfsa: toTfsa,
         surplusInvestedToNonReg: toNonReg,
@@ -801,6 +900,7 @@ export function buildWithdrawalSchedule(params: {
           tax,
           oasClawbackShingo,
           oasClawbackSarah,
+          taxOnEmployment,
           oasClawbackThreshold,
           taxableIncomeCeiling,
           ceilingBinding,
@@ -861,7 +961,12 @@ export function buildWithdrawalSchedule(params: {
     const f = Math.max(0, Math.min(1, vars.withdrawals.rrifFrontLoad));
     const ratio = 1 + 1.0 * f; // 1 = even, 2 = modestly front-loaded
 
-    const rawWeights = years.map((_, idx) => (ratio === 1 ? 1 : Math.pow(ratio, years.length - 1 - idx)));
+    // The retirement year is half a year, so it takes half a year's share.
+    const rawWeights = years.map(
+      (y, idx) =>
+        (ratio === 1 ? 1 : Math.pow(ratio, years.length - 1 - idx)) *
+        (y === params.retirementYear ? RETIREMENT_YEAR_FRACTION : 1)
+    );
     const avgW = rawWeights.reduce((a, b) => a + b, 0) / rawWeights.length;
     const weights = rawWeights.map((w) => (avgW > 0 ? w / avgW : 1)); // average weight = 1
 
@@ -885,7 +990,8 @@ export function buildWithdrawalSchedule(params: {
       for (let i = 0; i < years.length; i++) {
         const base = baseByYear.get(years[i]) ?? 0;
         const w = Math.min(bal, base + Math.max(0, A * weights[i]));
-        bal = (bal - w) * (1 + growth);
+        const share = years[i] === params.retirementYear ? RETIREMENT_YEAR_FRACTION : 1;
+        bal = (bal - w) * Math.pow(1 + growth, share);
       }
       return bal;
     };
