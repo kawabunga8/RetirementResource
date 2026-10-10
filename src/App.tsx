@@ -17,13 +17,15 @@ import {
   type LifMode,
 } from "./planDefaults";
 import { loadPlan, savePlan, loadPublicRules } from "./lib/db";
+import { accumulationTimeline } from "./accumulationTimeline";
+import { AccumulationGraph } from "./AccumulationGraph";
 import { updateTfsaLimitsFromDb } from "./data/publicRules";
 import { updateRrifFactorsFromDb, updateBcLifMaxFromDb } from "./withdrawals/engine";
 import { computeHouseholdTax } from "./tax/v2";
 import { getBracketTableForYear } from "./tax/tables";
 import { buildWithdrawalSchedule } from "./withdrawals/engine";
 import { incomeGrowthFactor } from "./incomeGrowth";
-import { buildAccumulationSchedule, calculateBalancesToDate, type AccumPosition, type AccumRow } from "./accumulation";
+import { buildAccumulationSchedule, calculateBalancesToDate, type AccumPosition } from "./accumulation";
 
 function Field({
   label,
@@ -332,6 +334,19 @@ export default function App() {
 
     const lastAccum = accumulationSchedule[accumulationSchedule.length - 1];
 
+    // The same schedule on a real calendar for the graph: today, each
+    // 1 January, then the retirement month.
+    const accumulationTimelinePoints = accumulationTimeline({
+      rows: accumulationSchedule,
+      today: {
+        year: Number(todayStr.slice(0, 4)),
+        month: Number(todayStr.slice(5, 7)) - 1,
+        balances: todayBalances,
+      },
+      retirementYear: vars.retirementYear,
+      workingMonthsInRetirementYear: WORKING_MONTHS_IN_RETIREMENT_YEAR,
+    });
+
     // Where things stand today: balances grown to today, room as entered.
     const todayPosition: AccumPosition = {
       balances: todayBalances,
@@ -398,6 +413,7 @@ export default function App() {
       baselineTotal,
       monthlyTotal,
       accumulationSchedule,
+      accumulationTimeline: accumulationTimelinePoints,
       retirementBalances,
       totalNominalAtRetirement,
       totalRealAtRetirement,
@@ -1043,188 +1059,14 @@ export default function App() {
 
           <h3 style={{ marginTop: 14 }}>Accumulation graph</h3>
           <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-            End-of-year balances by account (stacked shading) + total line. Uses the Dollars mode toggle.
+            Balances by account (stacked shading) + total line, from today to retirement. Year marks are 1 January.
+            Uses the Dollars mode toggle.
           </div>
-          {(() => {
-            const rows = model.accumulationSchedule;
-            if (!rows || rows.length === 0) return null;
-
-            const W = 820;
-            const H = 260;
-            const padL = 52;
-            const padR = 16;
-            const padT = 16;
-            const padB = 34;
-
-            const xs = rows.map((r) => r.year);
-            const xMin = Math.min(...xs);
-            const xMax = Math.max(...xs);
-
-            const get = (r: AccumRow) => {
-              const fhsa = adjustDollars(r.endFhsaTotal, r.year);
-              const rrsp = adjustDollars(r.endRrspTotal, r.year);
-              const tfsa = adjustDollars(r.endTfsaTotal, r.year);
-              const lif = adjustDollars(r.endLira, r.year);
-              const nonReg = adjustDollars(r.endNonReg, r.year);
-              const total = fhsa + rrsp + tfsa + lif + nonReg;
-              return { fhsa, rrsp, tfsa, lif, nonReg, total };
-            };
-
-            const ysTotal = rows.map((r) => get(r).total);
-            const yMin = 0;
-            const yMax = Math.max(...ysTotal, 1);
-
-            const xScale = (x: number) =>
-              padL + ((x - xMin) / Math.max(1, xMax - xMin)) * (W - padL - padR);
-            const yScale = (y: number) =>
-              padT + (1 - (y - yMin) / Math.max(1, yMax - yMin)) * (H - padT - padB);
-
-            const series = [
-              { key: "fhsa", label: "FHSA", color: "#22c55e" },
-              { key: "rrsp", label: "RRSP", color: "#3b82f6" },
-              { key: "tfsa", label: "TFSA", color: "#a855f7" },
-              { key: "lif", label: "LIF", color: "#f59e0b" },
-              { key: "nonReg", label: "NonReg", color: "#64748b" },
-            ] as const;
-
-            // Build cumulative stacks
-            const stacks = rows.map((r) => {
-              const v = get(r);
-              const cum: Record<string, number> = {};
-              let acc = 0;
-              for (const s of series) {
-                acc += v[s.key];
-                cum[s.key] = acc;
-              }
-              return { year: r.year, v, cum };
-            });
-
-            const areaPath = (key: (typeof series)[number]["key"], prevKey?: (typeof series)[number]["key"]) => {
-              const top = stacks.map((p) => ({ x: xScale(p.year), y: yScale(p.cum[key]) }));
-              const base = stacks
-                .slice()
-                .reverse()
-                .map((p) => ({ x: xScale(p.year), y: yScale(prevKey ? p.cum[prevKey] : 0) }));
-              const pts = top.concat(base);
-              return pts
-                .map((pt, i) => `${i === 0 ? "M" : "L"} ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`)
-                .join(" ") + " Z";
-            };
-
-            const linePath = (key: (typeof series)[number]["key"]) =>
-              stacks
-                .map((p, i) => {
-                  const x = xScale(p.year);
-                  const y = yScale(p.cum[key]);
-                  return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-                })
-                .join(" ");
-
-            const totalPath = stacks
-              .map((p, i) => {
-                const x = xScale(p.year);
-                const y = yScale(p.v.total);
-                return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
-              })
-              .join(" ");
-
-            const start = stacks[0];
-            const end = stacks[stacks.length - 1];
-
-            return (
-              <div style={{ marginTop: 10, overflowX: "auto" }}>
-                <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", minWidth: 560, display: "block" }}>
-                  <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="#e5e7eb" />
-                  <line x1={padL} y1={padT} x2={padL} y2={H - padB} stroke="#e5e7eb" />
-
-                  {/* stacked shaded areas */}
-                  {series.map((s, idx) => (
-                    <path
-                      key={s.key}
-                      d={areaPath(s.key, idx === 0 ? undefined : series[idx - 1].key)}
-                      fill={s.color}
-                      opacity={0.12}
-                      stroke="none"
-                    />
-                  ))}
-
-                  {/* boundary lines for each stack */}
-                  {series.map((s) => (
-                    <path key={`line-${s.key}`} d={linePath(s.key)} fill="none" stroke={s.color} strokeWidth={1.5} opacity={0.9} />
-                  ))}
-
-                  {/* total line */}
-                  <path d={totalPath} fill="none" stroke="#0f172a" strokeWidth={2.5} />
-
-                  {/* year tick marks */}
-                  {(() => {
-                    const desiredTicks = 6;
-                    const step = Math.max(1, Math.round((xMax - xMin) / desiredTicks));
-                    const ticks: number[] = [];
-                    for (let y = xMin; y <= xMax; y += step) ticks.push(y);
-                    if (ticks[ticks.length - 1] !== xMax) ticks.push(xMax);
-
-                    return ticks.map((y) => {
-                      const x = xScale(y);
-                      return (
-                        <g key={`tick-${y}`}>
-                          <line x1={x} y1={H - padB} x2={x} y2={H - padB + 4} stroke="#cbd5e1" />
-                          <text x={x} y={H - 10} fontSize={12} fill="#64748b" textAnchor="middle">
-                            {y}
-                          </text>
-                        </g>
-                      );
-                    });
-                  })()}
-                  {/* y-axis tick labels */}
-                  {(() => {
-                    const ticks = 5;
-                    const vals: number[] = [];
-                    for (let i = 0; i < ticks; i++) {
-                      vals.push((yMax * (ticks - 1 - i)) / (ticks - 1));
-                    }
-
-                    return vals.map((v, i) => {
-                      const y = yScale(v);
-                      const isTop = i === 0;
-                      const isBottom = i === vals.length - 1;
-                      return (
-                        <g key={`y-${i}`}>
-                          <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#f1f5f9" />
-                          <text
-                            x={padL}
-                            y={isTop ? y + 10 : isBottom ? y - 6 : y + 4}
-                            fontSize={12}
-                            fill="#64748b"
-                            textAnchor="start"
-                          >
-                            {money(v)}
-                          </text>
-                        </g>
-                      );
-                    });
-                  })()}
-                </svg>
-
-                <div style={{ display: "flex", gap: 12, flexWrap: "wrap", fontSize: 12, marginTop: 8 }}>
-                  {series.map((s) => (
-                    <div key={`legend-${s.key}`} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ width: 10, height: 10, background: s.color, display: "inline-block", borderRadius: 2, opacity: 0.8 }} />
-                      <span style={{ opacity: 0.85 }}>{s.label}</span>
-                    </div>
-                  ))}
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 14, height: 2, background: "#0f172a", display: "inline-block" }} />
-                    <span style={{ opacity: 0.85 }}>Total</span>
-                  </div>
-                </div>
-
-                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>
-                  {start.year}: <strong>${moneyY(start.v.total, start.year)}</strong> → {end.year}: <strong>${moneyY(end.v.total, end.year)}</strong>
-                </div>
-              </div>
-            );
-          })()}
+          <AccumulationGraph
+            points={model.accumulationTimeline}
+            adjustDollars={adjustDollars}
+            formatMoney={money}
+          />
         </section>
 
         </>
