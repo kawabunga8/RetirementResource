@@ -88,4 +88,43 @@ describe("withdrawal strategies", () => {
       expect(terminalTax(solved[key].rows)).toBeLessThan(5_000);
     }
   });
+
+  it("deplete-by meets its deadline AND stays out of the OAS clawback", () => {
+    const s = solved.depleteBy;
+    // The deadline is still the hard constraint.
+    expect(s.depleteByAge).toBe(ctx.depleteAge);
+    const atDeadline = s.rows.find((r) => r.ageShingo >= ctx.depleteAge);
+    expect(atDeadline).toBeDefined();
+    expect(atDeadline!.endBalances.rrsp).toBeLessThan(5_000);
+
+    // Inside that deadline it no longer walks into the recovery tax. The flat
+    // amortisation it replaced paid clawback in four consecutive years.
+    const clawback = s.rows.reduce(
+      (a, r) => a + r.debug.oasClawbackShingo + r.debug.oasClawbackSarah,
+      0
+    );
+    expect(clawback).toBeLessThan(1_000);
+  });
+
+  it("no strategy dumps the overlay into the retirement year", () => {
+    // The retirement year is excluded from the level-ness signal. Reading its
+    // missing value as a zero tax bill once made it look like the cheapest year
+    // in the plan, and the solver poured the whole overlay into it.
+    for (const s of Object.values(solved)) {
+      const first = s.rows[0]!;
+      expect(first.year).toBe(ctx.retirementYear);
+      const rest = s.rows.slice(1).map((r) => r.withdrawals.rrsp);
+      expect(first.withdrawals.rrsp).toBeLessThanOrEqual(Math.max(...rest));
+    }
+  });
+
+  it("no strategy pays a fortune for a rounding error in its own objective", () => {
+    // Horizons can differ in the objective by a whisker while differing in tax
+    // by tens of thousands. Whatever a strategy optimises for, it may not cost
+    // wildly more than the baseline to get a result that is barely different.
+    const baseline = solved.depleteBy.summary.lifetimeTax;
+    for (const key of ["levelTax", "levelRate"] as const) {
+      expect(solved[key].summary.lifetimeTax - baseline).toBeLessThan(40_000);
+    }
+  });
 });

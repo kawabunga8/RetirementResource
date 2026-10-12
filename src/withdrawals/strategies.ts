@@ -53,12 +53,39 @@ const DRAINED_TOLERANCE = 5000;
 
 const WEIGHT_FLOOR = 0.04;
 
+/**
+ * How close a horizon's objective must be to the best before total tax is
+ * allowed to decide between them. 10% of the best score.
+ */
+const HORIZON_SCORE_SLACK = 0.1;
+
 /** The retirement year is a half year of retirement income — excluded from level-ness. */
 const fullYears = (rows: WithdrawalScheduleRow[], ctx: StrategyContext) =>
   rows.filter((r) => r.year !== ctx.retirementYear);
 
 const taxByYear = (rows: WithdrawalScheduleRow[], ctx: StrategyContext) =>
   new Map(fullYears(rows, ctx).map((r) => [r.year, r.debug.tax] as const));
+
+/**
+ * OAS recovery tax paid in a year, both spouses.
+ *
+ * `debug.tax` already includes it, so the signal below counts it a second time:
+ * a dollar lost to the clawback then hurts twice as much as a dollar of
+ * ordinary tax. A penalty, not a wall -- the solver stays under the threshold
+ * where it can, and still produces a schedule in the years where a forced
+ * depletion leaves it no room.
+ */
+const clawbackOf = (r: WithdrawalScheduleRow) =>
+  r.debug.oasClawbackShingo + r.debug.oasClawbackSarah;
+
+const CLAWBACK_PENALTY = 1;
+
+const taxWithClawbackPenalty = (rows: WithdrawalScheduleRow[], ctx: StrategyContext) =>
+  new Map(
+    fullYears(rows, ctx).map(
+      (r) => [r.year, r.debug.tax + CLAWBACK_PENALTY * clawbackOf(r)] as const
+    )
+  );
 
 const rateByYear = (rows: WithdrawalScheduleRow[], ctx: StrategyContext) =>
   new Map(
@@ -220,8 +247,13 @@ function levellingSolve(
   for (let round = 0; round < 10; round++) {
     rows = ctx.simulate(plan, overrides);
     const signal = signalFn(rows, ctx);
+    // A year the signal does not report -- the retirement year, which is half a
+    // year of retirement income and so is left out of level-ness -- must not be
+    // steered. Reading its missing value as zero made it look like the cheapest
+    // year in the plan, and the loop below poured the whole overlay into it.
+    const steer = years.map((y) => signal.has(y));
     const vals = years.map((y) => signal.get(y) ?? 0);
-    const active = vals.filter((_, i) => weights[i]! > 0);
+    const active = vals.filter((_, i) => steer[i] && weights[i]! > 0);
     if (active.length === 0) break;
 
     const mean = active.reduce((a, b) => a + b, 0) / active.length;
@@ -230,7 +262,7 @@ function levellingSolve(
     if (score < tolerance) break;
 
     const next = weights.map((w, i) => {
-      if (w === 0) return 0;
+      if (w === 0 || !steer[i]) return w;
       const dev = mean !== 0 ? (vals[i]! - mean) / Math.abs(mean) : 0;
       return Math.max(WEIGHT_FLOOR, w * (1 - step * Math.max(-0.9, Math.min(0.9, dev))));
     });
@@ -281,11 +313,10 @@ export const STRATEGIES: StrategyDefinition[] = [
     key: "depleteBy",
     label: "Deplete by age",
     blurb:
-      "What the plan does today: drain the RRSP by the deplete-by age, weighted by the front-load setting. The baseline the others are measured against.",
+      "Empties the RRSP by your deplete-by age, and inside that deadline keeps the tax bill as level as it can while staying out of the OAS clawback band. The deadline comes first: where it leaves no room, the clawback is accepted rather than the depletion missed. Does not use the front-load setting.",
     horizons: (ctx) => [ctx.depleteAge],
-    solve: (ctx, horizon, over) =>
-      amortise(ctx, horizon, 1 + Math.max(0, Math.min(1, ctx.frontLoad)), 8, 1000, over),
-    objective: (rows, ctx) => spreadOf(taxByYear(rows, ctx)),
+    solve: (ctx, horizon, over) => levellingSolve(ctx, taxWithClawbackPenalty, 50, horizon, over),
+    objective: (rows, ctx) => spreadOf(taxWithClawbackPenalty(rows, ctx)),
   },
   {
     key: "levelTax",
@@ -343,27 +374,47 @@ export type SolvedStrategy = {
  * BC maximum by default), so the locked-in money is used up rather than left
  * behind, where it would be taxed on the second death at the top rate.
  */
+type HorizonCandidate = {
+  plan: ExtraPlan;
+  rows: WithdrawalScheduleRow[];
+  score: number;
+  feasible: boolean;
+  depleteByAge: number;
+};
+
 export function solveAllStrategies(ctx: StrategyContext, lifMode: LifMode): Record<SmoothingMode, SolvedStrategy> {
   const out = {} as Record<SmoothingMode, SolvedStrategy>;
 
   for (const strategy of STRATEGIES) {
-    let best:
-      | { plan: ExtraPlan; rows: WithdrawalScheduleRow[]; score: number; feasible: boolean; depleteByAge: number }
-      | null = null;
-
+    const candidates: HorizonCandidate[] = [];
     for (const depleteByAge of [...new Set(strategy.horizons(ctx))]) {
       const overrides: SimulateOverrides = { lifMode, depleteByAge };
       const plan = strategy.solve(ctx, depleteByAge, overrides);
       const rows = ctx.simulate(plan, overrides);
-      const score = strategy.objective(rows, ctx);
-      const feasible = strategy.feasible ? strategy.feasible(rows) : true;
-      // Feasibility first, then the strategy's own objective.
-      const better =
-        !best || (feasible && !best.feasible) || (feasible === best.feasible && score < best.score);
-      if (better) best = { plan, rows, score, feasible, depleteByAge };
+      candidates.push({
+        plan,
+        rows,
+        score: strategy.objective(rows, ctx),
+        feasible: strategy.feasible ? strategy.feasible(rows) : true,
+        depleteByAge,
+      });
     }
 
-    const { rows, plan, depleteByAge } = best!;
+    // Feasibility first, then the strategy's own objective -- but horizons
+    // often differ in the objective by a rounding error while differing in
+    // actual tax by tens of thousands. So: take the best score, keep every
+    // candidate within a whisker of it, and let total tax break the tie. A
+    // strategy should never spend $38,000 to buy a tenth of a point.
+    const pool = candidates.some((c) => c.feasible)
+      ? candidates.filter((c) => c.feasible)
+      : candidates;
+    const bestScore = Math.min(...pool.map((c) => c.score));
+    const slack = Math.abs(bestScore) * HORIZON_SCORE_SLACK;
+    const shortlist = pool.filter((c) => c.score <= bestScore + slack);
+    const costOf = (c: HorizonCandidate) => lifetimeTax(c.rows) + terminalTax(c.rows);
+    const { rows, plan, depleteByAge } = shortlist.reduce((a, b) =>
+      costOf(b) < costOf(a) ? b : a
+    );
     const taxes = fullYears(rows, ctx).map((r) => r.debug.tax);
     out[strategy.key] = {
       key: strategy.key,
