@@ -29,12 +29,14 @@ describe("the retirement year is half a year (both retire in July)", () => {
     expect(first!.guaranteedIncome).toBeCloseTo(second!.guaranteedIncome / 2, 2);
   });
 
-  it("asks retirement savings to fund only half a year of spending", () => {
-    // Salary covers January-June. Halving income without halving spending
-    // would invent a large first-year RRSP draw.
+  it("budgets a FULL year of spending, like every other year", () => {
+    // Income is halved in the retirement year; spending is not. You live the
+    // whole calendar year and your expenses in January are the same as in
+    // August. The salary that pays for January-June is counted as cash
+    // instead, which is what keeps this from inventing a first-year RRSP draw.
     const [first, second] = run({});
     expect(first!.phase).toBe(second!.phase);
-    expect(first!.targetAfterTaxSpending).toBeCloseTo(second!.targetAfterTaxSpending / 2, 2);
+    expect(first!.targetAfterTaxSpending).toBeCloseTo(second!.targetAfterTaxSpending, 2);
   });
 
   it("pays half a year of CPP and OAS when they start at retirement", () => {
@@ -71,12 +73,14 @@ describe("the retirement year is consistent with being half a year", () => {
     expect(second!.debug.taxOnEmployment).toBe(0);
   });
 
-  it("produces about half a full year's surplus, not more", () => {
-    // The old year 0 drew a full year of LIF and a full share of the RRSP
-    // levelling overlay against half a year of spending, which reported a
-    // first-year "surplus" larger than any full year's.
+  it("funds the full first-year target without a first-year RRSP spike", () => {
+    // Budgeting twelve months of spending against six months of retirement
+    // income would force a six-figure RRSP draw in the one year taxed on top
+    // of a working salary -- the most expensive place in the plan to take it.
+    // Counting the salary as cash is what avoids that.
     const rows = run({});
-    expect(rows[0]!.debug.surplusAfterTax).toBeLessThan(rows[1]!.debug.surplusAfterTax);
+    expect(rows[0]!.debug.shortfallAfterTax).toBeLessThanOrEqual(1);
+    expect(rows[0]!.withdrawals.rrsp).toBeLessThanOrEqual(rows[1]!.withdrawals.rrsp + 1);
   });
 });
 

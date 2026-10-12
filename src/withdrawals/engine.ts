@@ -478,14 +478,20 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
             : "No-Go";
 
       // Both retire in July, so the retirement year holds only the months from
-      // July on: salary pays for January-June, and pensions/CPP/OAS pay for
-      // July-December. Scaling income alone would leave a full year of spending
-      // to be funded from six months of income -- an RRSP draw that never happens.
+      // July on for INCOME: salary pays January-June, pensions and CPP/OAS pay
+      // July-December.
       const yearFraction = i === 0 ? RETIREMENT_YEAR_FRACTION : 1;
 
+      // SPENDING does not halve. You live the whole calendar year, and your
+      // expenses in the first half of it are the same as in the second. The
+      // target is therefore a full year in every year, including this one.
+      //
+      // That only works because the January-June salary is counted as cash
+      // below. Budgeting twelve months of spending against six months of
+      // retirement income would force a six-figure RRSP draw in the one year
+      // that is taxed on top of a working salary.
       const targetAfterTaxReal =
-        yearFraction *
-        (phase === "Go-Go" ? vars.spending.goGo : phase === "Slow-Go" ? vars.spending.slowGo : vars.spending.noGo);
+        phase === "Go-Go" ? vars.spending.goGo : phase === "Slow-Go" ? vars.spending.slowGo : vars.spending.noGo;
 
       const yearsFromBaseline = year - anchors.baselineYear;
       // Spending targets are defined as REAL (today dollars). Convert using FULL inflation (not partial CPI).
@@ -777,7 +783,11 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
         oasClawbackSarah = res.spouseB.oasClawback;
         tax = res.household.totalTax - taxOnEmployment;
 
-        const cashIn = guaranteedIncome + benefitsIncome + sumWithdrawals(withdrawals);
+        // The retirement year's salary funds the months it was earned in. It
+        // is zero in every later year, so this term only bites once.
+        const salaryAfterTax = employmentShingo + employmentSarah - taxOnEmployment;
+        const cashIn =
+          guaranteedIncome + benefitsIncome + sumWithdrawals(withdrawals) + salaryAfterTax;
         afterTaxCashAvailable = cashIn - tax;
 
         return res;
