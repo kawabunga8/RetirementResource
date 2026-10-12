@@ -61,6 +61,11 @@ export type WithdrawalDebug = {
    */
   rrspBeforeOverlay: number;
   /**
+   * The depletion horizon this run actually used. Equals the plan's
+   * rrifDepleteByAge unless a strategy chose its own.
+   */
+  depleteByAge: number;
+  /**
    * RRSP still sitting there at the start of the depletion year after the
    * levelling solver has done its best. Anything materially above zero means
    * that year absorbs a lump, spiking its tax and OAS clawback.
@@ -405,7 +410,17 @@ export function buildWithdrawalSchedule(params: {
 
   type ExtraPlan = Record<number, number>; // year -> extra RRIF/RRSP withdrawal (nominal dollars)
 
-  const simulate = (extraPlan: ExtraPlan): WithdrawalScheduleRow[] => {
+  /**
+   * Per-run overrides. The deplete-by age is the app's current RULE, not a law:
+   * a strategy may set its own horizon, or pass a large age to lift the forced
+   * depletion entirely and let the RRIF minimums do the work.
+   */
+  const simulate = (
+    extraPlan: ExtraPlan,
+    overrides: { lifMode?: LifMode; depleteByAge?: number } = {}
+  ): WithdrawalScheduleRow[] => {
+    const lifModeThisRun = overrides.lifMode ?? vars.withdrawals.lifMode;
+    const depleteByAge = overrides.depleteByAge ?? vars.withdrawals.rrifDepleteByAge;
     const rows: WithdrawalScheduleRow[] = [];
 
     let balances: RetirementBalances = { ...params.retirementBalances };
@@ -576,7 +591,7 @@ export function buildWithdrawalSchedule(params: {
       const lifMaxAllowed = yearFraction * Math.max(prevYearInvestmentReturn, balances.lira * bcLifMaxPct(ageShingo));
 
       const lifPlanned = vars.withdrawals.forceLifFromRetirement
-        ? yearFraction * balances.lira * lifTargetFactor(ageShingo, vars.withdrawals.lifMode)
+        ? yearFraction * balances.lira * lifTargetFactor(ageShingo, lifModeThisRun)
         : 0;
 
       // Always respect minimums, and never exceed the BC maximum.
@@ -612,7 +627,7 @@ export function buildWithdrawalSchedule(params: {
       // Mandatory RRSP/RRIF withdrawal:
       // - RRIF minimum in most years
       // - HARD force full depletion in the depletion year
-      const isDepletionYear = ageShingo >= vars.withdrawals.rrifDepleteByAge;
+      const isDepletionYear = ageShingo >= depleteByAge;
 
       const rrspMandatoryRaw = isDepletionYear ? balances.rrsp : rrifMinRequired;
       let rrspMandatory = rrspMandatoryRaw;
@@ -812,7 +827,7 @@ export function buildWithdrawalSchedule(params: {
           withdrawals,
           caps: vars.withdrawals.caps,
           ageShingo,
-          lifMode: vars.withdrawals.lifMode,
+          lifMode: lifModeThisRun,
           taxableHeadroom: {
             shingo: headroomShingo,
             sarah: headroomSarah,
@@ -906,7 +921,7 @@ export function buildWithdrawalSchedule(params: {
           ceilingBinding,
           lifMinRequired,
           lifMaxAllowed,
-          lifMode: vars.withdrawals.lifMode,
+          lifMode: lifModeThisRun,
           rrifMinRequired,
           rrifGlideTarget: 0,
           iterations,
@@ -916,6 +931,7 @@ export function buildWithdrawalSchedule(params: {
           startBalances,
           extraRrifPlanned: extraThisYear,
           rrspBeforeOverlay,
+          depleteByAge,
           rrspLeftAtDepletion: 0, // filled in after refinement converges
         },
       });
