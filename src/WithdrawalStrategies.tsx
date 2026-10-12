@@ -306,9 +306,10 @@ export function WithdrawalStrategies({ params, real, onChangeDepleteAge }: Props
     <div style={{ marginTop: 22 }}>
       <h3 style={{ marginBottom: 4 }}>Withdrawal strategy</h3>
       <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 10 }}>
-        All four are solved up front, so switching is instant. Only <em>Deplete by 75</em> uses your
-        deplete-by age; the others choose their own horizon, because forcing the same money out in
-        fewer years is what creates the OAS clawback years they exist to avoid.
+        All four are solved up front, so switching is instant. Only{" "}
+        <em>Deplete by {depleteAge}</em> uses your deplete-by age; the others choose their own
+        horizon, because forcing the same money out in fewer years is what creates the OAS clawback
+        years they exist to avoid.
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>

@@ -279,7 +279,7 @@ export type StrategyDefinition = {
 export const STRATEGIES: StrategyDefinition[] = [
   {
     key: "depleteBy",
-    label: "Deplete by 75",
+    label: "Deplete by age",
     blurb:
       "What the plan does today: drain the RRSP by the deplete-by age, weighted by the front-load setting. The baseline the others are measured against.",
     horizons: (ctx) => [ctx.depleteAge],
