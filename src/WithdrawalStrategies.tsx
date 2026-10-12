@@ -12,6 +12,8 @@ type Props = {
   params: SimulatorParams;
   /** Show today's dollars rather than nominal. */
   real: boolean;
+  /** Set the plan's deplete-by age. Only the "Deplete by" strategy uses it. */
+  onChangeDepleteAge?: (age: number) => void;
 };
 
 const SERIES = [
@@ -232,7 +234,7 @@ function Chart({ points, yMax }: { points: Point[]; yMax: number }) {
   );
 }
 
-export function WithdrawalStrategies({ params, real }: Props) {
+export function WithdrawalStrategies({ params, real, onChangeDepleteAge }: Props) {
   const { solved, solving } = useSolvedStrategies(params);
   const [mode, setMode] = useState<SmoothingMode>("depleteBy");
 
@@ -271,6 +273,7 @@ export function WithdrawalStrategies({ params, real }: Props) {
     );
   }
 
+  const depleteAge = params.vars.withdrawals.rrifDepleteByAge;
   const chosen = solved[mode];
   const base = solved.depleteBy.summary;
   const s = chosen.summary;
@@ -326,9 +329,25 @@ export function WithdrawalStrategies({ params, real }: Props) {
               fontWeight: mode === st.key ? 600 : 400,
             }}
           >
-            {st.label}
+            {st.key === "depleteBy" ? `Deplete by ${depleteAge}` : st.label}
           </button>
         ))}
+        {onChangeDepleteAge ? (
+          <label style={{ display: "inline-flex", gap: 6, alignItems: "center", fontSize: 12, opacity: 0.85, marginLeft: 4 }}>
+            Deplete by age
+            <input
+              type="number"
+              min={71}
+              max={95}
+              value={depleteAge}
+              onChange={(e) => {
+                const n = Math.round(Number(e.target.value));
+                if (Number.isFinite(n) && n >= 71 && n <= 95) onChangeDepleteAge(n);
+              }}
+              style={{ width: 58, padding: "3px 6px", fontSize: 12 }}
+            />
+          </label>
+        ) : null}
         {solving ? <span style={{ fontSize: 12, opacity: 0.7, alignSelf: "center" }}>re-solving…</span> : null}
       </div>
 

@@ -3069,6 +3069,12 @@ $${money(projectedPensionSarah(anchors, vars))} with raises`}
               tfsaRoomAtRetirement: model.tfsaRoomAtRetirement,
             }}
             real={vars.dollarsMode === "real"}
+            onChangeDepleteAge={(age) =>
+              setVars((v) => ({
+                ...v,
+                withdrawals: { ...v.withdrawals, rrifDepleteByAge: age },
+              }))
+            }
           />
         </section>
         )}
