@@ -367,7 +367,10 @@ const FHSA_SHINGO_FORCE_ROLL_YEAR = FHSA_SHINGO_START_YEAR + FHSA_MAX_YEARS; // 
 /** OAS rises 10% permanently from the year the recipient turns 75 (since July 2022). */
 const OAS_AGE_75_INCREASE = 0.1;
 
-export function buildWithdrawalSchedule(params: {
+/** year -> extra RRIF/RRSP withdrawal, nominal dollars. */
+export type ExtraPlan = Record<number, number>;
+
+export type SimulatorParams = {
   vars: Variables;
   anchors: Anchors;
   retirementYear: number;
@@ -377,7 +380,16 @@ export function buildWithdrawalSchedule(params: {
    * Omit to fall back to the hand-entered vars.withdrawals.tfsaRoomAtRetirement.
    */
   tfsaRoomAtRetirement?: number;
-}) {
+};
+
+/**
+ * Build the year-by-year simulator for a plan.
+ *
+ * Split out of buildWithdrawalSchedule so a withdrawal STRATEGY can run the
+ * same model repeatedly while it searches (see ./strategies). The simulator is
+ * the model; choosing the overlay is a separate job.
+ */
+export function makeWithdrawalSimulator(params: SimulatorParams) {
   const { vars, anchors } = params;
 
   const indexRate = vars.expectedInflation * vars.cpiMultiplier;
@@ -408,7 +420,6 @@ export function buildWithdrawalSchedule(params: {
 
   const yearsInPlan = Math.max(0, vars.phaseAges.endAge - Math.min(retireAgeShingo, retireAgeSarah) + 1);
 
-  type ExtraPlan = Record<number, number>; // year -> extra RRIF/RRSP withdrawal (nominal dollars)
 
   /**
    * Per-run overrides. The deplete-by age is the app's current RULE, not a law:
@@ -939,6 +950,13 @@ export function buildWithdrawalSchedule(params: {
 
     return rows;
   };
+
+  return simulate;
+}
+
+export function buildWithdrawalSchedule(params: SimulatorParams) {
+  const { vars } = params;
+  const simulate = makeWithdrawalSimulator(params);
 
   // Pass 1: cover spending gaps (RRIF-first), with hard depletion-year withdrawal.
   const pass1 = simulate({});
