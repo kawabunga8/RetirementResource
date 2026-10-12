@@ -61,6 +61,11 @@ export type WithdrawalDebug = {
    */
   rrspBeforeOverlay: number;
   /**
+   * The depletion horizon this run actually used. Equals the plan's
+   * rrifDepleteByAge unless a strategy chose its own.
+   */
+  depleteByAge: number;
+  /**
    * RRSP still sitting there at the start of the depletion year after the
    * levelling solver has done its best. Anything materially above zero means
    * that year absorbs a lump, spiking its tax and OAS clawback.
@@ -362,7 +367,10 @@ const FHSA_SHINGO_FORCE_ROLL_YEAR = FHSA_SHINGO_START_YEAR + FHSA_MAX_YEARS; // 
 /** OAS rises 10% permanently from the year the recipient turns 75 (since July 2022). */
 const OAS_AGE_75_INCREASE = 0.1;
 
-export function buildWithdrawalSchedule(params: {
+/** year -> extra RRIF/RRSP withdrawal, nominal dollars. */
+export type ExtraPlan = Record<number, number>;
+
+export type SimulatorParams = {
   vars: Variables;
   anchors: Anchors;
   retirementYear: number;
@@ -372,7 +380,16 @@ export function buildWithdrawalSchedule(params: {
    * Omit to fall back to the hand-entered vars.withdrawals.tfsaRoomAtRetirement.
    */
   tfsaRoomAtRetirement?: number;
-}) {
+};
+
+/**
+ * Build the year-by-year simulator for a plan.
+ *
+ * Split out of buildWithdrawalSchedule so a withdrawal STRATEGY can run the
+ * same model repeatedly while it searches (see ./strategies). The simulator is
+ * the model; choosing the overlay is a separate job.
+ */
+export function makeWithdrawalSimulator(params: SimulatorParams) {
   const { vars, anchors } = params;
 
   const indexRate = vars.expectedInflation * vars.cpiMultiplier;
@@ -403,9 +420,18 @@ export function buildWithdrawalSchedule(params: {
 
   const yearsInPlan = Math.max(0, vars.phaseAges.endAge - Math.min(retireAgeShingo, retireAgeSarah) + 1);
 
-  type ExtraPlan = Record<number, number>; // year -> extra RRIF/RRSP withdrawal (nominal dollars)
 
-  const simulate = (extraPlan: ExtraPlan): WithdrawalScheduleRow[] => {
+  /**
+   * Per-run overrides. The deplete-by age is the app's current RULE, not a law:
+   * a strategy may set its own horizon, or pass a large age to lift the forced
+   * depletion entirely and let the RRIF minimums do the work.
+   */
+  const simulate = (
+    extraPlan: ExtraPlan,
+    overrides: { lifMode?: LifMode; depleteByAge?: number } = {}
+  ): WithdrawalScheduleRow[] => {
+    const lifModeThisRun = overrides.lifMode ?? vars.withdrawals.lifMode;
+    const depleteByAge = overrides.depleteByAge ?? vars.withdrawals.rrifDepleteByAge;
     const rows: WithdrawalScheduleRow[] = [];
 
     let balances: RetirementBalances = { ...params.retirementBalances };
@@ -452,14 +478,20 @@ export function buildWithdrawalSchedule(params: {
             : "No-Go";
 
       // Both retire in July, so the retirement year holds only the months from
-      // July on: salary pays for January-June, and pensions/CPP/OAS pay for
-      // July-December. Scaling income alone would leave a full year of spending
-      // to be funded from six months of income -- an RRSP draw that never happens.
+      // July on for INCOME: salary pays January-June, pensions and CPP/OAS pay
+      // July-December.
       const yearFraction = i === 0 ? RETIREMENT_YEAR_FRACTION : 1;
 
+      // SPENDING does not halve. You live the whole calendar year, and your
+      // expenses in the first half of it are the same as in the second. The
+      // target is therefore a full year in every year, including this one.
+      //
+      // That only works because the January-June salary is counted as cash
+      // below. Budgeting twelve months of spending against six months of
+      // retirement income would force a six-figure RRSP draw in the one year
+      // that is taxed on top of a working salary.
       const targetAfterTaxReal =
-        yearFraction *
-        (phase === "Go-Go" ? vars.spending.goGo : phase === "Slow-Go" ? vars.spending.slowGo : vars.spending.noGo);
+        phase === "Go-Go" ? vars.spending.goGo : phase === "Slow-Go" ? vars.spending.slowGo : vars.spending.noGo;
 
       const yearsFromBaseline = year - anchors.baselineYear;
       // Spending targets are defined as REAL (today dollars). Convert using FULL inflation (not partial CPI).
@@ -576,7 +608,7 @@ export function buildWithdrawalSchedule(params: {
       const lifMaxAllowed = yearFraction * Math.max(prevYearInvestmentReturn, balances.lira * bcLifMaxPct(ageShingo));
 
       const lifPlanned = vars.withdrawals.forceLifFromRetirement
-        ? yearFraction * balances.lira * lifTargetFactor(ageShingo, vars.withdrawals.lifMode)
+        ? yearFraction * balances.lira * lifTargetFactor(ageShingo, lifModeThisRun)
         : 0;
 
       // Always respect minimums, and never exceed the BC maximum.
@@ -612,7 +644,7 @@ export function buildWithdrawalSchedule(params: {
       // Mandatory RRSP/RRIF withdrawal:
       // - RRIF minimum in most years
       // - HARD force full depletion in the depletion year
-      const isDepletionYear = ageShingo >= vars.withdrawals.rrifDepleteByAge;
+      const isDepletionYear = ageShingo >= depleteByAge;
 
       const rrspMandatoryRaw = isDepletionYear ? balances.rrsp : rrifMinRequired;
       let rrspMandatory = rrspMandatoryRaw;
@@ -751,7 +783,11 @@ export function buildWithdrawalSchedule(params: {
         oasClawbackSarah = res.spouseB.oasClawback;
         tax = res.household.totalTax - taxOnEmployment;
 
-        const cashIn = guaranteedIncome + benefitsIncome + sumWithdrawals(withdrawals);
+        // The retirement year's salary funds the months it was earned in. It
+        // is zero in every later year, so this term only bites once.
+        const salaryAfterTax = employmentShingo + employmentSarah - taxOnEmployment;
+        const cashIn =
+          guaranteedIncome + benefitsIncome + sumWithdrawals(withdrawals) + salaryAfterTax;
         afterTaxCashAvailable = cashIn - tax;
 
         return res;
@@ -812,7 +848,7 @@ export function buildWithdrawalSchedule(params: {
           withdrawals,
           caps: vars.withdrawals.caps,
           ageShingo,
-          lifMode: vars.withdrawals.lifMode,
+          lifMode: lifModeThisRun,
           taxableHeadroom: {
             shingo: headroomShingo,
             sarah: headroomSarah,
@@ -906,7 +942,7 @@ export function buildWithdrawalSchedule(params: {
           ceilingBinding,
           lifMinRequired,
           lifMaxAllowed,
-          lifMode: vars.withdrawals.lifMode,
+          lifMode: lifModeThisRun,
           rrifMinRequired,
           rrifGlideTarget: 0,
           iterations,
@@ -916,6 +952,7 @@ export function buildWithdrawalSchedule(params: {
           startBalances,
           extraRrifPlanned: extraThisYear,
           rrspBeforeOverlay,
+          depleteByAge,
           rrspLeftAtDepletion: 0, // filled in after refinement converges
         },
       });
@@ -923,6 +960,13 @@ export function buildWithdrawalSchedule(params: {
 
     return rows;
   };
+
+  return simulate;
+}
+
+export function buildWithdrawalSchedule(params: SimulatorParams) {
+  const { vars } = params;
+  const simulate = makeWithdrawalSimulator(params);
 
   // Pass 1: cover spending gaps (RRIF-first), with hard depletion-year withdrawal.
   const pass1 = simulate({});

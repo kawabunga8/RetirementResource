@@ -26,6 +26,7 @@ import { getBracketTableForYear } from "./tax/tables";
 import { buildWithdrawalSchedule } from "./withdrawals/engine";
 import { incomeGrowthFactor } from "./incomeGrowth";
 import { buildAccumulationSchedule, calculateBalancesToDate, type AccumPosition } from "./accumulation";
+import { WithdrawalStrategies } from "./WithdrawalStrategies";
 
 function Field({
   label,
@@ -3058,6 +3059,17 @@ $${money(projectedPensionSarah(anchors, vars))} with raises`}
               </>
             );
           })()}
+
+          <WithdrawalStrategies
+            params={{
+              vars,
+              anchors,
+              retirementYear: vars.retirementYear,
+              retirementBalances: model.retirementBalances,
+              tfsaRoomAtRetirement: model.tfsaRoomAtRetirement,
+            }}
+            real={vars.dollarsMode === "real"}
+          />
         </section>
         )}
       </div>
