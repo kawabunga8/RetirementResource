@@ -865,6 +865,14 @@ export default function App() {
                 }
               />
             </Field>
+            <Field label="Salary growth (%/yr, working years)">
+              <PercentInput
+                value={vars.incomeGrowthRate ?? 0.02}
+                onChange={(rate) =>
+                  setVars((v) => ({ ...v, incomeGrowthRate: rate }))
+                }
+              />
+            </Field>
           </div>
 
           <div className="settingsRow">
@@ -1378,13 +1386,13 @@ export default function App() {
                       }
                     />
                   </Field>
-                  <Field label="Income growth (per year)
-(working years, both)">
-                    <PercentInput
-                      value={vars.incomeGrowthRate ?? 0.02}
-                      onChange={(rate) => setVars((v) => ({ ...v, incomeGrowthRate: rate }))}
-                    />
-                  </Field>
+                  <div style={{ fontSize: 12, opacity: 0.75, maxWidth: 260 }}>
+                    Salary growth is set on the Overview tab under
+                    Expectations. It grows these earned-income figures, and
+                    with them this room projection, the working-year salary in
+                    the Tax tab, and the projected starting amount of the BC
+                    Teachers&rsquo; Pension.
+                  </div>
                 </div>
                 </Modal>
 
