@@ -165,6 +165,28 @@ function Chart({ points, yMax }: { points: Point[]; yMax: number }) {
             points={points.map((p, i) => `${M.left + band * i + band / 2},${yOf(p.target)}`).join(" ")}
           />
 
+          {/* Tax paid, on the same dollar axis as the bars. It sits low by
+              design: the point is its SHAPE across the years, which is what
+              every strategy here is trying to change. */}
+          <polyline
+            fill="none"
+            stroke="#0b0b0b"
+            strokeWidth={2}
+            strokeLinejoin="round"
+            points={points.map((p, i) => `${M.left + band * i + band / 2},${yOf(p.tax)}`).join(" ")}
+          />
+          {points.map((p, i) => (
+            <circle
+              key={`tax-${p.year}`}
+              cx={M.left + band * i + band / 2}
+              cy={yOf(p.tax)}
+              r={3}
+              fill="#0b0b0b"
+              stroke="#ffffff"
+              strokeWidth={1.5}
+            />
+          ))}
+
           {points.map((p, i) => {
             const show = i === 0 || i === points.length - 1 || (p.year % 5 === 0 && i < points.length - 2);
             if (!show) return null;
@@ -338,6 +360,10 @@ export function WithdrawalStrategies({ params, real }: Props) {
           <span style={{ display: "inline-flex", gap: 7, alignItems: "center" }}>
             <i style={{ width: 16, height: 0, borderTop: "2px dashed #52514e", display: "inline-block" }} />
             Spending target (after-tax)
+          </span>
+          <span style={{ display: "inline-flex", gap: 7, alignItems: "center" }}>
+            <i style={{ width: 16, height: 0, borderTop: "2px solid #0b0b0b", display: "inline-block" }} />
+            Tax paid
           </span>
         </div>
         <Chart points={chart.points} yMax={chart.yMax} />
