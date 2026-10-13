@@ -26,7 +26,8 @@ import { getBracketTableForYear } from "./tax/tables";
 import { buildWithdrawalSchedule } from "./withdrawals/engine";
 import { incomeGrowthFactor } from "./incomeGrowth";
 import { buildAccumulationSchedule, calculateBalancesToDate, type AccumPosition } from "./accumulation";
-import { WithdrawalStrategies } from "./WithdrawalStrategies";
+import { WithdrawalStrategies, useSolvedStrategies } from "./WithdrawalStrategies";
+import type { SmoothingMode } from "./withdrawals/strategies";
 
 function Field({
   label,
@@ -424,6 +425,33 @@ export default function App() {
     };
   }, [vars, anchors, baselineTotal, monthlyTotal]);
 
+  /**
+   * The four strategies are solved HERE rather than inside WithdrawalStrategies
+   * so that the Schedule table, the Tax tab and the strategy chart all read the
+   * same rows. They used to disagree: the selector's mode was local state in
+   * that component and never came back up, so picking a strategy moved the
+   * chart while the table above it went on showing the plan's own drawdown.
+   */
+  const [strategyMode, setStrategyMode] = useState<SmoothingMode>("depleteBy");
+  const strategyParams = useMemo(
+    () => ({
+      vars,
+      anchors,
+      retirementYear: vars.retirementYear,
+      retirementBalances: model.retirementBalances,
+      tfsaRoomAtRetirement: model.tfsaRoomAtRetirement,
+    }),
+    [vars, anchors, model.retirementBalances, model.tfsaRoomAtRetirement]
+  );
+  const { solved: solvedStrategies, solving: solvingStrategies } =
+    useSolvedStrategies(strategyParams);
+
+  /**
+   * The schedule every reader on this page uses. Falls back to the plan's own
+   * schedule for the second or so before the first solve lands.
+   */
+  const scheduleRows = solvedStrategies?.[strategyMode]?.rows ?? model.schedule;
+
   // One place that turns "year Y of the plan" into a set of tax inputs.
   //
   // This logic existed twice -- once on the Tax tab, once on Tax Brackets --
@@ -446,7 +474,7 @@ export default function App() {
         year,
         growthRate: v.incomeGrowthRate ?? 0.02,
       });
-      const schedRow = inRetirement ? model.schedule.find((r) => r.year === year) : undefined;
+      const schedRow = inRetirement ? scheduleRows.find((r) => r.year === year) : undefined;
 
       // In retirement years, take each person's pension, CPP, OAS (and the
       // retirement year's half-year of salary) straight from the withdrawal
@@ -2931,7 +2959,7 @@ $${money(projectedPensionSarah(anchors, vars))} with raises`}
           {/* OAS clawback warning removed */}
           {/* scroll navigation buttons removed */}
           {(() => {
-            const visibleRows = showFullSchedule ? model.schedule : model.schedule.slice(0, 12);
+            const visibleRows = showFullSchedule ? scheduleRows : scheduleRows.slice(0, 12);
             const last = visibleRows[visibleRows.length - 1];
 
             const endTotal = last
@@ -3048,10 +3076,10 @@ $${money(projectedPensionSarah(anchors, vars))} with raises`}
                   </table>
                 </div>
 
-                {(model.schedule[0]?.debug.rrspLeftAtDepletion ?? 0) > 1000 && (
+                {(scheduleRows[0]?.debug.rrspLeftAtDepletion ?? 0) > 1000 && (
                   <div style={{ marginTop: 10, padding: 10, borderRadius: 10, fontSize: 12, background: "#fef3c7", border: "1px solid #fcd34d" }}>
                     <strong>This plan cannot be fully levelled by your target age.</strong>{" "}
-                    About ${money(Math.round(model.schedule[0]!.debug.rrspLeftAtDepletion))} of
+                    About ${money(Math.round(scheduleRows[0]!.debug.rrspLeftAtDepletion))} of
                     RRSP is still left at the depletion year, so that year takes a lump and
                     pays more tax and OAS clawback than the years around it. Try a later
                     “RRIF deplete by age”, or set per-year Extra RRSP amounts.
@@ -3091,6 +3119,10 @@ $${money(projectedPensionSarah(anchors, vars))} with raises`}
                 withdrawals: { ...v.withdrawals, rrifDepleteByAge: age },
               }))
             }
+            solved={solvedStrategies}
+            solving={solvingStrategies}
+            mode={strategyMode}
+            onModeChange={setStrategyMode}
           />
         </section>
         )}

@@ -14,6 +14,19 @@ type Props = {
   real: boolean;
   /** Set the plan's deplete-by age. Only the "Deplete by" strategy uses it. */
   onChangeDepleteAge?: (age: number) => void;
+  /**
+   * Solved strategies and the selected one, owned by App.
+   *
+   * These used to live in here. The mode never came back up, so the Schedule
+   * table above this component kept showing the plan's own drawdown while the
+   * chart below showed whichever strategy was selected -- two different
+   * answers on one screen with nothing saying so. Lifting them also means the
+   * solve runs once for both readers, and it is not cheap.
+   */
+  solved: Record<SmoothingMode, SolvedStrategy> | null;
+  solving: boolean;
+  mode: SmoothingMode;
+  onModeChange: (mode: SmoothingMode) => void;
 };
 
 /**
@@ -78,7 +91,7 @@ function toPoint(r: WithdrawalScheduleRow): Point {
  * seconds. Running that on every keystroke would lock the page, so the solve is
  * debounced and the previous result stays on screen until the new one lands.
  */
-function useSolvedStrategies(params: SimulatorParams) {
+export function useSolvedStrategies(params: SimulatorParams) {
   const [solved, setSolved] = useState<Record<SmoothingMode, SolvedStrategy> | null>(null);
   const [solving, setSolving] = useState(true);
   const timer = useRef<number | undefined>(undefined);
@@ -250,9 +263,15 @@ function Chart({ points, yMax }: { points: Point[]; yMax: number }) {
   );
 }
 
-export function WithdrawalStrategies({ params, real, onChangeDepleteAge }: Props) {
-  const { solved, solving } = useSolvedStrategies(params);
-  const [mode, setMode] = useState<SmoothingMode>("depleteBy");
+export function WithdrawalStrategies({
+  params,
+  real,
+  onChangeDepleteAge,
+  solved,
+  solving,
+  mode,
+  onModeChange,
+}: Props) {
 
   const deflate = useMemo(() => {
     const rate = params.vars.expectedInflation;
@@ -334,7 +353,7 @@ export function WithdrawalStrategies({ params, real, onChangeDepleteAge }: Props
           <button
             key={st.key}
             type="button"
-            onClick={() => setMode(st.key)}
+            onClick={() => onModeChange(st.key)}
             style={{
               padding: "7px 14px",
               borderRadius: 999,
