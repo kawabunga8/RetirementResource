@@ -16,13 +16,29 @@ type Props = {
   onChangeDepleteAge?: (age: number) => void;
 };
 
+/**
+ * STACK ORDER, BOTTOM FIRST. The chart accumulates in array order, so SERIES[0]
+ * is drawn against the axis and the last entry sits on top. Read top-down the
+ * bars now go salary, RRSP/RRIF, CPP+OAS, LIF, pension -- the income you cannot
+ * change at the bottom, the income the strategy actually moves on top, so the
+ * part that differs between strategies is the part against the skyline.
+ *
+ * Reordering this array reorders the bars. Nothing else depends on it: the
+ * total is an order-free sum, and the legend and tooltip read LEGEND below.
+ */
 const SERIES = [
-  { key: "salary", label: "Employment income", color: "#2a78d6" },
   { key: "pension", label: "Employer pensions", color: "#eb6834" },
+  { key: "lif", label: "LIF", color: "#e87ba4" },
   { key: "cppOas", label: "CPP + OAS", color: "#1baf7a" },
   { key: "rrif", label: "RRSP / RRIF", color: "#eda100" },
-  { key: "lif", label: "LIF", color: "#e87ba4" },
+  { key: "salary", label: "Employment income", color: "#2a78d6" },
 ] as const;
+
+/**
+ * Legend and tooltip run top-of-stack first, so scanning them left to right
+ * matches reading the bar top to bottom.
+ */
+const LEGEND = [...SERIES].reverse();
 
 type SeriesKey = (typeof SERIES)[number]["key"];
 type Point = Record<SeriesKey, number> & {
@@ -217,7 +233,7 @@ function Chart({ points, yMax }: { points: Point[]; yMax: number }) {
       {hovered ? (
         <div style={{ marginTop: 8, fontSize: 12, display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
           <strong>{hovered.year}</strong>
-          {SERIES.filter((s) => hovered[s.key] > 1).map((s) => (
+          {LEGEND.filter((s) => hovered[s.key] > 1).map((s) => (
             <span key={s.key} style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
               <i style={{ width: 10, height: 10, borderRadius: 3, background: s.color, display: "inline-block" }} />
               {s.label}: <strong>{fmt(hovered[s.key])}</strong>
@@ -372,7 +388,7 @@ export function WithdrawalStrategies({ params, real, onChangeDepleteAge }: Props
 
       <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, fontSize: 12 }}>
-          {SERIES.map((sr) => (
+          {LEGEND.map((sr) => (
             <span key={sr.key} style={{ display: "inline-flex", gap: 7, alignItems: "center" }}>
               <i style={{ width: 11, height: 11, borderRadius: 3, background: sr.color, display: "inline-block" }} />
               {sr.label}
