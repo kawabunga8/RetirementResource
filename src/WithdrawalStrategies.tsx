@@ -96,7 +96,7 @@ function useSolvedStrategies(params: SimulatorParams) {
         depleteAge: vars.withdrawals.rrifDepleteByAge,
         endAge: vars.phaseAges.endAge,
         frontLoad: vars.withdrawals.rrifFrontLoad,
-        growth: vars.expectedNominalReturn,
+        growth: vars.retirementNominalReturn ?? vars.expectedNominalReturn,
         rrspAtRetirement:
           retirementBalances.rrsp +
           (vars.withdrawals.rollFhsaIntoRrspAtRetirement ? retirementBalances.fhsa : 0),

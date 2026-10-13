@@ -393,6 +393,11 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
   const { vars, anchors } = params;
 
   const indexRate = vars.expectedInflation * vars.cpiMultiplier;
+  /**
+   * Growth once retired. Falls back to the working-years rate so a plan saved
+   * before this field existed behaves exactly as it did.
+   */
+  const retirementReturn = vars.retirementNominalReturn ?? vars.expectedNominalReturn;
   // Each spouse's pension indexes at its own rate. Summing them and applying a
   // single rate cannot represent the common case of one indexed plan and one
   // that is not.
@@ -917,16 +922,16 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
       // The retirement year's balances arrive on 1 July (the accumulation
       // runs to the end of June), so they grow for half a year.
       const nonRegReturn =
-        vars.expectedNominalReturn - Math.max(0, vars.nonRegTaxDragRate ?? 0);
+        retirementReturn - Math.max(0, vars.nonRegTaxDragRate ?? 0);
       const grow = (rate: number) => Math.pow(1 + Math.max(-1, rate), yearFraction);
 
       const liraBeforeGrowth = balances.lira;
 
       balances = {
-        fhsa: balances.fhsa * grow(vars.expectedNominalReturn),
-        rrsp: balances.rrsp * grow(vars.expectedNominalReturn),
-        tfsa: balances.tfsa * grow(vars.expectedNominalReturn),
-        lira: balances.lira * grow(vars.expectedNominalReturn),
+        fhsa: balances.fhsa * grow(retirementReturn),
+        rrsp: balances.rrsp * grow(retirementReturn),
+        tfsa: balances.tfsa * grow(retirementReturn),
+        lira: balances.lira * grow(retirementReturn),
         nonRegistered: balances.nonRegistered * grow(nonRegReturn),
       };
 
@@ -1050,7 +1055,7 @@ export function buildWithdrawalSchedule(params: SimulatorParams) {
       }
     }
 
-    const growth = Math.max(0, vars.expectedNominalReturn);
+    const growth = Math.max(0, vars.retirementNominalReturn ?? vars.expectedNominalReturn);
     const B0 = Math.max(
       0,
       params.retirementBalances.rrsp +

@@ -849,11 +849,19 @@ export default function App() {
                 }
               />
             </Field>
-            <Field label="Expected nominal return (%/yr)">
+            <Field label="Return, working years (%/yr)">
               <PercentInput
                 value={vars.expectedNominalReturn}
                 onChange={(rate) =>
                   setVars((v) => ({ ...v, expectedNominalReturn: rate }))
+                }
+              />
+            </Field>
+            <Field label="Return, retirement (%/yr)">
+              <PercentInput
+                value={vars.retirementNominalReturn ?? vars.expectedNominalReturn}
+                onChange={(rate) =>
+                  setVars((v) => ({ ...v, retirementNominalReturn: rate }))
                 }
               />
             </Field>

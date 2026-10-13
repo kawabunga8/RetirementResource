@@ -226,6 +226,18 @@ export type Variables = {
 
   // Expectations
   expectedNominalReturn: number; // e.g. 0.07
+  /**
+   * Return assumed DURING retirement, from the retirement year onward.
+   * Separate from expectedNominalReturn, which covers the working years, so the
+   * portfolio can be de-risked at retirement without also rewriting the
+   * accumulation that got you there.
+   *
+   * This matters more than it looks. The BC LIF maximum is the greater of the
+   * table percentage and the PRIOR YEAR'S INVESTMENT RETURN, so the retirement
+   * return sets the LIF drawdown directly: above roughly 10% the fund pays out
+   * its whole return each year and the balance plateaus instead of depleting.
+   */
+  retirementNominalReturn: number; // e.g. 0.07
   expectedInflation: number; // e.g. 0.02
   /**
    * Post-retirement indexation of DB pensions — how the cheque grows once it is
@@ -444,6 +456,7 @@ export const DEFAULT_VARIABLES: Variables = {
   oasStartAge: 70,
 
   expectedNominalReturn: 0.07,
+  retirementNominalReturn: 0.07,
   expectedInflation: 0.03,
   pensionIndexRate: 0.02, // fallback only
 
