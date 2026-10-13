@@ -439,6 +439,12 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
       0,
       params.tfsaRoomAtRetirement ?? vars.withdrawals.tfsaRoomAtRetirement
     );
+    /**
+     * "A" in the BC LIF maximum: the investment return the LIF actually earned
+     * in the PRECEDING year, captured at the end of each iteration. Starts at 0,
+     * which is what BCFSA specifies for a newly established LIF.
+     */
+    let prevLifInvestmentReturn = 0;
 
     for (let i = 0; i < yearsInPlan; i++) {
       const year = params.retirementYear + i;
@@ -602,14 +608,30 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
       const lifMinRequired =
         vars.withdrawals.forceLifFromRetirement || lifMandatory ? yearFraction * balances.lira * lifMinF : 0;
       // BC LIF maximum annual withdrawal is the greater of:
-      // - the preceding year's investment return in the LIF (planning approx: prior balance * expectedNominalReturn)
-      // - beginning-of-year balance × BC max percentage table
-      const prevYearInvestmentReturn = i === 0 ? 0 : startBalances.lira * Math.max(0, vars.expectedNominalReturn);
+      // - A: the preceding year's investment return in the LIF
+      // - B: beginning-of-year balance × BC max percentage table
+      //
+      // A is the return the LIF ACTUALLY earned last year, carried from the end
+      // of the previous iteration. This used to be opening balance × the return
+      // rate, which overstates A by a factor of (1 + r) -- the opening balance
+      // already contains last year's growth.
+      const prevYearInvestmentReturn = i === 0 ? 0 : prevLifInvestmentReturn;
       const lifMaxAllowed = yearFraction * Math.max(prevYearInvestmentReturn, balances.lira * bcLifMaxPct(ageShingo));
 
-      const lifPlanned = vars.withdrawals.forceLifFromRetirement
-        ? yearFraction * balances.lira * lifTargetFactor(ageShingo, lifModeThisRun)
-        : 0;
+      // The BC maximum is a DOLLAR amount -- the greater of A and B -- not a
+      // percentage of the balance. Planning "max" as balance × the table
+      // percentage and then clamping with the Math.min below silently discarded
+      // the A branch in every year where A won: at an 11% return that was ten
+      // straight years, leaving ~$106k of withdrawal room unused. Each mode is
+      // now expressed in dollars against the real maximum.
+      const lifMinDollars = yearFraction * balances.lira * lifMinF;
+      const lifPlanned = !vars.withdrawals.forceLifFromRetirement
+        ? 0
+        : lifModeThisRun === "max"
+          ? lifMaxAllowed
+          : lifModeThisRun === "min"
+            ? lifMinDollars
+            : (lifMinDollars + lifMaxAllowed) / 2;
 
       // Always respect minimums, and never exceed the BC maximum.
       const lifTarget = Math.min(lifMaxAllowed, Math.max(lifMinRequired, lifPlanned));
@@ -898,6 +920,8 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
         vars.expectedNominalReturn - Math.max(0, vars.nonRegTaxDragRate ?? 0);
       const grow = (rate: number) => Math.pow(1 + Math.max(-1, rate), yearFraction);
 
+      const liraBeforeGrowth = balances.lira;
+
       balances = {
         fhsa: balances.fhsa * grow(vars.expectedNominalReturn),
         rrsp: balances.rrsp * grow(vars.expectedNominalReturn),
@@ -905,6 +929,10 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
         lira: balances.lira * grow(vars.expectedNominalReturn),
         nonRegistered: balances.nonRegistered * grow(nonRegReturn),
       };
+
+      // Feeds "A" in next year's BC LIF maximum. Measured, not assumed, so it
+      // stays right if the growth model ever changes.
+      prevLifInvestmentReturn = Math.max(0, balances.lira - liraBeforeGrowth);
 
       rows.push({
         year,
