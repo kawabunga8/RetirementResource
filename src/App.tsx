@@ -24,6 +24,7 @@ import { updateRrifFactorsFromDb, updateBcLifMaxFromDb } from "./withdrawals/eng
 import { computeHouseholdTax } from "./tax/v2";
 import { getBracketTableForYear } from "./tax/tables";
 import { buildWithdrawalSchedule } from "./withdrawals/engine";
+import { ownershipFromBalances } from "./withdrawals/ownership";
 import { incomeGrowthFactor } from "./incomeGrowth";
 import { buildAccumulationSchedule, calculateBalancesToDate, type AccumPosition } from "./accumulation";
 import { WithdrawalStrategies, useSolvedStrategies } from "./WithdrawalStrategies";
@@ -400,6 +401,13 @@ export default function App() {
       yearsToRetirement
     );
 
+    // Who owns the RRSP and FHSA pots on retirement day, from the same
+    // projection. The engine taxes each withdrawal to its owner by these
+    // shares (it used to assume 50/50).
+    const ownership = lastAccum
+      ? ownershipFromBalances(lastAccum.end.balances)
+      : ownershipFromBalances(todayBalances);
+
     // --- Withdrawal schedule (v2, after-tax real targets) ---
     const schedule = buildWithdrawalSchedule({
       vars,
@@ -407,6 +415,7 @@ export default function App() {
       retirementYear: vars.retirementYear,
       retirementBalances,
       tfsaRoomAtRetirement,
+      ownership,
     });
 
     return {
@@ -420,6 +429,7 @@ export default function App() {
       totalNominalAtRetirement,
       totalRealAtRetirement,
       tfsaRoomAtRetirement,
+      ownership,
       todayPosition,
       schedule,
     };
@@ -440,8 +450,9 @@ export default function App() {
       retirementYear: vars.retirementYear,
       retirementBalances: model.retirementBalances,
       tfsaRoomAtRetirement: model.tfsaRoomAtRetirement,
+      ownership: model.ownership,
     }),
-    [vars, anchors, model.retirementBalances, model.tfsaRoomAtRetirement]
+    [vars, anchors, model.retirementBalances, model.tfsaRoomAtRetirement, model.ownership]
   );
   const { solved: solvedStrategies, solving: solvingStrategies } =
     useSolvedStrategies(strategyParams);
@@ -495,19 +506,21 @@ export default function App() {
       const oasSarah = d ? d.oasSarah : ageSarah >= v.oasStartAge ? indexNominal(v.withdrawals.oasSarahAnnual) : 0;
 
       const rrifHousehold = schedRow ? schedRow.withdrawals.rrsp : 0;
+      const fhsaHousehold = schedRow ? schedRow.withdrawals.fhsa : 0;
       const lifShingo = schedRow ? schedRow.withdrawals.lira : 0;
       const tfsaHousehold = schedRow ? schedRow.withdrawals.tfsa : 0;
 
-      // Split household withdrawals in proportion to who owns the balance,
-      // not 50/50. RRSPs are registered per person and tax is assessed per
-      // person, so halving a withdrawal between unequal accounts reports
-      // income against a plan that does not hold it. Falls back to an even
-      // split only when both balances are zero and there is nothing to weight.
+      // Split household RRSP/RRIF and FHSA withdrawals by the ownership the
+      // ENGINE used for that year (projected retirement-day balances), so this
+      // tab taxes exactly what the plan pays. It used to split by TODAY's
+      // balances while the engine split 50/50 -- two different answers.
+      const rrspShare = schedRow?.ownership.rrspShingo ?? 0.5;
+      const fhsaShare = schedRow?.ownership.fhsaShingo ?? 0.5;
+      // TFSA withdrawals are tax-free, so this split changes no tax figure.
       const share = (a: number, b: number) => {
         const total = a + b;
         return total > 0 ? a / total : 0.5;
       };
-      const rrspShare = share(v.balances.rrspShingo, v.balances.rrspSarah);
       const tfsaShare = share(v.balances.tfsaShingo, v.balances.tfsaSarah);
 
       return {
@@ -534,8 +547,10 @@ export default function App() {
           shingoLif: inRetirement ? lifShingo : 0,
           sarahLif: 0,
 
-          shingoRrsp: 0,
-          sarahRrsp: 0,
+          // FHSA withdrawals, taxed like RRSP withdrawals (as the engine does).
+          // Zero when the FHSA is rolled into the RRSP at retirement.
+          shingoRrsp: inRetirement ? fhsaHousehold * fhsaShare : 0,
+          sarahRrsp: inRetirement ? fhsaHousehold * (1 - fhsaShare) : 0,
 
           shingoTfsa: inRetirement ? tfsaHousehold * tfsaShare : 0,
           sarahTfsa: inRetirement ? tfsaHousehold * (1 - tfsaShare) : 0,
@@ -1923,7 +1938,8 @@ export default function App() {
                 <div className="grid">
                   <div className="card" style={{ padding: 12 }}>
                     <h4 style={{ margin: "0 0 8px 0" }}>Shingo</h4>
-                    {showLine("Taxable income", res.spouseA.taxableIncome)}
+                    {showLine("Total income", res.spouseA.totalIncome)}
+                    {showLine("Taxable income (less OAS repayment)", res.spouseA.taxableIncome)}
                     {showLine("Fed tax (pre-credits)", res.spouseA.federalTaxBeforeCredits)}
                     {showLine("BC tax (pre-credits)", res.spouseA.bcTaxBeforeCredits)}
                     {showLine("Credits applied", res.spouseA.credits.total)}
@@ -1933,7 +1949,8 @@ export default function App() {
                   </div>
                   <div className="card" style={{ padding: 12 }}>
                     <h4 style={{ margin: "0 0 8px 0" }}>Sarah</h4>
-                    {showLine("Taxable income", res.spouseB.taxableIncome)}
+                    {showLine("Total income", res.spouseB.totalIncome)}
+                    {showLine("Taxable income (less OAS repayment)", res.spouseB.taxableIncome)}
                     {showLine("Fed tax (pre-credits)", res.spouseB.federalTaxBeforeCredits)}
                     {showLine("BC tax (pre-credits)", res.spouseB.bcTaxBeforeCredits)}
                     {showLine("Credits applied", res.spouseB.credits.total)}
@@ -1945,6 +1962,7 @@ export default function App() {
 
                 <div className="card" style={{ padding: 12, marginTop: 12 }}>
                   <h4 style={{ margin: "0 0 8px 0" }}>Household</h4>
+                  {showLine("Household total income", res.household.totalIncome)}
                   {showLine("Household taxable income", res.household.taxableIncome)}
                   {showLine("Household OAS clawback", res.household.oasClawback)}
                   {showLine("Household total tax", res.household.totalTax)}
@@ -3111,6 +3129,7 @@ $${money(projectedPensionSarah(anchors, vars))} with raises`}
               retirementYear: vars.retirementYear,
               retirementBalances: model.retirementBalances,
               tfsaRoomAtRetirement: model.tfsaRoomAtRetirement,
+              ownership: model.ownership,
             }}
             real={vars.dollarsMode === "real"}
             onChangeDepleteAge={(age) =>

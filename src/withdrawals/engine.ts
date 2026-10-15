@@ -9,6 +9,12 @@ import type { Anchors, LifMode, Variables, WithdrawalOrder } from "../planDefaul
 import { projectedPensionSarah, RETIREMENT_YEAR_FRACTION } from "../planDefaults";
 import { incomeGrowthFactor } from "../incomeGrowth";
 import { tfsaLimitForYear } from "../tfsaRoom";
+import {
+  EVEN_OWNERSHIP,
+  pooledCapWithoutSplitting,
+  shareAfterFhsaRollover,
+  type Ownership,
+} from "./ownership";
 
 export type RetirementBalances = {
   fhsa: number;
@@ -32,6 +38,11 @@ export type WithdrawalDebug = {
   targetAfterTaxReal: number;
 
   // Tax outputs
+  /**
+   * Each spouse's TOTAL income after pension splitting (line 23400) -- what
+   * the OAS clawback threshold is measured against. Before any OAS repayment
+   * deduction, so in a clawback year it exceeds the income the brackets see.
+   */
   taxableIncomeShingo: number;
   taxableIncomeSarah: number;
   /**
@@ -111,6 +122,12 @@ export type WithdrawalScheduleRow = {
   incomeDetail: ScheduleIncomeDetail;
 
   withdrawals: WithdrawalSources;
+  /**
+   * Shingo's fraction of this year's RRSP/RRIF and FHSA withdrawals -- the
+   * split the engine taxed. Readers (the Tax tab) must use this rather than
+   * re-deriving one, or they tax a different year than the plan pays.
+   */
+  ownership: Ownership;
 
   surplusInvestedToTfsa: number;
   surplusInvestedToNonReg: number;
@@ -317,7 +334,8 @@ function applyWithdrawalOrder(params: {
     }
 
     if (src === "rrsp") {
-      // household RRSP assumed split 50/50 for taxable-income purposes.
+      // The household headroom already accounts for who owns the RRSP pot
+      // (see headroomHousehold in simulate).
       const cap = Math.min(capFromConfig(params.caps.rrsp), params.taxableHeadroom.household);
       const r = withdrawFrom(need, params.balances.rrsp, cap);
       params.withdrawals.rrsp += r.withdrawn;
@@ -380,6 +398,11 @@ export type SimulatorParams = {
    * Omit to fall back to the hand-entered vars.withdrawals.tfsaRoomAtRetirement.
    */
   tfsaRoomAtRetirement?: number;
+  /**
+   * Shingo's share of the RRSP and FHSA pots on retirement day, from the
+   * accumulation (see ownershipFromBalances). Omit for an even split.
+   */
+  ownership?: Ownership;
 };
 
 /**
@@ -451,6 +474,13 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
      */
     let prevLifInvestmentReturn = 0;
 
+    // Shingo's fraction of each pooled account. Fixed while the pots are drawn
+    // and grown in proportion; re-weighted when the FHSA rolls into the RRSP.
+    const clampShare = (x: number) => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0.5);
+    const startOwnership = params.ownership ?? EVEN_OWNERSHIP;
+    let rrspShareShingo = clampShare(startOwnership.rrspShingo);
+    const fhsaShareShingo = clampShare(startOwnership.fhsaShingo);
+
     for (let i = 0; i < yearsInPlan; i++) {
       const year = params.retirementYear + i;
 
@@ -458,6 +488,7 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
       // - If toggle is ON: roll FHSA into RRSP at retirement year.
       // - If toggle is OFF: keep FHSA separate, but force rollover after 15 years from Shingo FHSA start.
       if (vars.withdrawals.rollFhsaIntoRrspAtRetirement && year === params.retirementYear && balances.fhsa > 0) {
+        rrspShareShingo = shareAfterFhsaRollover(balances.rrsp, rrspShareShingo, balances.fhsa, fhsaShareShingo);
         balances = {
           ...balances,
           rrsp: balances.rrsp + balances.fhsa,
@@ -466,6 +497,7 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
       }
 
       if (!vars.withdrawals.rollFhsaIntoRrspAtRetirement && year >= FHSA_SHINGO_FORCE_ROLL_YEAR && balances.fhsa > 0) {
+        rrspShareShingo = shareAfterFhsaRollover(balances.rrsp, rrspShareShingo, balances.fhsa, fhsaShareShingo);
         balances = {
           ...balances,
           rrsp: balances.rrsp + balances.fhsa,
@@ -723,10 +755,12 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
           },
         });
 
-        const headroomShingo = Math.max(0, taxableIncomeCeiling - baseTax.spouseA.taxableIncome);
-        const headroomSarah = Math.max(0, taxableIncomeCeiling - baseTax.spouseB.taxableIncome);
-        // RRSP/RRIF treated as split 50/50 in this model.
-        const rrspCeilingCap = 2 * Math.min(headroomShingo, headroomSarah);
+        // Measured on total income (line 23400), which is what the clawback threshold tests.
+        const headroomShingo = Math.max(0, taxableIncomeCeiling - baseTax.spouseA.totalIncome);
+        const headroomSarah = Math.max(0, taxableIncomeCeiling - baseTax.spouseB.totalIncome);
+        // Each RRSP/RRIF dollar lands rrspShareShingo on Shingo and the rest on
+        // Sarah, so the cap is whichever of them runs out of headroom first.
+        const rrspCeilingCap = pooledCapWithoutSplitting(headroomShingo, headroomSarah, rrspShareShingo);
 
         if (rrspCeilingCap <= 0) {
           // Still respect the RRIF minimum (if applicable), even if it triggers clawback.
@@ -770,8 +804,8 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
             incomes: {
               employment: employmentShingo,
               pensionDb: pensionShingoNominal,
-              rrspWithdrawal: withdrawals.fhsa * 0.5, // FHSA treated as RRSP-like taxable
-              rrifWithdrawal: withdrawals.rrsp * 0.5,
+              rrspWithdrawal: withdrawals.fhsa * fhsaShareShingo, // FHSA treated as RRSP-like taxable
+              rrifWithdrawal: withdrawals.rrsp * rrspShareShingo,
               lifWithdrawal: withdrawals.lira,
               cpp: cppShingoNominal,
               oas: oasShingoNominal,
@@ -784,8 +818,8 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
             incomes: {
               employment: employmentSarah,
               pensionDb: pensionSarahNominal,
-              rrspWithdrawal: withdrawals.fhsa * 0.5,
-              rrifWithdrawal: withdrawals.rrsp * 0.5,
+              rrspWithdrawal: withdrawals.fhsa * (1 - fhsaShareShingo),
+              rrifWithdrawal: withdrawals.rrsp * (1 - rrspShareShingo),
               lifWithdrawal: 0,
               cpp: cppSarahNominal,
               oas: oasSarahNominal,
@@ -804,8 +838,10 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
           },
         });
 
-        taxableIncomeShingo = res.spouseA.taxableIncome;
-        taxableIncomeSarah = res.spouseB.taxableIncome;
+        // Total income (line 23400), before the OAS repayment deduction -- the
+        // figure the clawback threshold and the headroom below are measured on.
+        taxableIncomeShingo = res.spouseA.totalIncome;
+        taxableIncomeSarah = res.spouseB.totalIncome;
         oasClawbackShingo = res.spouseA.oasClawback;
         oasClawbackSarah = res.spouseB.oasClawback;
         tax = res.household.totalTax - taxOnEmployment;
@@ -842,15 +878,15 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
 
         // With pension splitting we can move eligible income to whichever spouse
         // has room, so the household can absorb the SUM of both headrooms.
-        // Without it, RRSP/RRIF income is modelled 50/50, so the binding
-        // constraint is twice the SMALLER headroom.
+        // Without it, each RRSP/RRIF dollar lands on whoever owns it, so the
+        // binding constraint is whichever spouse fills up first.
         const headroomHousehold = applyCeiling2
           ? (vars.tax.enablePensionSplitting
               ? headroomShingo + headroomSarah
-              : 2 * Math.min(headroomShingo, headroomSarah))
+              : pooledCapWithoutSplitting(headroomShingo, headroomSarah, rrspShareShingo))
           : Infinity;
 
-        const avgTaxRate = lastTaxRes.household.taxableIncome > 0 ? lastTaxRes.household.totalTax / lastTaxRes.household.taxableIncome : 0;
+        const avgTaxRate = lastTaxRes.household.totalIncome > 0 ? lastTaxRes.household.totalTax / lastTaxRes.household.totalIncome : 0;
         const grossUpTaxable = 1 / Math.max(0.5, 1 - Math.min(0.45, Math.max(0, avgTaxRate)));
 
         // Requirement: cover any remaining spending gap using RRIF/RRSP first.
@@ -958,6 +994,7 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
           oasSarah: oasSarahNominal,
         },
         withdrawals: { ...withdrawals },
+        ownership: { rrspShingo: rrspShareShingo, fhsaShingo: fhsaShareShingo },
         surplusInvestedToTfsa: toTfsa,
         surplusInvestedToNonReg: toNonReg,
         endBalances: { ...balances },

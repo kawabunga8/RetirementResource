@@ -64,6 +64,17 @@ export type CreditsDetail = {
 export type SpouseTaxResult = {
   name: string;
   age: number;
+  /**
+   * Every taxable source after pension splitting -- "net income before
+   * adjustments" (line 23400), since this model has no other deductions. The
+   * OAS clawback threshold is measured against THIS figure.
+   */
+  totalIncome: number;
+  /**
+   * totalIncome less the OAS repayment, which is deductible (line 23500).
+   * The brackets apply to this. Equal to totalIncome in any year without a
+   * clawback.
+   */
   taxableIncome: number;
   eligiblePensionIncome: number;
   federalTaxBeforeCredits: number;
@@ -78,6 +89,7 @@ export type HouseholdTaxResult = {
   spouseA: SpouseTaxResult;
   spouseB: SpouseTaxResult;
   household: {
+    totalIncome: number;
     taxableIncome: number;
     totalTax: number;
     afterTaxIncome: number;
@@ -160,7 +172,8 @@ function taxableIncomeFromSources(incomes: IncomeSources) {
 function computeCredits(params: {
   tables: TaxYearTables;
   age: number;
-  taxableIncome: number;
+  /** Net income (line 23600): the age amount is income-tested against this. */
+  netIncome: number;
   eligiblePensionIncome: number;
   toggles: CreditsToggles;
 }) {
@@ -186,16 +199,16 @@ function computeCredits(params: {
   }
 
   if (params.toggles.useAgeAmount && params.age >= 65) {
-    // Income-tested phase-out (rough) against taxable income.
+    // Income-tested phase-out against net income.
     const fedAmt = Math.max(0,
       tables.federal.ageAmountMax -
-        Math.max(0, params.taxableIncome - tables.federal.ageAmountThreshold) *
+        Math.max(0, params.netIncome - tables.federal.ageAmountThreshold) *
           tables.federal.ageAmountPhaseOutRate
     );
 
     const bcAmt = Math.max(0,
       tables.bc.ageAmountMax -
-        Math.max(0, params.taxableIncome - tables.bc.ageAmountThreshold) *
+        Math.max(0, params.netIncome - tables.bc.ageAmountThreshold) *
           tables.bc.ageAmountPhaseOutRate
     );
 
@@ -239,8 +252,25 @@ function computePerson(params: {
 }) {
   const tables = params.tables;
 
-  const taxableIncome = taxableIncomeFromSources(params.incomes);
+  // Line 23400, net income before adjustments. Every source in this model is
+  // fully included and none of the deductions between total income and net
+  // income (RRSP contributions, carrying charges...) apply in retirement, so
+  // the sum of the sources IS this line -- not an approximation of it.
+  const totalIncome = taxableIncomeFromSources(params.incomes);
   const eligible = eligiblePensionIncome({ age: params.age, incomes: params.incomes });
+
+  // The OAS recovery tax is measured against line 23400...
+  const clawback = computeOasClawback({
+    tables,
+    netIncomeForClawback: totalIncome,
+    oasReceived: Math.max(0, params.incomes.oas),
+  });
+
+  // ...and the repayment is then DEDUCTED (line 23500) in arriving at net
+  // income, so the OAS that is clawed back is not also taxed at the marginal
+  // rate. This used to be skipped, overstating tax in any clawback year.
+  const netIncome = totalIncome - clawback;
+  const taxableIncome = netIncome; // no line 25700 deductions in this model
 
   const fedBefore = progressiveTax(taxableIncome, tables.federal.brackets);
   const bcBefore = progressiveTax(taxableIncome, tables.bc.brackets);
@@ -248,7 +278,7 @@ function computePerson(params: {
   const credits = computeCredits({
     tables,
     age: params.age,
-    taxableIncome,
+    netIncome,
     eligiblePensionIncome: eligible,
     toggles: params.credits,
   });
@@ -257,19 +287,14 @@ function computePerson(params: {
     Math.max(0, fedBefore - credits.fed.total) +
     Math.max(0, bcBefore - credits.bc.total);
 
-  // OAS clawback is based on net income. We approximate with taxable income.
-  const clawback = computeOasClawback({
-    tables,
-    netIncomeForClawback: taxableIncome,
-    oasReceived: Math.max(0, params.incomes.oas),
-  });
-
   const totalTax = taxAfterCredits + clawback;
-  const afterTax = taxableIncome - totalTax;
+  // Cash in hand: everything received, less everything owed.
+  const afterTax = totalIncome - totalTax;
 
   return {
     name: params.name,
     age: params.age,
+    totalIncome,
     taxableIncome,
     eligiblePensionIncome: eligible,
     federalTaxBeforeCredits: fedBefore,
@@ -419,6 +444,7 @@ export function computeHouseholdTax(inputs: HouseholdTaxInputs): HouseholdTaxRes
   debug.spouseA.postSplitEligiblePensionIncome = eligiblePensionIncome({ age: inputs.spouseA.age, incomes: best.aIncomes });
   debug.spouseB.postSplitEligiblePensionIncome = eligiblePensionIncome({ age: inputs.spouseB.age, incomes: best.bIncomes });
 
+  const householdTotal = best.resA.totalIncome + best.resB.totalIncome;
   const householdTaxable = best.resA.taxableIncome + best.resB.taxableIncome;
   const householdTax = best.resA.totalTax + best.resB.totalTax;
   const householdAfterTax = best.resA.afterTaxIncome + best.resB.afterTaxIncome;
@@ -427,6 +453,7 @@ export function computeHouseholdTax(inputs: HouseholdTaxInputs): HouseholdTaxRes
     spouseA: best.resA,
     spouseB: best.resB,
     household: {
+      totalIncome: householdTotal,
       taxableIncome: householdTaxable,
       totalTax: householdTax,
       afterTaxIncome: householdAfterTax,

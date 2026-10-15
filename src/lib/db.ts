@@ -71,15 +71,23 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
   if (error || !plans?.length) return null;
   const plan = plans[0] as DbPlan;
 
-  const [membersRes, assumptionsRes, accountsRes, phasesRes, benefitsRes] = await Promise.all([
+  const [membersRes, assumptionsRes, accountsRes, phasesRes] = await Promise.all([
     supabase.from("plan_members").select("*").eq("plan_id", plan.id),
     supabase.from("plan_assumptions").select("*").eq("plan_id", plan.id).limit(1),
     supabase.from("plan_accounts").select("*").eq("plan_id", plan.id),
     supabase.from("plan_spending_phases").select("*").eq("plan_id", plan.id),
-    supabase.from("plan_benefits").select("*"),
   ]);
 
   const members = (membersRes.data ?? []) as DbMember[];
+
+  // plan_benefits has no plan_id column, only member_id, so it is scoped by
+  // this plan's member IDs IN THE QUERY. It used to select every row and
+  // filter here, which meant any benefit row the database's access policies
+  // let through reached the browser before being discarded.
+  const memberIds = members.map((m) => m.id);
+  const benefitsRes = memberIds.length
+    ? await supabase.from("plan_benefits").select("*").in("member_id", memberIds)
+    : { data: [] as DbBenefit[] };
   const assumptions = (assumptionsRes.data?.[0] ?? null) as DbAssumptions | null;
   const allAccounts = (accountsRes.data ?? []) as DbAccount[];
   const phases = (phasesRes.data ?? []) as DbSpendingPhase[];
@@ -108,10 +116,7 @@ export async function loadPlan(): Promise<LoadedPlan | null> {
     accounts = allAccounts.filter((a) => toDateString(a.as_of_date) === mostRecentDate);
   }
 
-  // plan_benefits has no plan_id column, only member_id — scope to this plan's members
-  // to avoid pulling another plan's benefit rows if member IDs were ever non-unique.
-  const memberIds = new Set(members.map((m) => m.id));
-  const benefits = ((benefitsRes.data ?? []) as DbBenefit[]).filter((b) => memberIds.has(b.member_id));
+  const benefits = (benefitsRes.data ?? []) as DbBenefit[];
 
   const account = (type: string, memberId?: string) =>
     accounts.find((a) => a.account_type === type && (memberId ? a.member_id === memberId : true));

@@ -96,7 +96,7 @@ export function useSolvedStrategies(params: SimulatorParams) {
   const [solving, setSolving] = useState(true);
   const timer = useRef<number | undefined>(undefined);
 
-  const { vars, anchors, retirementYear, retirementBalances, tfsaRoomAtRetirement } = params;
+  const { vars, anchors, retirementYear, retirementBalances, tfsaRoomAtRetirement, ownership } = params;
 
   useEffect(() => {
     setSolving(true);
@@ -121,7 +121,7 @@ export function useSolvedStrategies(params: SimulatorParams) {
 
     return () => window.clearTimeout(timer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vars, anchors, retirementYear, retirementBalances, tfsaRoomAtRetirement]);
+  }, [vars, anchors, retirementYear, retirementBalances, tfsaRoomAtRetirement, ownership]);
 
   return { solved, solving };
 }
