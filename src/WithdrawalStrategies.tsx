@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { makeWithdrawalSimulator, type SimulatorParams, type WithdrawalScheduleRow } from "./withdrawals/engine";
 import {
   solveAllStrategies,
+  summaryInDollars,
   NEVER_DEPLETE,
   type SmoothingMode,
   type SolvedStrategy,
@@ -322,8 +323,9 @@ export function WithdrawalStrategies({
 
   const depleteAge = params.vars.withdrawals.rrifDepleteByAge;
   const chosen = solved[mode];
-  const base = solved.depleteBy.summary;
-  const s = chosen.summary;
+  // In the dollars the page is showing (today's or future), like the chart.
+  const base = summaryInDollars(solved.depleteBy.rows, params.retirementYear, deflate);
+  const s = summaryInDollars(chosen.rows, params.retirementYear, deflate);
 
   const horizonLabel =
     chosen.depleteByAge >= NEVER_DEPLETE
@@ -362,7 +364,12 @@ export function WithdrawalStrategies({
 
   return (
     <div style={{ marginTop: 22 }}>
-      <h3 style={{ marginBottom: 4 }}>Withdrawal strategy</h3>
+      <h3 style={{ marginBottom: 4 }}>
+        Withdrawal strategy{" "}
+        <span style={{ fontSize: 12, fontWeight: 400, opacity: 0.6 }}>
+          · figures in {real ? "today's dollars" : "future (nominal) dollars"}
+        </span>
+      </h3>
       <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 10 }}>
         All four are solved up front, so switching is instant, and all four now steer around the
         OAS clawback. Only <em>Deplete by {depleteAge}</em> is bound to your deplete-by age; the

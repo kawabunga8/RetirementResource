@@ -6,6 +6,7 @@ import {
   pooledCapWithoutSplitting,
   shareAfterFhsaRollover,
 } from "./ownership";
+import { lifetimeTax, summaryInDollars, totalEstimatedTax } from "./strategies";
 
 describe("ownership of the pooled registered accounts", () => {
   it("weights each pot by who holds it", () => {
@@ -78,5 +79,29 @@ describe("the engine taxes RRIF income to its owner", () => {
       ownership: { rrspShingo: 0.8, fhsaShingo: 0.4 },
     });
     expect(rows[0]!.ownership.rrspShingo).toBeCloseTo(0.7);
+  });
+});
+
+describe("strategy figures follow the page's dollars", () => {
+  const rows = buildWithdrawalSchedule({
+    vars: { ...DEFAULT_VARIABLES, retirementYear: 2036, phaseAges: { goGoEndAge: 70, slowGoEndAge: 70, endAge: 70 } },
+    anchors: DEFAULT_ANCHORS,
+    retirementYear: 2036,
+    retirementBalances: { fhsa: 0, rrsp: 600_000, tfsa: 0, lira: 0, nonRegistered: 0 },
+  });
+
+  it("matches the nominal summary when nothing is converted", () => {
+    const s = summaryInDollars(rows, 2036, (v) => v);
+    expect(s.lifetimeTax).toBeCloseTo(lifetimeTax(rows), 6);
+    expect(s.totalEstimatedTax).toBeCloseTo(totalEstimatedTax(rows), 6);
+  });
+
+  it("converts each year at its own date before summing", () => {
+    const inflation = 0.03;
+    const toReal = (v: number, year: number) => v / Math.pow(1 + inflation, year - 2026);
+    const s = summaryInDollars(rows, 2036, toReal);
+    const expected = rows.reduce((a, r) => a + toReal(r.debug.tax + r.debug.taxOnEmployment, r.year), 0);
+    expect(s.lifetimeTax).toBeCloseTo(expected, 6);
+    expect(s.lifetimeTax).toBeLessThan(lifetimeTax(rows));
   });
 });

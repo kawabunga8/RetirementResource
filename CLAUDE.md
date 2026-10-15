@@ -75,6 +75,7 @@ Canada / British Columbia only: federal + BC tax brackets, RRIF factors, BC LIF 
 - **Returns are effective annual rates.** Monthly loops use `(1 + r)^(1/12) - 1`, never `r / 12`.
 - **Pension anchors are already starting cheques.** PENCAN's figure is projected to 2036; Sarah's is lifted for raises by `projectedPensionSarah`. `pensionIndexRate*` is COLA only and applies from the retirement year, never from the baseline year.
 - **OAS is 10% higher from age 75.**
+- **Summed figures follow the Dollars setting.** `SolvedStrategy.summary` is NOMINAL; anything displayed goes through `summaryInDollars(rows, retirementYear, deflate)`, which converts each year at its own date before summing (end-of-plan figures at the final year).
 - **The Tax tab takes retirement-year incomes from the schedule row's `incomeDetail`**, so it taxes exactly what the engine pays.
 - **RRSP/RRIF and FHSA are pooled but taxed to their owner.** The engine draws one household pot of each and taxes withdrawals by `ownership` (Shingo's share on retirement day, from the accumulation's per-person balances via `ownershipFromBalances`; re-weighted when the FHSA rolls in). Each row carries the `ownership` it used, and the Tax tab splits by that — never by today's balances or 50/50.
 - **OAS repayment is deductible.** `tax/v2.ts` measures the clawback on `totalIncome` (line 23400) and applies the brackets to `taxableIncome` = total less the repayment (line 23500). The engine's `debug.taxableIncome*` and OAS headroom use `totalIncome`.

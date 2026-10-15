@@ -133,6 +133,39 @@ export const endOfPlanTax = (rows: WithdrawalScheduleRow[]) => terminalTax(rows)
  */
 export const totalEstimatedTax = (rows: WithdrawalScheduleRow[]) => lifetimeTax(rows) + endOfPlanTax(rows);
 
+/**
+ * The summary figures in the dollars the page is showing.
+ *
+ * SolvedStrategy.summary is a sum of NOMINAL dollars across 26 years, which
+ * the strategy cards used to print even with "Today's (real)" selected -- so
+ * lifetime tax read ~$1.1M beside a chart whose yearly tax line never passed
+ * $70k. Pass the page's deflator: each year is converted at its own date
+ * before summing, and the end-of-plan figures at the final year.
+ */
+export function summaryInDollars(
+  rows: WithdrawalScheduleRow[],
+  retirementYear: number,
+  toDollars: (nominal: number, year: number) => number
+) {
+  const last = rows[rows.length - 1];
+  const endYear = last ? last.year : retirementYear;
+  const lifetime = rows.reduce((a, r) => a + toDollars(r.debug.tax + r.debug.taxOnEmployment, r.year), 0);
+  const registeredLeft = toDollars(terminalTax(rows), endYear);
+  const unrealized = toDollars(unrealizedGainsAtEnd(rows), endYear);
+  const gainsTax = toDollars(deferredGainsTax(rows), endYear);
+  // Spread and peak exclude the half retirement year, as the solver does.
+  const yearly = rows.filter((r) => r.year !== retirementYear).map((r) => toDollars(r.debug.tax, r.year));
+  return {
+    lifetimeTax: lifetime,
+    terminalTax: registeredLeft,
+    unrealizedGains: unrealized,
+    deferredGainsTax: gainsTax,
+    totalEstimatedTax: lifetime + registeredLeft + gainsTax,
+    taxSpread: yearly.length ? Math.max(...yearly) - Math.min(...yearly) : 0,
+    peakTax: yearly.length ? Math.max(...yearly) : 0,
+  };
+}
+
 const spreadOf = (m: Map<number, number>) => {
   const v = [...m.values()];
   return v.length ? Math.max(...v) - Math.min(...v) : 0;
