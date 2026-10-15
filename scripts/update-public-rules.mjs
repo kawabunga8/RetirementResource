@@ -48,7 +48,7 @@ function formatTsObject(obj) {
   return [
     `const TFSA_ANNUAL_LIMIT_BY_YEAR_DEFAULT = {\n${lines.join('\n')}\n} as const;`,
     `\nexport let TFSA_ANNUAL_LIMIT_BY_YEAR: Record<string, number> = { ...TFSA_ANNUAL_LIMIT_BY_YEAR_DEFAULT };\n`,
-    `export function updateTfsaLimitsFromDb(limits: Record<string, number>) {\n  TFSA_ANNUAL_LIMIT_BY_YEAR = limits;\n}\n`,
+    `export function updateTfsaLimitsFromDb(limits: Record<string, number>) {\n  // Merge year by year, and ignore an empty result. Replacing the table\n  // outright meant a query that returned no rows set every TFSA limit to $0,\n  // so no new room was ever created and all surplus fell to non-registered.\n  if (!limits || Object.keys(limits).length === 0) return;\n  TFSA_ANNUAL_LIMIT_BY_YEAR = { ...TFSA_ANNUAL_LIMIT_BY_YEAR, ...limits };\n}\n`,
   ].join('\n');
 }
 

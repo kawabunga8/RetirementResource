@@ -1,6 +1,7 @@
 import type { LifMode } from "../planDefaults";
 import { RETIREMENT_YEAR_FRACTION } from "../planDefaults";
 import type { WithdrawalScheduleRow } from "./engine";
+import { INVESTMENT_INCOME_RULES } from "../tax/tables";
 
 /**
  * Withdrawal strategies.
@@ -104,6 +105,33 @@ export function terminalTax(rows: WithdrawalScheduleRow[]) {
   if (!last) return 0;
   return (last.endBalances.rrsp + last.endBalances.lira + last.endBalances.fhsa) * TERMINAL_RATE;
 }
+
+/** Non-registered gains never realized during the plan (zero in the growth-trim approximation). */
+export function unrealizedGainsAtEnd(rows: WithdrawalScheduleRow[]) {
+  const last = rows[rows.length - 1];
+  if (!last) return 0;
+  return Math.max(0, last.endBalances.nonRegistered - last.debug.endNonRegAcb);
+}
+
+/**
+ * ESTIMATED tax on those gains if they were realized at the end (deemed
+ * disposition on the second death): the inclusion rate times the same
+ * TERMINAL_RATE used for registered money left over. An estimate -- the real
+ * figure depends on when and how they are disposed of, and the rules then.
+ */
+export function deferredGainsTax(rows: WithdrawalScheduleRow[]) {
+  return unrealizedGainsAtEnd(rows) * INVESTMENT_INCOME_RULES.capitalGainsInclusion * TERMINAL_RATE;
+}
+
+/** Everything still owed at the end: registered money left plus unrealized gains. Estimate. */
+export const endOfPlanTax = (rows: WithdrawalScheduleRow[]) => terminalTax(rows) + deferredGainsTax(rows);
+
+/**
+ * Tax on a consistent basis: paid during the plan plus the estimated bill on
+ * what is left. Comparing strategies on lifetimeTax alone would reward one
+ * that leaves more untaxed gain behind.
+ */
+export const totalEstimatedTax = (rows: WithdrawalScheduleRow[]) => lifetimeTax(rows) + endOfPlanTax(rows);
 
 const spreadOf = (m: Map<number, number>) => {
   const v = [...m.values()];
@@ -283,13 +311,13 @@ function minLifetimeSolve(
   const seed = ctx.simulate({}, overrides);
   // Taking only the RRIF minimums and leaving the rest is a real candidate
   // once the deplete-by rule is lifted.
-  let best = { plan: {} as ExtraPlan, score: lifetimeTax(seed) + terminalTax(seed) };
+  let best = { plan: {} as ExtraPlan, score: totalEstimatedTax(seed) };
   if (horizonAge >= NEVER_DEPLETE) return best.plan;
 
   for (const ratio of [1, 1.6]) {
     const plan = amortise(ctx, horizonAge, ratio, 7, 250, overrides);
     const rows = ctx.simulate(plan, overrides);
-    const score = lifetimeTax(rows) + terminalTax(rows);
+    const score = totalEstimatedTax(rows);
     if (score < best.score) best = { plan, score };
   }
   return best.plan;
@@ -343,10 +371,10 @@ export const STRATEGIES: StrategyDefinition[] = [
     key: "minLifetime",
     label: "Minimise lifetime tax",
     blurb:
-      "Searches shapes and depletion horizons for the lowest total tax, counting the bill on whatever is left at the end. Free to produce uneven years.",
+      "Searches shapes and depletion horizons for the lowest total tax, counting the estimated bill on whatever is left at the end (registered money and unrealized gains). Free to produce uneven years.",
     horizons: (ctx) => [80, 85, ctx.endAge, NEVER_DEPLETE],
     solve: (ctx, horizon, over) => minLifetimeSolve(ctx, horizon, over),
-    objective: (rows) => lifetimeTax(rows) + terminalTax(rows),
+    objective: (rows) => totalEstimatedTax(rows),
   },
 ];
 
@@ -359,8 +387,16 @@ export type SolvedStrategy = {
   depleteByAge: number;
   lifMode: LifMode;
   summary: {
+    /** Tax paid during the plan. */
     lifetimeTax: number;
+    /** Estimated tax on registered money left at the end. */
     terminalTax: number;
+    /** Non-registered gains still unrealized at the end. */
+    unrealizedGains: number;
+    /** Estimated tax on those gains if realized at the end. */
+    deferredGainsTax: number;
+    /** lifetimeTax + terminalTax + deferredGainsTax -- the consistent-basis total. */
+    totalEstimatedTax: number;
     taxSpread: number;
     rateSpread: number;
     peakTax: number;
@@ -411,7 +447,7 @@ export function solveAllStrategies(ctx: StrategyContext, lifMode: LifMode): Reco
     const bestScore = Math.min(...pool.map((c) => c.score));
     const slack = Math.abs(bestScore) * HORIZON_SCORE_SLACK;
     const shortlist = pool.filter((c) => c.score <= bestScore + slack);
-    const costOf = (c: HorizonCandidate) => lifetimeTax(c.rows) + terminalTax(c.rows);
+    const costOf = (c: HorizonCandidate) => totalEstimatedTax(c.rows);
     const { rows, plan, depleteByAge } = shortlist.reduce((a, b) =>
       costOf(b) < costOf(a) ? b : a
     );
@@ -427,6 +463,9 @@ export function solveAllStrategies(ctx: StrategyContext, lifMode: LifMode): Reco
       summary: {
         lifetimeTax: lifetimeTax(rows),
         terminalTax: terminalTax(rows),
+        unrealizedGains: unrealizedGainsAtEnd(rows),
+        deferredGainsTax: deferredGainsTax(rows),
+        totalEstimatedTax: totalEstimatedTax(rows),
         taxSpread: spreadOf(taxByYear(rows, ctx)),
         rateSpread: spreadOf(rateByYear(rows, ctx)),
         peakTax: taxes.length ? Math.max(...taxes) : 0,

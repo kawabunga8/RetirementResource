@@ -997,15 +997,27 @@ export default function App() {
                       <PercentInput value={mix.realizedGains} step={0.05} onChange={(r) => setMix("realizedGains", r)} />
                     </Field>
                   </div>
-                  <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
-                    Paid out: {(paidOut * 100).toFixed(2)}%/yr of the {(retReturn * 100).toFixed(2)}% return; the rest
-                    is price growth, taxed only when realized (half of a gain is taxable). Payouts are reinvested and the
-                    tax on them is paid from that year&apos;s income. Each type is taxed under its own rules (dividend
-                    gross-up and credit; interest and foreign dividends in full), split evenly between you as a joint
-                    account, and counts toward the OAS clawback. Money already in the account on retirement day is
-                    assumed to carry no unrealized gain. Gains still unrealized at the end are not taxed in this model.
+                  <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6, display: "grid", gap: 4 }}>
+                    <div>
+                      <strong>What these rates are:</strong> cash payouts (distributions) as a share of the balance,
+                      not total return, and the same rate every year of retirement. Paid out:{" "}
+                      {(paidOut * 100).toFixed(2)}%/yr of the {(retReturn * 100).toFixed(2)}% return; the rest is price
+                      growth, taxed only when realized (half of a gain is taxable).
+                    </div>
+                    <div>
+                      <strong>Realized gains are an assumption,</strong> standing in for fund distributions and
+                      rebalancing. Real gains depend on what is sold and its cost base, which no return figure can
+                      tell you. The model tracks the cost base and never realizes more gain than the account holds.
+                    </div>
+                    <div>
+                      Payouts are reinvested; the tax on them is paid from that year&apos;s income. Each type is taxed
+                      under its own rules (dividend gross-up and credit; interest and foreign dividends in full), split
+                      evenly between you as a joint account, and counts toward the OAS clawback. Money already in the
+                      account on retirement day is assumed to carry no unrealized gain. Gains still unrealized at the
+                      end appear as an <em>estimated</em> tax in the strategy comparison on the Withdrawals tab.
+                    </div>
                     {paidOut + mix.realizedGains > retReturn ? (
-                      <strong> Payouts exceed the return, so the account will shrink in value.</strong>
+                      <strong>Payouts exceed the return, so the account will shrink in value.</strong>
                     ) : null}
                   </div>
                 </div>

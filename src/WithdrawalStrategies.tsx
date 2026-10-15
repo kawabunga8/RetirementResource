@@ -337,13 +337,24 @@ export function WithdrawalStrategies({
     return `${diff < 0 ? "−" : "+"}${fmt(Math.abs(diff))} vs baseline`;
   };
 
+  // What is still owed at the end: registered money left over, plus tax on
+  // non-registered gains never realized. An ESTIMATE either way.
+  const endTax = s.terminalTax + s.deferredGainsTax;
+  const endParts: string[] = [];
+  if (s.terminalTax > 1) endParts.push(`${fmt(s.terminalTax)} on registered money left`);
+  if (s.deferredGainsTax > 1) endParts.push(`${fmt(s.unrealizedGains)} of unrealized gains, half taxed`);
+  const endNote = endParts.length
+    ? `Estimate at ~45%: ${endParts.join("; ")}`
+    : "nothing left to tax — registered accounts drawn down, no deferred gains";
+
   const cards: { k: string; v: string; n: string; good: boolean }[] = [
-    { k: "Lifetime tax", v: fmt(s.lifetimeTax), n: delta(s.lifetimeTax, base.lifetimeTax), good: s.lifetimeTax < base.lifetimeTax },
+    { k: "Tax paid during the plan", v: fmt(s.lifetimeTax), n: delta(s.lifetimeTax, base.lifetimeTax), good: s.lifetimeTax < base.lifetimeTax },
+    { k: "Est. tax still owed at the end", v: fmt(endTax), n: endNote, good: endTax <= 1 },
     {
-      k: "Left taxable at the end",
-      v: fmt(s.terminalTax),
-      n: s.terminalTax > 1 ? "payable on the second death" : "registered accounts fully drawn down",
-      good: s.terminalTax <= 1,
+      k: "Total, consistent basis",
+      v: fmt(s.totalEstimatedTax),
+      n: delta(s.totalEstimatedTax, base.totalEstimatedTax),
+      good: s.totalEstimatedTax < base.totalEstimatedTax,
     },
     { k: "Year-to-year spread", v: fmt(s.taxSpread), n: delta(s.taxSpread, base.taxSpread), good: s.taxSpread < base.taxSpread },
     { k: "Heaviest year", v: fmt(s.peakTax), n: delta(s.peakTax, base.peakTax), good: s.peakTax < base.peakTax },

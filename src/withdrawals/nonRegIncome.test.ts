@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_ANCHORS, DEFAULT_VARIABLES, type NonRegIncomeMix } from "../planDefaults";
 import { buildWithdrawalSchedule, type RetirementBalances } from "./engine";
 import { acbAfterYear, gainOnWithdrawal, normalizeMix, yearInvestmentIncome } from "./nonRegIncome";
+import { deferredGainsTax, lifetimeTax, terminalTax, totalEstimatedTax, unrealizedGainsAtEnd } from "./strategies";
 
 const ZERO_MIX: NonRegIncomeMix = {
   interest: 0,
@@ -110,5 +111,37 @@ describe("engine: itemized non-registered tax", () => {
       expect(realized).toBeLessThanOrEqual(Math.max(0, r.debug.startBalances.nonRegistered - 0) + 1e-6);
     }
     expect(rows.at(-1)!.debug.endNonRegAcb).toBeGreaterThan(balances.nonRegistered);
+  });
+});
+
+describe("strategy totals count the end-of-plan gains estimate", () => {
+  const vars = {
+    ...DEFAULT_VARIABLES,
+    expectedInflation: 0,
+    retirementNominalReturn: 0.05,
+    retirementYear: 2036,
+    phaseAges: { goGoEndAge: 72, slowGoEndAge: 72, endAge: 72 },
+  };
+  const rowsFor = (mode: "drag" | "itemized") =>
+    buildWithdrawalSchedule({
+      vars: { ...vars, nonRegTaxMode: mode },
+      anchors: DEFAULT_ANCHORS,
+      retirementYear: 2036,
+      retirementBalances: { fhsa: 0, rrsp: 400_000, tfsa: 0, lira: 0, nonRegistered: 300_000 },
+      tfsaRoomAtRetirement: 0,
+    });
+
+  it("is zero in the growth-trim approximation, which leaves no deferred gain", () => {
+    const rows = rowsFor("drag");
+    expect(unrealizedGainsAtEnd(rows)).toBe(0);
+    expect(totalEstimatedTax(rows)).toBeCloseTo(lifetimeTax(rows) + terminalTax(rows), 6);
+  });
+
+  it("taxes half the unrealized gain at the terminal rate when itemized", () => {
+    const rows = rowsFor("itemized");
+    const gain = unrealizedGainsAtEnd(rows);
+    expect(gain).toBeGreaterThan(0);
+    expect(deferredGainsTax(rows)).toBeCloseTo(gain * 0.5 * 0.45, 6);
+    expect(totalEstimatedTax(rows)).toBeCloseTo(lifetimeTax(rows) + terminalTax(rows) + deferredGainsTax(rows), 6);
   });
 });

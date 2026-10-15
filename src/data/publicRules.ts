@@ -27,7 +27,11 @@ const TFSA_ANNUAL_LIMIT_BY_YEAR_DEFAULT = {
 export let TFSA_ANNUAL_LIMIT_BY_YEAR: Record<string, number> = { ...TFSA_ANNUAL_LIMIT_BY_YEAR_DEFAULT };
 
 export function updateTfsaLimitsFromDb(limits: Record<string, number>) {
-  TFSA_ANNUAL_LIMIT_BY_YEAR = limits;
+  // Merge year by year, and ignore an empty result. Replacing the table
+  // outright meant a query that returned no rows set every TFSA limit to $0,
+  // so no new room was ever created and all surplus fell to non-registered.
+  if (!limits || Object.keys(limits).length === 0) return;
+  TFSA_ANNUAL_LIMIT_BY_YEAR = { ...TFSA_ANNUAL_LIMIT_BY_YEAR, ...limits };
 }
 
 export const FHSA_RULES = {
