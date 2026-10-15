@@ -15,6 +15,7 @@ import {
   type Variables,
   type WithdrawalOrder,
   type LifMode,
+  type NonRegIncomeMix,
 } from "./planDefaults";
 import { loadPlan, savePlan, loadPublicRules } from "./lib/db";
 import { accumulationTimeline } from "./accumulationTimeline";
@@ -25,6 +26,7 @@ import { computeHouseholdTax } from "./tax/v2";
 import { getBracketTableForYear } from "./tax/tables";
 import { buildWithdrawalSchedule } from "./withdrawals/engine";
 import { ownershipFromBalances } from "./withdrawals/ownership";
+import { normalizeMix } from "./withdrawals/nonRegIncome";
 import { incomeGrowthFactor } from "./incomeGrowth";
 import { buildAccumulationSchedule, calculateBalancesToDate, type AccumPosition } from "./accumulation";
 import { WithdrawalStrategies, useSolvedStrategies } from "./WithdrawalStrategies";
@@ -197,6 +199,8 @@ export default function App() {
           ...v,
           ...ov,
           withdrawals: { ...v.withdrawals, ...ov.withdrawals },
+          // Field by field, so a mix saved before a new field existed keeps the default for it.
+          nonRegIncomeMix: normalizeMix({ ...v.nonRegIncomeMix, ...ov.nonRegIncomeMix }),
         }));
       }
       if (rules) {
@@ -523,6 +527,11 @@ export default function App() {
       };
       const tfsaShare = share(v.balances.tfsaShingo, v.balances.tfsaSarah);
 
+      // Non-registered payouts, per spouse, exactly as the engine taxed them
+      // (zero in the growth-trim approximation).
+      const invS = inRetirement ? schedRow?.investmentIncome.shingo : undefined;
+      const invSa = inRetirement ? schedRow?.investmentIncome.sarah : undefined;
+
       return {
         ...v,
         tax: {
@@ -554,6 +563,15 @@ export default function App() {
 
           shingoTfsa: inRetirement ? tfsaHousehold * tfsaShare : 0,
           sarahTfsa: inRetirement ? tfsaHousehold * (1 - tfsaShare) : 0,
+
+          shingoInterest: invS?.interest ?? 0,
+          sarahInterest: invSa?.interest ?? 0,
+          shingoEligibleDividends: invS?.eligibleDividends ?? 0,
+          sarahEligibleDividends: invSa?.eligibleDividends ?? 0,
+          shingoNonEligibleDividends: invS?.nonEligibleDividends ?? 0,
+          sarahNonEligibleDividends: invSa?.nonEligibleDividends ?? 0,
+          shingoCapitalGains: invS?.capitalGains ?? 0,
+          sarahCapitalGains: invSa?.capitalGains ?? 0,
         },
       };
     });
@@ -883,7 +901,21 @@ export default function App() {
                 }
               />
             </Field>
-            <Field label="Non-registered tax drag (%/yr)">
+            <Field label={"Non-registered tax\n(retirement years)"}>
+              <select
+                value={vars.nonRegTaxMode ?? "drag"}
+                onChange={(e) =>
+                  setVars((v) => ({
+                    ...v,
+                    nonRegTaxMode: e.target.value === "itemized" ? "itemized" : "drag",
+                  }))
+                }
+              >
+                <option value="drag">Approximate (trim growth)</option>
+                <option value="itemized">Itemized (tax the payouts)</option>
+              </select>
+            </Field>
+            <Field label={"Growth trim, approximation\n(%/yr)"}>
               <PercentInput
                 value={vars.nonRegTaxDragRate ?? 0}
                 step={0.05}
@@ -925,6 +957,61 @@ export default function App() {
               />
             </Field>
           </div>
+
+          {(vars.nonRegTaxMode ?? "drag") === "drag" ? (
+            <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+              <strong>Approximation:</strong> non-registered tax is taken off that account&apos;s growth, so it never
+              appears in the yearly tax figure and never counts toward the OAS clawback. Switch to Itemized to tax the
+              interest, dividends and realized gains as income. The growth trim always applies in working years.
+            </div>
+          ) : (
+            (() => {
+              const mix = normalizeMix(vars.nonRegIncomeMix);
+              const setMix = (key: keyof NonRegIncomeMix, rate: number) =>
+                setVars((v) => ({
+                  ...v,
+                  nonRegIncomeMix: { ...normalizeMix(v.nonRegIncomeMix), [key]: rate },
+                }));
+              const paidOut =
+                mix.interest + mix.foreignDividends + mix.eligibleDividends + mix.nonEligibleDividends;
+              const retReturn = vars.retirementNominalReturn ?? vars.expectedNominalReturn;
+              return (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                    What the non-registered account pays out each year (% of its balance)
+                  </div>
+                  <div className="selectRow" style={{ marginTop: 0 }}>
+                    <Field label="Interest">
+                      <PercentInput value={mix.interest} step={0.05} onChange={(r) => setMix("interest", r)} />
+                    </Field>
+                    <Field label="Foreign dividends">
+                      <PercentInput value={mix.foreignDividends} step={0.05} onChange={(r) => setMix("foreignDividends", r)} />
+                    </Field>
+                    <Field label={"Canadian dividends\n(eligible)"}>
+                      <PercentInput value={mix.eligibleDividends} step={0.05} onChange={(r) => setMix("eligibleDividends", r)} />
+                    </Field>
+                    <Field label={"Canadian dividends\n(non-eligible)"}>
+                      <PercentInput value={mix.nonEligibleDividends} step={0.05} onChange={(r) => setMix("nonEligibleDividends", r)} />
+                    </Field>
+                    <Field label={"Capital gains realized\neach year"}>
+                      <PercentInput value={mix.realizedGains} step={0.05} onChange={(r) => setMix("realizedGains", r)} />
+                    </Field>
+                  </div>
+                  <div style={{ fontSize: 12, opacity: 0.75, marginTop: 6 }}>
+                    Paid out: {(paidOut * 100).toFixed(2)}%/yr of the {(retReturn * 100).toFixed(2)}% return; the rest
+                    is price growth, taxed only when realized (half of a gain is taxable). Payouts are reinvested and the
+                    tax on them is paid from that year&apos;s income. Each type is taxed under its own rules (dividend
+                    gross-up and credit; interest and foreign dividends in full), split evenly between you as a joint
+                    account, and counts toward the OAS clawback. Money already in the account on retirement day is
+                    assumed to carry no unrealized gain. Gains still unrealized at the end are not taxed in this model.
+                    {paidOut + mix.realizedGains > retReturn ? (
+                      <strong> Payouts exceed the return, so the account will shrink in value.</strong>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })()
+          )}
 
           <div className="settingsRow">
             <SettingsButton
@@ -1747,6 +1834,10 @@ export default function App() {
                   cpp: vars.tax.shingoCpp,
                   oas: vars.tax.shingoOas,
                   tfsaWithdrawal: vars.tax.shingoTfsa,
+                  interest: vars.tax.shingoInterest ?? 0,
+                  eligibleDividends: vars.tax.shingoEligibleDividends ?? 0,
+                  nonEligibleDividends: vars.tax.shingoNonEligibleDividends ?? 0,
+                  capitalGains: vars.tax.shingoCapitalGains ?? 0,
                 },
               },
               spouseB: {
@@ -1761,6 +1852,10 @@ export default function App() {
                   cpp: vars.tax.sarahCpp,
                   oas: vars.tax.sarahOas,
                   tfsaWithdrawal: vars.tax.sarahTfsa,
+                  interest: vars.tax.sarahInterest ?? 0,
+                  eligibleDividends: vars.tax.sarahEligibleDividends ?? 0,
+                  nonEligibleDividends: vars.tax.sarahNonEligibleDividends ?? 0,
+                  capitalGains: vars.tax.sarahCapitalGains ?? 0,
                 },
               },
               credits: {
@@ -1897,6 +1992,18 @@ export default function App() {
                       <Field label="Other taxable ($/yr)">
                         <input type="number" value={vars.tax.shingoEmployment} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, shingoEmployment:num(e.target.value)}}))} />
                       </Field>
+                      <Field label="Interest + foreign div. ($/yr)">
+                        <input type="number" value={vars.tax.shingoInterest ?? 0} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, shingoInterest:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="Cdn eligible div. ($/yr)">
+                        <input type="number" value={vars.tax.shingoEligibleDividends ?? 0} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, shingoEligibleDividends:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="Cdn non-eligible div. ($/yr)">
+                        <input type="number" value={vars.tax.shingoNonEligibleDividends ?? 0} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, shingoNonEligibleDividends:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="Realized cap. gains ($/yr)">
+                        <input type="number" value={vars.tax.shingoCapitalGains ?? 0} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, shingoCapitalGains:num(e.target.value)}}))} />
+                      </Field>
                     </div>
                   </div>
 
@@ -1929,6 +2036,18 @@ export default function App() {
                       </Field>
                       <Field label="Other taxable ($/yr)">
                         <input type="number" value={vars.tax.sarahEmployment} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, sarahEmployment:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="Interest + foreign div. ($/yr)">
+                        <input type="number" value={vars.tax.sarahInterest ?? 0} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, sarahInterest:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="Cdn eligible div. ($/yr)">
+                        <input type="number" value={vars.tax.sarahEligibleDividends ?? 0} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, sarahEligibleDividends:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="Cdn non-eligible div. ($/yr)">
+                        <input type="number" value={vars.tax.sarahNonEligibleDividends ?? 0} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, sarahNonEligibleDividends:num(e.target.value)}}))} />
+                      </Field>
+                      <Field label="Realized cap. gains ($/yr)">
+                        <input type="number" value={vars.tax.sarahCapitalGains ?? 0} onChange={(e)=>setVars(v=>({...v, tax:{...v.tax, sarahCapitalGains:num(e.target.value)}}))} />
                       </Field>
                     </div>
                   </div>

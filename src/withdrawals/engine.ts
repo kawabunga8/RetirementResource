@@ -15,6 +15,18 @@ import {
   shareAfterFhsaRollover,
   type Ownership,
 } from "./ownership";
+import {
+  NO_INVESTMENT_INCOME,
+  NON_REG_SHARE_SHINGO,
+  acbAfterYear,
+  addIncome,
+  gainOnWithdrawal,
+  normalizeMix,
+  payoutTotal,
+  scaleIncome,
+  yearInvestmentIncome,
+  type InvestmentIncome,
+} from "./nonRegIncome";
 
 export type RetirementBalances = {
   fhsa: number;
@@ -95,6 +107,10 @@ export type WithdrawalDebug = {
   afterTaxCashAvailable: number;
   surplusAfterTax: number;
   shortfallAfterTax: number;
+  /** How the non-registered account was taxed this run. */
+  nonRegTaxMode: "drag" | "itemized";
+  /** Cost base of the non-registered account at year end (itemized mode). */
+  endNonRegAcb: number;
 };
 
 /** Each spouse's non-withdrawal income for the year, nominal. */
@@ -128,6 +144,12 @@ export type WithdrawalScheduleRow = {
    * re-deriving one, or they tax a different year than the plan pays.
    */
   ownership: Ownership;
+  /**
+   * Each spouse's taxable payouts from the non-registered account (cash
+   * amounts, reinvested). All zero in "drag" mode, where that tax is a growth
+   * haircut instead of income.
+   */
+  investmentIncome: { shingo: InvestmentIncome; sarah: InvestmentIncome };
 
   surplusInvestedToTfsa: number;
   surplusInvestedToNonReg: number;
@@ -481,6 +503,15 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
     let rrspShareShingo = clampShare(startOwnership.rrspShingo);
     const fhsaShareShingo = clampShare(startOwnership.fhsaShingo);
 
+    // Non-registered tax: the growth haircut (approximation) or itemized
+    // payouts taxed as income. Retirement-day money is assumed to carry no
+    // unrealized gain (cost base = balance), so only gains made in retirement
+    // are ever taxed.
+    const nonRegTaxMode = vars.nonRegTaxMode === "itemized" ? "itemized" : "drag";
+    const itemizedNonReg = nonRegTaxMode === "itemized";
+    const nonRegMix = normalizeMix(vars.nonRegIncomeMix);
+    let nonRegAcb = Math.max(0, params.retirementBalances.nonRegistered);
+
     for (let i = 0; i < yearsInPlan; i++) {
       const year = params.retirementYear + i;
 
@@ -631,6 +662,23 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
 
       const startBalances: RetirementBalances = { ...balances };
 
+      // This year's payouts from the non-registered account, on its opening
+      // balance (half a year in the retirement year). Zero in drag mode.
+      const nonRegStart = balances.nonRegistered;
+      const nonRegAcbStart = nonRegAcb;
+      const nonRegDistributed = itemizedNonReg
+        ? yearInvestmentIncome({ balance: nonRegStart, acb: nonRegAcbStart, mix: nonRegMix, yearFraction })
+        : NO_INVESTMENT_INCOME;
+      /** A spouse's share of the year's investment income, including any gain realized by a withdrawal. */
+      const investmentIncomeFor = (share: number): InvestmentIncome => {
+        if (!itemizedNonReg) return NO_INVESTMENT_INCOME;
+        const withdrawalGain = gainOnWithdrawal(withdrawals.nonRegistered, nonRegStart, nonRegAcbStart);
+        return scaleIncome(
+          addIncome(nonRegDistributed, { ...NO_INVESTMENT_INCOME, capitalGains: withdrawalGain }),
+          share
+        );
+      };
+
       // LIF withdrawal policy.
       // When forceLifFromRetirement is enabled, we treat lifMode (min/mid/max) as the planned annual withdrawal factor.
       // (This makes the min/mid/max selection actually change the LIF remaining balance over time.)
@@ -727,6 +775,7 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
               cpp: cppShingoNominal,
               oas: oasShingoNominal,
               tfsaWithdrawal: 0,
+              ...investmentIncomeFor(NON_REG_SHARE_SHINGO),
             },
           },
           spouseB: {
@@ -741,6 +790,7 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
               cpp: cppSarahNominal,
               oas: oasSarahNominal,
               tfsaWithdrawal: 0,
+              ...investmentIncomeFor(1 - NON_REG_SHARE_SHINGO),
             },
           },
           credits: {
@@ -810,6 +860,7 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
               cpp: cppShingoNominal,
               oas: oasShingoNominal,
               tfsaWithdrawal: 0,
+              ...investmentIncomeFor(NON_REG_SHARE_SHINGO),
             },
           },
           spouseB: {
@@ -824,6 +875,7 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
               cpp: cppSarahNominal,
               oas: oasSarahNominal,
               tfsaWithdrawal: 0,
+              ...investmentIncomeFor(1 - NON_REG_SHARE_SHINGO),
             },
           },
           credits: {
@@ -957,8 +1009,11 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
       // reduced rate. Registered accounts grow untaxed.
       // The retirement year's balances arrive on 1 July (the accumulation
       // runs to the end of June), so they grow for half a year.
-      const nonRegReturn =
-        retirementReturn - Math.max(0, vars.nonRegTaxDragRate ?? 0);
+      // In itemized mode the payouts are reinvested and their tax is already
+      // in this year's return, so the account earns the full return.
+      const nonRegReturn = itemizedNonReg
+        ? retirementReturn
+        : retirementReturn - Math.max(0, vars.nonRegTaxDragRate ?? 0);
       const grow = (rate: number) => Math.pow(1 + Math.max(-1, rate), yearFraction);
 
       const liraBeforeGrowth = balances.lira;
@@ -970,6 +1025,16 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
         lira: balances.lira * grow(retirementReturn),
         nonRegistered: balances.nonRegistered * grow(nonRegReturn),
       };
+
+      nonRegAcb = itemizedNonReg
+        ? acbAfterYear({
+            acb: nonRegAcbStart,
+            balanceStart: nonRegStart,
+            reinvestedPayouts: payoutTotal(nonRegDistributed),
+            deposit: toNonReg,
+            withdrawal: withdrawals.nonRegistered,
+          })
+        : balances.nonRegistered; // drag mode taxes as it goes: no deferred gain
 
       // Feeds "A" in next year's BC LIF maximum. Measured, not assumed, so it
       // stays right if the growth model ever changes.
@@ -995,6 +1060,10 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
         },
         withdrawals: { ...withdrawals },
         ownership: { rrspShingo: rrspShareShingo, fhsaShingo: fhsaShareShingo },
+        investmentIncome: {
+          shingo: investmentIncomeFor(NON_REG_SHARE_SHINGO),
+          sarah: investmentIncomeFor(1 - NON_REG_SHARE_SHINGO),
+        },
         surplusInvestedToTfsa: toTfsa,
         surplusInvestedToNonReg: toNonReg,
         endBalances: { ...balances },
@@ -1024,6 +1093,8 @@ export function makeWithdrawalSimulator(params: SimulatorParams) {
           rrspBeforeOverlay,
           depleteByAge,
           rrspLeftAtDepletion: 0, // filled in after refinement converges
+          nonRegTaxMode,
+          endNonRegAcb: nonRegAcb,
         },
       });
     }

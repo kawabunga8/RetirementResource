@@ -32,7 +32,7 @@ type Props = {
 /**
  * STACK ORDER, BOTTOM FIRST. The chart accumulates in array order, so SERIES[0]
  * is drawn against the axis and the last entry sits on top. Read top-down the
- * bars now go salary, RRSP/RRIF, CPP+OAS, LIF, pension -- the income you cannot
+ * bars now go salary, RRSP/RRIF, investment income, CPP+OAS, LIF, pension -- the income you cannot
  * change at the bottom, the income the strategy actually moves on top, so the
  * part that differs between strategies is the part against the skyline.
  *
@@ -43,6 +43,9 @@ const SERIES = [
   { key: "pension", label: "Employer pensions", color: "#eb6834" },
   { key: "lif", label: "LIF", color: "#e87ba4" },
   { key: "cppOas", label: "CPP + OAS", color: "#1baf7a" },
+  // Non-registered payouts. Zero unless that account is taxed "itemized";
+  // reinvested, so it is taxable income but not spending money.
+  { key: "invest", label: "Investment income (reinvested)", color: "#8a6fd1" },
   { key: "rrif", label: "RRSP / RRIF", color: "#eda100" },
   { key: "salary", label: "Employment income", color: "#2a78d6" },
 ] as const;
@@ -64,6 +67,14 @@ type Point = Record<SeriesKey, number> & {
 const fmt = (n: number) => "$" + Math.round(n).toLocaleString("en-CA");
 const fmtK = (n: number) => (n === 0 ? "$0" : "$" + Math.round(n / 1000) + "k");
 
+function investmentTotal(r: WithdrawalScheduleRow) {
+  let t = 0;
+  for (const inv of [r.investmentIncome.shingo, r.investmentIncome.sarah]) {
+    t += inv.interest + inv.eligibleDividends + inv.nonEligibleDividends + inv.capitalGains;
+  }
+  return t;
+}
+
 function toPoint(r: WithdrawalScheduleRow): Point {
   const d = r.incomeDetail;
   const o = {
@@ -73,6 +84,7 @@ function toPoint(r: WithdrawalScheduleRow): Point {
     cppOas: d.cppShingo + d.cppSarah + d.oasShingo + d.oasSarah,
     rrif: r.withdrawals.rrsp + r.withdrawals.fhsa,
     lif: r.withdrawals.lira,
+    invest: investmentTotal(r),
     // Total household tax for the year, every source included — in the
     // retirement year that means the salary's own tax as well.
     tax: r.debug.tax + r.debug.taxOnEmployment,
@@ -407,7 +419,7 @@ export function WithdrawalStrategies({
 
       <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: 14 }}>
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 10, fontSize: 12 }}>
-          {LEGEND.map((sr) => (
+          {LEGEND.filter((sr) => sr.key !== "invest" || chart?.points.some((p) => p.invest > 1)).map((sr) => (
             <span key={sr.key} style={{ display: "inline-flex", gap: 7, alignItems: "center" }}>
               <i style={{ width: 11, height: 11, borderRadius: 3, background: sr.color, display: "inline-block" }} />
               {sr.label}

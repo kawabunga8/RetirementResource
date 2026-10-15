@@ -121,6 +121,23 @@ export const TAX_TABLES: TaxYearTables[] = [
 ];
 
 /**
+ * Non-registered investment income rules (federal + BC). These are RATES set in
+ * legislation, not indexed amounts, so they are not per-year and are not
+ * touched by getIndexedTaxTables. Unchanged since 2019 for the dividend
+ * credits; the proposed 2/3 capital-gains inclusion rate was cancelled in
+ * March 2025, leaving 1/2.
+ *
+ * Dividend credits are percentages of the GROSSED-UP (taxable) dividend.
+ */
+export const INVESTMENT_INCOME_RULES = {
+  eligibleDividendGrossUp: 0.38,
+  nonEligibleDividendGrossUp: 0.15,
+  federalDividendCredit: { eligible: 0.150198, nonEligible: 0.090301 },
+  bcDividendCredit: { eligible: 0.12, nonEligible: 0.0196 },
+  capitalGainsInclusion: 0.5,
+} as const;
+
+/**
  * These tables are the SINGLE source of truth for tax brackets and credits.
  *
  * There used to be an updateTaxTablesFromDb() that let Supabase rows replace

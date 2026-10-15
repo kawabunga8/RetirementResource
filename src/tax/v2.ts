@@ -2,6 +2,7 @@ import {
   getIndexedTaxTables,
   pickTaxTables,
   DEFAULT_TAX_INDEXATION,
+  INVESTMENT_INCOME_RULES as INV,
   type Bracket,
   type TaxYearTables,
 } from "./tables";
@@ -25,9 +26,18 @@ export type IncomeSources = {
   cpp: number;
   oas: number;
   tfsaWithdrawal: number;
-  // Placeholders for later (not used in v2 yet)
-  nonRegEligibleDividends?: number;
-  nonRegCapGains?: number;
+  /*
+   * Non-registered investment income, as the CASH amounts received -- never
+   * pre-grossed-up or pre-halved; the engine applies those rules.
+   */
+  /** Interest and foreign dividends: fully taxable, like salary. */
+  interest?: number;
+  /** Canadian eligible dividends: grossed up 38%, then the dividend tax credit. */
+  eligibleDividends?: number;
+  /** Canadian non-eligible dividends: grossed up 15%, then a smaller credit. */
+  nonEligibleDividends?: number;
+  /** REALIZED capital gains, full amount. Half is taxable. Never pass unrealized growth. */
+  capitalGains?: number;
 };
 
 export type CreditsToggles = {
@@ -56,8 +66,8 @@ export type HouseholdTaxInputs = {
 };
 
 export type CreditsDetail = {
-  fed: { bpa: number; age: number; pension: number; total: number };
-  bc: { bpa: number; age: number; pension: number; total: number };
+  fed: { bpa: number; age: number; pension: number; dividend: number; total: number };
+  bc: { bpa: number; age: number; pension: number; dividend: number; total: number };
   total: number;
 };
 
@@ -155,9 +165,22 @@ export function eligiblePensionIncome(p: EligiblePensionIncomeParams) {
   return db + rrif + lif;
 }
 
-function taxableIncomeFromSources(incomes: IncomeSources) {
-  // TFSA withdrawals are non-taxable.
-  // Non-registered dividends/cap gains ignored in v2 but leave hooks.
+const pos = (x: number | undefined) => Math.max(0, x ?? 0);
+
+/** Grossed-up (taxable) amounts of each dividend type. */
+function grossedUpDividends(incomes: IncomeSources) {
+  return {
+    eligible: pos(incomes.eligibleDividends) * (1 + INV.eligibleDividendGrossUp),
+    nonEligible: pos(incomes.nonEligibleDividends) * (1 + INV.nonEligibleDividendGrossUp),
+  };
+}
+
+/**
+ * Line 23400 total: every source at its TAXABLE amount -- dividends grossed
+ * up, capital gains at the inclusion rate. TFSA withdrawals are not income.
+ */
+function totalIncomeFromSources(incomes: IncomeSources) {
+  const div = grossedUpDividends(incomes);
   return (
     Math.max(0, incomes.employment) +
     Math.max(0, incomes.pensionDb) +
@@ -165,7 +188,28 @@ function taxableIncomeFromSources(incomes: IncomeSources) {
     Math.max(0, incomes.rrifWithdrawal) +
     Math.max(0, incomes.lifWithdrawal) +
     Math.max(0, incomes.cpp) +
-    Math.max(0, incomes.oas)
+    Math.max(0, incomes.oas) +
+    pos(incomes.interest) +
+    div.eligible +
+    div.nonEligible +
+    pos(incomes.capitalGains) * INV.capitalGainsInclusion
+  );
+}
+
+/** Money actually received: dividends at face value, gains in full. */
+function cashIncomeFromSources(incomes: IncomeSources) {
+  return (
+    Math.max(0, incomes.employment) +
+    Math.max(0, incomes.pensionDb) +
+    Math.max(0, incomes.rrspWithdrawal) +
+    Math.max(0, incomes.rrifWithdrawal) +
+    Math.max(0, incomes.lifWithdrawal) +
+    Math.max(0, incomes.cpp) +
+    Math.max(0, incomes.oas) +
+    pos(incomes.interest) +
+    pos(incomes.eligibleDividends) +
+    pos(incomes.nonEligibleDividends) +
+    pos(incomes.capitalGains)
   );
 }
 
@@ -175,6 +219,8 @@ function computeCredits(params: {
   /** Net income (line 23600): the age amount is income-tested against this. */
   netIncome: number;
   eligiblePensionIncome: number;
+  /** Grossed-up dividends, for the dividend tax credits. */
+  dividends: { eligible: number; nonEligible: number };
   toggles: CreditsToggles;
 }) {
   const tables = params.tables;
@@ -183,6 +229,7 @@ function computeCredits(params: {
     bpa: 0,
     age: 0,
     pension: 0,
+    dividend: 0,
     total: 0,
   };
 
@@ -190,6 +237,7 @@ function computeCredits(params: {
     bpa: 0,
     age: 0,
     pension: 0,
+    dividend: 0,
     total: 0,
   };
 
@@ -222,8 +270,18 @@ function computeCredits(params: {
     bc.pension = Math.min(tables.bc.pensionCreditBase, eligibleAmt) * tables.bc.lowestRate;
   }
 
-  fed.total = fed.bpa + fed.age + fed.pension;
-  bc.total = bc.bpa + bc.age + bc.pension;
+  // Dividend tax credits: a percentage of the grossed-up dividend, federal and
+  // BC separately. Non-refundable, like the rest -- they can bring tax to zero
+  // but never below (the Math.max in computePerson).
+  fed.dividend =
+    params.dividends.eligible * INV.federalDividendCredit.eligible +
+    params.dividends.nonEligible * INV.federalDividendCredit.nonEligible;
+  bc.dividend =
+    params.dividends.eligible * INV.bcDividendCredit.eligible +
+    params.dividends.nonEligible * INV.bcDividendCredit.nonEligible;
+
+  fed.total = fed.bpa + fed.age + fed.pension + fed.dividend;
+  bc.total = bc.bpa + bc.age + bc.pension + bc.dividend;
 
   return {
     fed,
@@ -252,11 +310,13 @@ function computePerson(params: {
 }) {
   const tables = params.tables;
 
-  // Line 23400, net income before adjustments. Every source in this model is
-  // fully included and none of the deductions between total income and net
-  // income (RRSP contributions, carrying charges...) apply in retirement, so
-  // the sum of the sources IS this line -- not an approximation of it.
-  const totalIncome = taxableIncomeFromSources(params.incomes);
+  // Line 23400, net income before adjustments. Every source enters at its
+  // taxable amount (dividends grossed up, gains halved) and none of the
+  // deductions between total income and net income (RRSP contributions,
+  // carrying charges...) apply in retirement, so the sum IS this line -- not an
+  // approximation of it. Grossed-up dividends count toward the OAS threshold,
+  // as they do on a real return.
+  const totalIncome = totalIncomeFromSources(params.incomes);
   const eligible = eligiblePensionIncome({ age: params.age, incomes: params.incomes });
 
   // The OAS recovery tax is measured against line 23400...
@@ -280,6 +340,7 @@ function computePerson(params: {
     age: params.age,
     netIncome,
     eligiblePensionIncome: eligible,
+    dividends: grossedUpDividends(params.incomes),
     toggles: params.credits,
   });
 
@@ -288,8 +349,9 @@ function computePerson(params: {
     Math.max(0, bcBefore - credits.bc.total);
 
   const totalTax = taxAfterCredits + clawback;
-  // Cash in hand: everything received, less everything owed.
-  const afterTax = totalIncome - totalTax;
+  // Cash in hand: everything actually received (dividends at face value, not
+  // grossed up), less everything owed.
+  const afterTax = cashIncomeFromSources(params.incomes) - totalTax;
 
   return {
     name: params.name,
@@ -352,8 +414,8 @@ export function computeHouseholdTax(inputs: HouseholdTaxInputs): HouseholdTaxRes
   const preAEligible = eligiblePensionIncome({ age: inputs.spouseA.age, incomes: inputs.spouseA.incomes });
   const preBEligible = eligiblePensionIncome({ age: inputs.spouseB.age, incomes: inputs.spouseB.incomes });
 
-  const baseA = taxableIncomeFromSources(inputs.spouseA.incomes);
-  const baseB = taxableIncomeFromSources(inputs.spouseB.incomes);
+  const baseA = totalIncomeFromSources(inputs.spouseA.incomes);
+  const baseB = totalIncomeFromSources(inputs.spouseB.incomes);
 
   const debug = {
     taxYear: inputs.taxYear,

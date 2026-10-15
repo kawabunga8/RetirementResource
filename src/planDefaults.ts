@@ -65,6 +65,38 @@ export type WithdrawalOrder =
 
 export type LifMode = "min" | "mid" | "max";
 
+export type NonRegTaxMode = "drag" | "itemized";
+
+/**
+ * Annual payouts from the non-registered account, each as a share of its
+ * balance (0.01 = 1%/yr). They are PART of the return, not on top of it: the
+ * rest of the return is price growth, untaxed until realized.
+ */
+export type NonRegIncomeMix = {
+  /** Bond and cash interest: fully taxable. */
+  interest: number;
+  /** Foreign (e.g. US/international) dividends: fully taxable; foreign tax credit ignored. */
+  foreignDividends: number;
+  /** Canadian eligible dividends: 38% gross-up, then the dividend tax credit. */
+  eligibleDividends: number;
+  /** Canadian non-eligible dividends: 15% gross-up, smaller credit. */
+  nonEligibleDividends: number;
+  /** Capital gains realized each year (fund distributions, rebalancing). Half taxable. */
+  realizedGains: number;
+};
+
+/**
+ * A balanced ETF portfolio: about 2.5%/yr paid out, a little realized
+ * through fund distributions, the rest growing unrealized.
+ */
+export const DEFAULT_NON_REG_INCOME_MIX: NonRegIncomeMix = {
+  interest: 0.01,
+  foreignDividends: 0.0075,
+  eligibleDividends: 0.0075,
+  nonEligibleDividends: 0,
+  realizedGains: 0.0025,
+};
+
 export type WithdrawalPlan = {
   // In v1 we fill the annual income gap using this priority order.
   order: WithdrawalOrder[];
@@ -160,6 +192,18 @@ export type TaxInputs = {
   shingoTfsa: number;
   sarahTfsa: number;
 
+  // Non-registered investment income, cash amounts (not grossed up).
+  // Optional: a saved plan's tax block replaces this whole object on load, so
+  // plans saved before these existed arrive without them. Read with ?? 0.
+  shingoInterest?: number;
+  sarahInterest?: number;
+  shingoEligibleDividends?: number;
+  sarahEligibleDividends?: number;
+  shingoNonEligibleDividends?: number;
+  sarahNonEligibleDividends?: number;
+  shingoCapitalGains?: number;
+  sarahCapitalGains?: number;
+
   // Refund modeling (working years only)
   // Refund is always assumed invested in TFSA; see tfsaIncludesRefund on Variables.
   workingIncomeShingo: number;
@@ -213,7 +257,21 @@ export type Variables = {
   // to the nominal return on the non-registered account only.
   // ~0.75% is typical for a balanced portfolio held long-term; raise it for
   // interest-heavy holdings or frequent trading, set 0 to disable.
+  // An APPROXIMATION: the tax never appears as income. Used in working years
+  // always, and in retirement when nonRegTaxMode is "drag".
   nonRegTaxDragRate: number; // e.g. 0.0075
+
+  /**
+   * How retirement-years tax on the non-registered account is modelled.
+   * - "drag": the growth haircut above (the original approximation).
+   * - "itemized": the account pays out nonRegIncomeMix each year; each type is
+   *   taxed under its own rules in both spouses' returns, counts toward the
+   *   OAS threshold, and is reinvested. Gains are taxed only when realized.
+   * Optional so plans saved before it existed load as "drag".
+   */
+  nonRegTaxMode?: NonRegTaxMode;
+  /** What the non-registered account pays out each year, as shares of its balance. */
+  nonRegIncomeMix?: NonRegIncomeMix;
 
   // Target year you stop working / begin retirement plan
   retirementYear: number;
@@ -448,6 +506,10 @@ export const DEFAULT_VARIABLES: Variables = {
   pensionAdjustmentSarah: 21353,
 
   nonRegTaxDragRate: 0.0075,
+  // The approximation stays the default until the itemized model has been
+  // compared against it and checked.
+  nonRegTaxMode: "drag",
+  nonRegIncomeMix: { ...DEFAULT_NON_REG_INCOME_MIX },
 
   retirementYear: DEFAULT_ANCHORS.targetRetirementYear,
   shingoRetireAge: 67,
