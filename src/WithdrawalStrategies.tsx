@@ -63,6 +63,7 @@ type Point = Record<SeriesKey, number> & {
   total: number;
   tax: number;
   target: number;
+  endBalance: number;
 };
 
 const fmt = (n: number) => "$" + Math.round(n).toLocaleString("en-CA");
@@ -74,6 +75,11 @@ function investmentTotal(r: WithdrawalScheduleRow) {
     t += inv.interest + inv.eligibleDividends + inv.nonEligibleDividends + inv.capitalGains;
   }
   return t;
+}
+
+function endBalanceTotal(r: WithdrawalScheduleRow) {
+  const b = r.endBalances;
+  return b.fhsa + b.rrsp + b.tfsa + b.lira + b.nonRegistered;
 }
 
 function toPoint(r: WithdrawalScheduleRow): Point {
@@ -90,6 +96,10 @@ function toPoint(r: WithdrawalScheduleRow): Point {
     // retirement year that means the salary's own tax as well.
     tax: r.debug.tax + r.debug.taxOnEmployment,
     target: r.targetAfterTaxSpending,
+    // Total of every account (RRSP/RRIF, TFSA, LIF/LIRA, non-registered) at
+    // year end, in nominal dollars. Plotted against its own right-hand axis
+    // in the chart below -- it runs far larger than one year's income.
+    endBalance: endBalanceTotal(r),
     total: 0,
   };
   o.total = SERIES.reduce((a, s) => a + o[s.key], 0);
@@ -139,9 +149,9 @@ export function useSolvedStrategies(params: SimulatorParams) {
   return { solved, solving };
 }
 
-function Chart({ points, yMax }: { points: Point[]; yMax: number }) {
+function Chart({ points, yMax, balanceMax }: { points: Point[]; yMax: number; balanceMax: number }) {
   const [hover, setHover] = useState<number | null>(null);
-  const M = { top: 14, right: 14, bottom: 42, left: 72 };
+  const M = { top: 14, right: 72, bottom: 42, left: 72 };
   const VW = 1000;
   const VH = 400;
   const PW = VW - M.left - M.right;
@@ -149,6 +159,10 @@ function Chart({ points, yMax }: { points: Point[]; yMax: number }) {
   const band = PW / Math.max(1, points.length);
   const barW = Math.min(26, band * 0.68);
   const yOf = (v: number) => M.top + PH - (v / yMax) * PH;
+  // Independent right-hand scale for the end-balance line: balances run far
+  // larger than one year's income, so sharing the left axis would flatten
+  // the bars down to nothing.
+  const yOfBalance = (v: number) => M.top + PH - (v / balanceMax) * PH;
 
   const hovered = hover == null ? null : points[hover];
 
@@ -231,6 +245,35 @@ function Chart({ points, yMax }: { points: Point[]; yMax: number }) {
             />
           ))}
 
+          {/* End-of-year total balance (every account, nominal), on its own
+              right-hand axis since it runs far larger than annual income. */}
+          {[0, 1, 2, 3, 4].map((i) => {
+            const v = (balanceMax / 4) * i;
+            const y = yOfBalance(v);
+            return (
+              <text key={`bal-axis-${i}`} x={M.left + PW + 8} y={y + 4} textAnchor="start" fontSize={11} fill="#1b6fa8">
+                {fmtK(v)}
+              </text>
+            );
+          })}
+          <polyline
+            fill="none"
+            stroke="#1b6fa8"
+            strokeWidth={2}
+            points={points.map((p, i) => `${M.left + band * i + band / 2},${yOfBalance(p.endBalance)}`).join(" ")}
+          />
+          {points.map((p, i) => (
+            <circle
+              key={`bal-${p.year}`}
+              cx={M.left + band * i + band / 2}
+              cy={yOfBalance(p.endBalance)}
+              r={3}
+              fill="#1b6fa8"
+              stroke="#ffffff"
+              strokeWidth={1.5}
+            />
+          ))}
+
           {points.map((p, i) => {
             const show = i === 0 || i === points.length - 1 || (p.year % 5 === 0 && i < points.length - 2);
             if (!show) return null;
@@ -268,6 +311,7 @@ function Chart({ points, yMax }: { points: Point[]; yMax: number }) {
           <span>Total: <strong>{fmt(hovered.total)}</strong></span>
           <span>Tax: <strong>{fmt(hovered.tax)}</strong></span>
           <span>Target: <strong>{fmt(hovered.target)}</strong></span>
+          <span>End balance: <strong>{fmt(hovered.endBalance)}</strong></span>
         </div>
       ) : (
         <div style={{ marginTop: 8, fontSize: 12, opacity: 0.7 }}>Hover a year for the breakdown.</div>
@@ -301,6 +345,7 @@ export function WithdrawalStrategies({
       out.total = deflate(p.total, p.year);
       out.tax = deflate(p.tax, p.year);
       out.target = deflate(p.target, p.year);
+      out.endBalance = deflate(p.endBalance, p.year);
       return out;
     });
     // One axis across every strategy, so the bars stay comparable on switch.
@@ -310,7 +355,16 @@ export function WithdrawalStrategies({
       )
     );
     const step = Math.pow(10, Math.floor(Math.log10(max))) / 2;
-    return { points, yMax: Math.ceil(max / step) * step };
+    // Same idea for the end-balance line's own right-hand axis.
+    const balanceMaxRaw = Math.max(
+      1,
+      ...Object.values(solved).flatMap((s) =>
+        s.rows.map((r) => deflate(endBalanceTotal(r), r.year))
+      )
+    );
+    const balanceStep = Math.pow(10, Math.floor(Math.log10(balanceMaxRaw))) / 2;
+    const balanceMax = Math.ceil(balanceMaxRaw / balanceStep) * balanceStep;
+    return { points, yMax: Math.ceil(max / step) * step, balanceMax };
   }, [solved, mode, deflate]);
 
   if (!solved || !chart) {
@@ -451,8 +505,12 @@ export function WithdrawalStrategies({
             <i style={{ width: 16, height: 0, borderTop: "2px solid #0b0b0b", display: "inline-block" }} />
             Tax paid
           </span>
+          <span style={{ display: "inline-flex", gap: 7, alignItems: "center" }}>
+            <i style={{ width: 16, height: 0, borderTop: "2px solid #1b6fa8", display: "inline-block" }} />
+            End balance (right axis)
+          </span>
         </div>
-        <Chart points={chart.points} yMax={chart.yMax} />
+        <Chart points={chart.points} yMax={chart.yMax} balanceMax={chart.balanceMax} />
       </div>
     </div>
   );
