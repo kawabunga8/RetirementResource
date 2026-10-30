@@ -443,11 +443,11 @@ export const DEFAULT_VARIABLES: Variables = {
   dollarsMode: "nominal",
   cpiMultiplier: 1,
 
-  // As-of baseline snapshot (Jan 2026)
+  // As-of baseline snapshot (Jan 1, 2026), from CRA My Account notices
   tfsaRoomShingo: 105352.19,
   tfsaRoomSarah: 109000,
-  rrspRoomShingo: 120125,
-  rrspRoomSarah: 63252,
+  rrspRoomShingo: 115798,
+  rrspRoomSarah: 58855,
 
   // 2025 pensionable earnings, implied by his 2025 PA at the 1.90% effective
   // accrual rate derived from his 2023 Notice of Assessment. Paired with the
